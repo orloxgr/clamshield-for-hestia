@@ -3,7 +3,7 @@
 /* ClamShield layout only. Hestia owns control appearance and theme colors. */
 .cs{margin:28px auto;padding:0 20px}
 .cs .sub{margin:2px 0 24px}
-.cs .card{padding:12px 0}.cs section{padding:20px 0;margin-bottom:20px}
+.cs .card{padding:12px}.cs section{padding:20px 0;margin-bottom:20px}
 .cs .cs-activity{margin-bottom:20px}.cs .cs-activity h3{display:flex;align-items:center;gap:10px}
 .cs .cs-activity-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0}
 .cs .cs-activity dt{display:flex;align-items:center;gap:10px}.cs .cs-activity dd{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin:0;text-align:right}

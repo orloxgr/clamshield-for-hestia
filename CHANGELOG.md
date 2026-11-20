@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.3
+
+- Give every ClamShield card 12px padding on all four sides.
+
 ## 1.2.2
 
 - Match the Varnish and other addon entries in the shared Plugins menu by using
