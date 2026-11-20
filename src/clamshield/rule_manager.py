@@ -229,8 +229,10 @@ class RuleManager:
             source['review_only']=review_only;write_json(self.config_path,config)
         return {'revision':revision(config)}
 
-    def forge(self, profile, release=None):
+    def forge(self, profile, release=None, *, progress=None):
+        if progress: progress('downloading')
         content, upstream = self.rules.fetch_forge(profile, release)
+        if progress: progress('checking')
         self.read()
         with self.locked():
             config = self.read()
@@ -242,6 +244,12 @@ class RuleManager:
                 license=upstream['licenses'], fetched=time.time())
             write_json(self.config_path, config)
         return self.build(revision(config))
+
+    def install(self, profile, release=None, *, progress=None):
+        candidate = self.forge(profile, release, progress=progress)
+        if progress: progress('activating')
+        active = self.activate(candidate['generation'])
+        return {**active, 'activated': True}
 
     def parse(self, request):
         def limits():

@@ -99,7 +99,9 @@ class Maintenance:
                 elif task['action'].startswith('rules-'):
                     from .rule_manager import RuleManager
                     manager=RuleManager(self.settings); payload=task['payload']
-                    if task['action']=='rules-update':result=manager.forge(payload['profile'],payload.get('release'))
+                    if task['action']=='rules-install':
+                        result=manager.install(payload['profile'],payload.get('release'),progress=lambda phase:self.store.task_progress(task,phase))
+                    elif task['action']=='rules-update':result=manager.forge(payload['profile'],payload.get('release'))
                     elif task['action']=='rules-php-hosting':result=manager.php_hosting()
                     elif task['action']=='rules-web-hosting':result=manager.web_hosting()
                     elif task['action']=='rules-build':result=manager.build(payload.get('revision'))

@@ -12,7 +12,7 @@ $cs_providers=$data['providers']??[]; $cs_sa=$data['spamassassin']??[];
 <?php if($engine==='clamav'): ?>
 <dt>ClamAV signatures</dt><dd><?php if($cs_admin): ?><?=$escape($cs_date($cs_providers['status']['official']['last_success']??null))?> <a href="#updates/providers" data-tab="providers">Manage</a><?php else: ?>Managed by administrator<?php endif ?></dd>
 <?php endif; endforeach ?>
-<dt>YARA rules</dt><dd><?php if($cs_rules['configured']): ?><?=$escape($cs_rules['profile']??'Custom')?> · <?=$escape($cs_rules['enabled']??$cs_rules['rules']??'Unknown')?> rules<br><?=$escape($cs_date($cs_rules['created']??null))?><?php else: ?>Not installed<?php endif ?> <a href="#updates/rules" data-tab="rules">Manage</a></dd>
+<dt>YARA rules</dt><dd><span id="cs-dashboard-yara-status"><?php if($cs_rules['configured']): ?><?=$escape($cs_rules['profile']??'Custom')?> · <?=$escape($cs_rules['enabled']??$cs_rules['rules']??'Unknown')?> rules<br><?=$escape($cs_date($cs_rules['created']??null))?><?php else: ?>Not installed<?php endif ?></span> <a href="#updates/rules" data-tab="rules">Manage</a></dd>
 <?php foreach(['securiteinfo'=>'SecuriteInfo','sanesecurity'=>'SaneSecurity'] as $provider=>$title): ?>
 <dt><?=$title?></dt><dd><?php if($cs_admin): ?><?=$escape(!empty($cs_providers[$provider]['enabled'])?$cs_date($cs_providers['status'][$provider]['last_success']??null):'Disabled')?><?php if(!empty($cs_providers['status'][$provider]['error'])): ?><br><?=$escape($cs_providers['status'][$provider]['error'])?><?php endif ?> <a href="#updates/providers" data-tab="providers" data-focus-provider="<?=$provider?>">Manage</a><?php else: ?>Managed by administrator<?php endif ?></dd>
 <?php endforeach ?>

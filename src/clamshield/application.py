@@ -294,7 +294,13 @@ class Application:
         if action=='quarantine-recover':
             row=Quarantine(self.settings,self.store,self.hestia).recover(context,request.get('operation_id'))
             return {'operation_id':row['id'],'status':row['status']}
-        if action in ('rules-update','rules-php-hosting','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
+        if action=='rules-status':
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            active=Rules(self.settings).status()
+            return {**self.store.rule_install_status(task_context),
+                    'active':{key:active[key] for key in ('configured','profile','version','enabled','rules','generation','created') if key in active}}
+        if action in ('rules-install','rules-update','rules-php-hosting','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
                       'rules-source-toggle','rules-source-review','rules-source-fetch','rules-rule-toggle','rules-catalog'):
             if not context['admin']:
                 raise AccessDenied('Administrator access required')
@@ -302,7 +308,7 @@ class Application:
             if action=='rules-catalog':return manager.catalog(request.get('generation'),request.get('search',''),request.get('offset',0))
             task_context=self.hestia.authorize(context['actor'],context['actor'])
             task_action,payload=action,{}
-            if action=='rules-update':
+            if action in ('rules-install','rules-update'):
                 if request.get('profile','core') not in ('core','extended','full'):raise ClamShieldError('Invalid Forge profile')
                 payload={'profile':request.get('profile','core'),'release':request.get('release')}
             elif action=='rules-source-save':

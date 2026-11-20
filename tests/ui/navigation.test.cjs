@@ -29,11 +29,11 @@ function fixture(options={}){
     path.join(root,'panel/view.php')],{input:JSON.stringify(values),encoding:'utf8'});
   assert.equal(rendered.status,0,rendered.stderr);assert.equal(rendered.stderr,'');
   const dom=new JSDOM(rendered.stdout,{url:'https://panel.test/plugins/clamshield/'+(options.hash||''),runScripts:'outside-only'});
-  const w=dom.window,requests=[];if(options.saved)w.sessionStorage.setItem('clamshield-tab',options.saved);
-  w.setTimeout=()=>1;w.clearTimeout=()=>{};
-  w.fetch=async(url,request)=>{requests.push(Object.fromEntries(request.body));return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
+  const w=dom.window,requests=[],timers=new Map();let timerId=0,statusIndex=0;if(options.saved)w.sessionStorage.setItem('clamshield-tab',options.saved);
+  w.setTimeout=(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;};w.clearTimeout=id=>timers.delete(id);
+  w.fetch=async(url,request)=>{const body=Object.fromEntries(request.body);requests.push(body);if(body.action==='rules-status'){const value=options.ruleSnapshots?.[Math.min(statusIndex++,options.ruleSnapshots.length-1)]??{pending:false,latest:null,active:values.rules};return {ok:true,json:async()=>({ok:true,...value})};}return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
   for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
-  return {w,requests,document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
+  return {w,requests,timers,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
@@ -80,34 +80,51 @@ test('dashboard reports stopped and unapplied states with escaped values and rea
     assert.equal(f.document.querySelector('#cs-forge-install button').textContent,'Install rules');
   }finally{await f.close();}
 });
-test('YARA dropdown queues the selected profile and never treats download as activation',async()=>{
-  const f=fixture({hash:'#updates',response:{ok:true,json:async()=>({ok:true,queued:true,task_id:'task-fixture'})}});
-  try{const form=f.document.getElementById('cs-forge-install');assert.equal(form.querySelector('button').textContent,'Update rules');
-    form.elements.profile.value='extended';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
-    await new Promise(resolve=>setImmediate(resolve));
-    assert.deepEqual(f.requests,[{token:'fixture-token',owner:'alice',action:'rules-update',profile:'extended'}]);
-    assert.match(f.document.getElementById('cs-forge-status').textContent,/Active rules have not changed/);
-    assert.equal(f.document.querySelector('[data-action=rules-activate]').disabled,true);
-    assert.equal(form.querySelector('button').disabled,true);
-    assert.equal(f.document.querySelector('[data-page=rules] [data-action=rules-update]'),null);
+const settle=()=>new Promise(resolve=>setImmediate(resolve));
+const inactive={configured:false}, installed={configured:true,profile:'extended',enabled:5089,version:'fixture-new',generation:'generation-installed',created:1};
+function installSnapshot(status,phase,active=inactive){return {pending:['queued','running'].includes(status),active,latest:{status,phase,profile:'extended',generation:installed.generation,activated:status==='completed'}};}
+test('one Install click downloads, checks and activates with automatic progress and no advanced controls',async()=>{
+  const f=fixture({hash:'#updates',change:values=>{values.rules=inactive;values.engines.yara.rules_available=false;},
+    response:{ok:true,json:async()=>({ok:true,queued:true,task_id:'task-fixture'})},
+    ruleSnapshots:[{pending:false,latest:null,active:inactive},installSnapshot('queued'),installSnapshot('running','downloading'),installSnapshot('running','checking'),installSnapshot('running','activating'),installSnapshot('completed',null,installed)]});
+  try{await settle();const form=f.document.getElementById('cs-forge-install'),button=form.querySelector('button');
+    assert.equal(button.textContent,'Install rules');assert.equal(f.document.getElementById('cs-rules-advanced').open,false);
+    for(const control of f.document.querySelectorAll('[data-page=rules] button:not([type=submit])'))assert.ok(control.closest('#cs-rules-advanced'));
+    form.elements.profile.value='extended';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests.filter(request=>request.action!=='rules-status'),[{token:'fixture-token',owner:'alice',action:'rules-install',profile:'extended'}]);
+    for(const label of ['Downloading rules','Checking rules','Activating rules']){await f.tick();assert.match(f.document.getElementById('cs-forge-status').textContent,new RegExp(label));assert.equal(button.disabled,true);}
+    await f.tick();assert.equal(f.document.getElementById('cs-forge-status').textContent,'Rules installed and active.');
+    assert.equal(button.textContent,'Update rules');assert.equal(button.disabled,false);assert.equal(f.timers.size,0);
+    assert.match(f.document.getElementById('cs-rules-active').textContent,/5089 rules/);assert.match(f.document.getElementById('cs-dashboard-yara-status').textContent,/5089 rules/);
+    assert.equal(f.document.getElementById('cs-yara-warning').hidden,true);
   }finally{await f.close();}
 });
-test('pending builds cannot apply an older candidate and an activated candidate is clearly marked',async()=>{
-  const pending=fixture({change:values=>values.maintenance.push({action:'rules-update',status:'running',created:1,result:null,error:null})});
-  try{assert.equal(pending.document.querySelector('#cs-forge-install button').disabled,true);
-    assert.equal(pending.document.querySelector('[data-action=rules-activate]').disabled,true);
-    assert.match(pending.document.getElementById('cs-forge-status').textContent,/rule task is pending/);
-  }finally{await pending.close();}
-  const active=fixture({change:values=>values.rules.generation=values.rule_candidate.generation});
-  try{assert.equal(active.document.querySelector('[data-action=rules-activate]'),null);
-    assert.match(active.document.querySelector('[data-page=rules]').textContent,/This validated ruleset is active/);
-  }finally{await active.close();}
+test('reopening a pending install resumes polling and a failure preserves active rules with retry',async()=>{
+  const f=fixture({hash:'#updates',ruleSnapshots:[installSnapshot('running','checking',installed),{pending:false,active:installed,latest:{status:'failed',error:'<b>Rule validation failed</b>'}}]});
+  try{await settle();const form=f.document.getElementById('cs-forge-install');assert.equal(form.querySelector('button').disabled,true);
+    await f.tick();const status=f.document.getElementById('cs-forge-status');assert.match(status.textContent,/Rule validation failed/);
+    assert.equal(status.querySelector('b'),null);assert.match(status.textContent,/Current active rules are shown above/);
+    assert.match(f.document.getElementById('cs-rules-active').textContent,/5089 rules/);assert.equal(form.querySelector('button').disabled,false);
+  }finally{await f.close();}
 });
-test('failed rule download remains visible, escaped and retryable',async()=>{
+test('old staged rules and failed build history do not force manual activation in the normal view',async()=>{
+  const f=fixture({hash:'#updates',change:values=>{values.rules=inactive;values.maintenance.push({action:'rules-build',status:'failed',created:1,error:'Outdated revision',result:null});}});
+  try{await settle();assert.equal(f.document.querySelector('#cs-forge-install button').textContent,'Install rules');
+    assert.equal(f.document.getElementById('cs-rules-advanced').open,false);assert.ok(f.document.querySelector('[data-action=rules-activate]').closest('#cs-rules-advanced'));
+    assert.equal(f.document.querySelector('[data-page=rules] ol'),null);
+  }finally{await f.close();}
+});
+test('failed queue requests stay escaped and retryable without reporting success',async()=>{
   const f=fixture({hash:'#updates',response:{ok:false,json:async()=>({ok:false,error:'<b>Provider unavailable</b>'})}});
-  try{const form=f.document.getElementById('cs-forge-install');form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
-    await new Promise(resolve=>setImmediate(resolve));const status=f.document.getElementById('cs-forge-status');
-    assert.equal(status.textContent,'<b>Provider unavailable</b>');assert.equal(status.querySelector('b'),null);assert.equal(form.querySelector('button').disabled,false);
-    assert.equal(f.document.querySelector('[data-action=rules-activate]').disabled,false);
+  try{await settle();const form=f.document.getElementById('cs-forge-install');form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const status=f.document.getElementById('cs-forge-status');assert.equal(status.textContent,'Could not start installation: <b>Provider unavailable</b>');
+    assert.equal(status.querySelector('b'),null);assert.equal(form.querySelector('button').disabled,false);
+  }finally{await f.close();}
+});
+test('hidden rule views stop polling and resume after navigation',async()=>{
+  const f=fixture({hash:'#updates',ruleSnapshots:[installSnapshot('running','checking')]});
+  try{await settle();assert.equal(f.timers.size,1);f.click('[data-main-tab=dashboard]');assert.equal(f.timers.size,0);
+    const count=f.requests.length;await settle();assert.equal(f.requests.length,count);
+    f.click('[data-main-tab=updates]');await settle();assert.ok(f.requests.length>count);assert.equal(f.timers.size,1);
   }finally{await f.close();}
 });

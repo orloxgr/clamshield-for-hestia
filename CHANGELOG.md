@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.2.0
+
+- Make Install/Update rules a single queued download, validation and activation
+  operation. Retain the previous active rules on validation failure.
+- Automatically display queue/download/check/activation progress and resume it
+  when reopening the rules view. Never report a staged candidate as installed.
+- Put build, manual activation, task history, trials and source/rule controls in
+  a collapsed advanced section; the normal view needs only a profile and Install.
+- Bind install status and progress to the administrator's native account identity;
+  refresh active-rule indicators without requiring a manual page refresh.
+
 ## 1.1.1
 
 - Present dashboard account totals in one activity panel with four rows,

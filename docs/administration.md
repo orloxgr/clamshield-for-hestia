@@ -54,14 +54,16 @@ Updates validate candidates, authenticate feeds where supported and retain
 previous data for rollback. Review the maintenance result and provider health.
 
 In **Updates → YARA rules**, choose Core, Extended or Full in the dropdown and
-click **Install rules** or **Update rules**. Wait for the Forge task to complete,
-refresh rule status, then click **Activate validated candidate** and wait for
-the activation task to complete. Install/Update downloads and checks a candidate;
-it does not replace active rules on its own. Additional managed/local sources
-and individual rule controls are in the expandable advanced section.
-Inspect the source/license/dependency receipts and run candidate trials before
-activation. A source change builds a candidate; it does not immediately change
-the active policy. Managed PHP/web sources default to review-only eligibility.
+click **Install rules** or **Update rules**. The same asynchronous task downloads,
+validates and activates the selected rules. Progress refreshes automatically,
+including after reopening the view. Success is shown only after activation;
+a failed download, validation or source-revision check does not activate the
+candidate. Existing active data remains available after failed validation.
+
+**Advanced rule tools** retains staging, per-source/per-rule selections, receipts,
+comparison trials, manual candidate activation and rollback. Those controls are
+optional for normal Forge installation. Managed PHP/web hosting sources retain
+their review-only defaults. Engine binaries still come from Ubuntu APT.
 Rule data is compiled by Ubuntu's `yarac`, without building an engine.
 
 **Settings → Resources** controls six independent owned services: website scanning, website

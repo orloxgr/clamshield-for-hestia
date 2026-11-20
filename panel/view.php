@@ -30,7 +30,7 @@
 <div class="row"><div><h1>ClamShield <small style="font-size:14px;font-weight:400">for Hestia</small></h1><p class="sub">Website malware scanning &amp; email protection</p></div>
 <?php if($data['context']['admin']): ?><label style="margin-left:auto">Account <select class="form-select" id="cs-owner"><?php foreach($data['accounts'] as $account): ?><option <?= $account['owner']===$data['context']['owner']?'selected':'' ?>><?= $escape($account['owner']) ?></option><?php endforeach ?></select></label><?php endif ?></div>
 <?php require __DIR__.'/navigation.php'; ?>
-<?php if(!$data['engines']['yara']['rules_available']): ?><p class="notice alert alert-warning">Website scans need active YARA rules for complete coverage. <a href="#updates/rules" data-tab="rules">Set up YARA rules</a></p><?php endif ?>
+<?php if(!$data['engines']['yara']['rules_available']): ?><p id="cs-yara-warning" class="notice alert alert-warning">Website scans need active YARA rules for complete coverage. <a href="#updates/rules" data-tab="rules">Set up YARA rules</a></p><?php endif ?>
 <?php if(!$data['context']['admin'] && in_array(false,$data['website_permissions']['effective'],true)): ?><p class="notice alert alert-info">Some website actions are disabled by your administrator. Results and history remain available; disabled controls explain the required permission.</p><?php endif ?>
 <p id="cs-message" role="status" aria-live="polite"></p>
 <?php require __DIR__.'/dashboard.php'; ?>

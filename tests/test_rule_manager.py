@@ -93,6 +93,38 @@ class ManagedRules(unittest.TestCase):
     def scan(self,name=None):
         return Yara('/usr/bin/yara',self.manager.rules.base/(name or 'current')/'rules.yarac').scan(self.sample)
 
+    def forge_fixture(self, content=b'rule ForgeFixture {strings:$a="RuleTestMarker" condition:$a}'):
+        return (content,dict(version='fixture-release',source_url='https://example.test/rules.zip',
+                             archive_sha256='a'*64,licenses='MIT fixture notice'))
+
+    def test_one_install_validates_and_activates_distro_rules_with_rollback_retained(self):
+        stages=[]
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
+            active=self.manager.install('core',progress=stages.append)
+        self.assertEqual(['downloading','checking','activating'],stages)
+        self.assertTrue(active['activated']);self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+        self.assertEqual(1,len(self.scan()))
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture(b'rule NewFixture {condition:false}')):
+            self.manager.install('extended')
+        self.assertEqual([],self.scan());self.manager.rollback()
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+
+    def test_one_install_failure_keeps_previous_active_generation(self):
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
+            active=self.manager.install('core')
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture(b'not valid YARA')),self.assertRaises(ClamShieldError):
+            self.manager.install('extended')
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+        self.assertEqual(1,len(self.scan()))
+
+    def test_one_install_refuses_source_changes_before_automatic_activation(self):
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
+            active=self.manager.install('core')
+            def change(phase):
+                if phase=='activating':self.manager.toggle_source('forge',False)
+            with self.assertRaises(Conflict):self.manager.install('extended',progress=change)
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+
     def test_candidate_is_not_active_and_preserves_source_notices_and_provenance(self):
         content='/* MIT original notice */\nrule Local {strings:$a="RuleTestMarker" condition:$a}'
         self.source(content=content);candidate=self.manager.build()

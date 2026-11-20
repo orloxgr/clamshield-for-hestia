@@ -435,6 +435,25 @@ class Store:
                        (worker, time.time(), row['id']))
             return dict(row) | {'payload': json.loads(row['payload']), 'worker': worker}
 
+    def rule_install_status(self, context):
+        with self.connection() as db:
+            db.execute('BEGIN')
+            pending = db.execute("SELECT 1 FROM maintenance WHERE owner=? AND identity=? AND action LIKE 'rules-%' AND status IN ('queued','running') LIMIT 1", self.scope(context)).fetchone()
+            row = db.execute("SELECT id,status,error,result,payload FROM maintenance WHERE owner=? AND identity=? AND action='rules-install' ORDER BY created DESC,id DESC LIMIT 1", self.scope(context)).fetchone()
+        latest = None
+        if row:
+            result = json.loads(row['result']) if row['result'] else {}
+            payload = json.loads(row['payload'])
+            latest = dict(id=row['id'], status=row['status'], error=row['error'],
+                          profile=payload.get('profile'), phase=(result or {}).get('phase'),
+                          generation=(result or {}).get('generation'), activated=(result or {}).get('activated',False))
+        return {'pending': bool(pending), 'latest': latest}
+
+    def task_progress(self, task, phase):
+        with self.connection(True) as db:
+            db.execute("UPDATE maintenance SET result=? WHERE id=? AND worker=? AND status='running'",
+                       (encode({'phase':phase}), task['id'], task['worker']))
+
     def finish_task(self, task, result=None, error=None):
         with self.connection(True) as db:
             status = 'failed' if error else 'completed'

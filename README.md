@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.1.1** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.2.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -46,8 +46,8 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
 
 3. **Log into Hestia and open Plugins → ClamShield.**
 
-   As administrator, select and update your **Updates → Signature providers**, stage and
-   activate the required **Updates → YARA rules**, then choose **Start website ClamAV** in
+   As administrator, select and update your **Updates → Signature providers**, install the required
+   **Updates → YARA rules** with one click, then choose **Start website ClamAV** in
    **Settings → Resources**. Confirm readiness in the dashboard before starting a scan.
    Set the independent service limits to fit the server and selected data.
 
@@ -98,7 +98,7 @@ establish active scanning coverage or access to a public blocklist.
 - YARA Forge Core, Extended and Full; managed PHP/web hosting sources and local
   or additional sources, with license/version/dependency receipts.
 - Candidate trials, performance reports, duplicate handling, source/rule
-  toggles and explicit activation/rollback.
+  toggles and advanced activation/rollback controls.
 
 SecuriteInfo requires the administrator's own provider account/key and its
 entitlements. Paid data and credentials are not distributed with this project.
