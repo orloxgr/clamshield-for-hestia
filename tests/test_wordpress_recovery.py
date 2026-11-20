@@ -158,6 +158,28 @@ class RecoveryBatchTests(unittest.TestCase):
         self.assertEqual('analysis-failed',self.status(key)['plan']['status'])
         with self.assertRaises(Conflict):self.request(key,'apply')
 
+    def test_resume_inspects_completed_capture_after_worker_stops_before_item_commit(self):
+        self.write('wp-content/uploads/a.php',b'<?php original');key=self.analyze();status=self.status(key)
+        self.request(key,'preview',dict(items=status['recommended']));self.run_until(key,{'reviewed'})
+        self.request(key,'apply');original=WordPressRecovery.save_item;stopped=[]
+        def interrupt(manager,item,**changes):
+            if changes.get('status')=='done' and not stopped:
+                stopped.append(True);raise OSError('simulated worker interruption after capture')
+            return original(manager,item,**changes)
+        with patch.object(WordPressRecovery,'save_item',interrupt):self.worker.once()
+        self.assertEqual('interrupted',self.status(key)['plan']['status']);self.assertFalse((self.root/'wp-content/uploads/a.php').exists())
+        self.request(key,'apply');status=self.run_until(key,{'applied','interrupted'})
+        self.assertEqual('applied',status['plan']['status'],status)
+        self.assertEqual(1,len(self.quarantine_records()))
+
+    def quarantine_records(self):
+        with self.store.connection() as db:return list(db.execute("SELECT id FROM operations WHERE kind='quarantine'"))
+
+    def test_array_keys_and_json_structure_are_preserved_during_database_changes(self):
+        value=b'a:1:{s:1:"x";s:1:"x";}'
+        self.assertEqual(b'a:1:{s:1:"x";s:1:"y";}',replacement(value,'x','y'))
+        with self.assertRaises(Conflict):replacement(b'{"code":"hello"}','"hello"','broken')
+
 
 class VendorReferencesTests(unittest.TestCase):
     def test_vendor_zip_version_and_archive_paths_are_checked(self):

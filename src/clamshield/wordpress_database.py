@@ -121,7 +121,10 @@ class WordPressDatabase:
     @staticmethod
     def schema(cursor,table):
         cursor.execute('SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLLATION_NAME,EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s ORDER BY ORDINAL_POSITION',(table,))
-        return hashlib.sha256(repr(cursor.fetchall()).encode()).hexdigest()
+        columns=cursor.fetchall()
+        cursor.execute('SHOW KEYS FROM '+ident(table)+" WHERE Key_name='PRIMARY'")
+        keys=[(row[3],row[4],row[7]) for row in cursor.fetchall()]
+        return hashlib.sha256(repr((columns,keys)).encode()).hexdigest()
 
     def config(self):
         with snapshot(self.root, joined(self.installation, 'wp-config.php'), self.settings.snapshots, 256*1024) as (copy, fingerprint):
@@ -155,7 +158,8 @@ class WordPressDatabase:
     def opened(self, expected=None):
         import pymysql
         values, prefix, fingerprint = self.config()
-        if expected and fingerprint != expected: raise Conflict('Database configuration changed; analyze again')
+        if expected and any(fingerprint[key]!=expected[key] for key in ('sha256','uid','gid','mode','links','device')):
+            raise Conflict('Database configuration changed; analyze again')
         try:
             connection = pymysql.connect(**values)
             try: yield connection, prefix, fingerprint
@@ -233,4 +237,8 @@ class WordPressDatabase:
             if inspect_only: db.rollback();return 'unchanged'
             cursor.execute('UPDATE '+ident(item['table'])+' SET '+ident(item['column'])+'=%s WHERE '+predicate,[after,*keys])
             if cursor.rowcount != 1: raise Conflict('Database change was not applied exactly once')
+            cursor.execute('SELECT CAST('+ident(item['column'])+' AS BINARY) FROM '+ident(item['table'])+' WHERE '+predicate,keys)
+            verified=cursor.fetchall()
+            if len(verified)!=1 or verified[0][0] is None or bytes(verified[0][0])!=after:
+                db.rollback();raise Conflict('Database change did not preserve the reviewed replacement; rolled back')
             db.commit();return 'applied'

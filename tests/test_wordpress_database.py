@@ -5,7 +5,7 @@ import subprocess
 import tempfile
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock,patch
 
 from clamshield.errors import AccessDenied, Conflict
 from clamshield.settings import Settings
@@ -101,3 +101,46 @@ class NativeWordPressDatabase(unittest.TestCase):
             cursor.execute('ALTER TABLE alice_wp.wp_options ADD PRIMARY KEY(option_id), ENGINE=MyISAM')
         _,items=self.scan()
         with self.assertRaises(Conflict):self.database.change(items[0],unpacked(items[0]['before']),b'clean')
+
+    def test_schema_change_and_trigger_rewrite_are_rolled_back(self):
+        _,items=self.scan();item=items[0];before=unpacked(item['before'])
+        with self.admin.cursor() as cursor:cursor.execute('ALTER TABLE alice_wp.wp_options ADD extra_column INT')
+        with self.assertRaises(Conflict):self.database.change(item,before,b'clean')
+        _,items=self.scan();item=items[0]
+        with self.admin.cursor() as cursor:cursor.execute("CREATE TRIGGER alice_wp.rewrite_value BEFORE UPDATE ON alice_wp.wp_options FOR EACH ROW SET NEW.option_value='triggered'")
+        with self.assertRaises(Conflict):self.database.change(item,before,b'clean')
+        with self.admin.cursor() as cursor:
+            cursor.execute('SELECT option_value FROM alice_wp.wp_options WHERE option_id=1')
+            self.assertEqual(before,cursor.fetchone()[0].encode())
+
+    def test_complete_recovery_batch_previews_applies_and_undoes_a_real_database_change(self):
+        from clamshield.store import Store
+        from clamshield.wordpress_recovery import WordPressRecovery
+        from clamshield.worker import Worker
+        web=self.root/'web';web.mkdir();(web/'wp-config.php').write_text(self.config)
+        (web/'wp-includes').mkdir();clean={'wp-includes/version.php':b"<?php\n$wp_version='6.8.3';\n",'wp-settings.php':b'clean core'}
+        for path,content in clean.items():(web/path).write_bytes(content)
+        site=dict(owner='alice',identity='generation',domain='database.test',root=str(web),suspended=False)
+        self.native.sites.return_value=[site];store=Store(self.settings.database)
+        refs=Mock();refs.receipts={};refs.manifest.return_value=dict(source='fixture',files={path:dict(algorithm='sha256',digest=hashlib.sha256(content).hexdigest()) for path,content in clean.items()})
+        engines=[]
+        for name in ('clamav','yara'):
+            engine=Mock();engine.name=name;engine.scan.return_value=[];engines.append(engine)
+        recovery=WordPressRecovery(self.settings,store,self.native);worker=Worker(self.settings,store,self.native,engines)
+        with patch('clamshield.wordpress_recovery.RecoveryReferences',return_value=refs),patch('clamshield.wordpress.References',return_value=refs):
+            key=recovery.analyze(self.context,'database.test','',{'database':True})['plan_id'];worker.once()
+            status=recovery.status(self.context,key);self.assertEqual('ready',status['plan']['status'],status)
+            item=next(item for item in status['items'] if item['kind']=='database')
+            recovery.request(self.context,key,'preview',status['plan']['revision'],dict(items=[item['id']],edits={item['id']:dict(find='<script>bad()</script>',replace='')}));worker.once()
+            status=recovery.status(self.context,key);self.assertEqual('reviewed',status['plan']['status'],status)
+            recovery.request(self.context,key,'apply',status['plan']['revision']);worker.once()
+            status=recovery.status(self.context,key);self.assertEqual('applied',status['plan']['status'],status)
+            with self.admin.cursor() as cursor:
+                cursor.execute('SELECT option_value FROM alice_wp.wp_options WHERE option_id=1');self.assertEqual('θέμα',cursor.fetchone()[0])
+            recovery.request(self.context,key,'undo',status['plan']['revision'])
+            for _ in range(10):
+                if recovery.status(self.context,key)['plan']['status']=='undone':break
+                worker.once()
+            self.assertEqual('undone',recovery.status(self.context,key)['plan']['status'])
+            with self.admin.cursor() as cursor:
+                cursor.execute('SELECT option_value FROM alice_wp.wp_options WHERE option_id=1');self.assertEqual('<script>bad()</script>θέμα',cursor.fetchone()[0])

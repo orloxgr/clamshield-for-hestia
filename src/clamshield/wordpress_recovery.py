@@ -4,7 +4,7 @@ import fcntl
 import hashlib
 import json
 import os
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 import re
 import time
 import uuid
@@ -187,6 +187,7 @@ class WordPressRecovery:
                     outcome=dict(status='unavailable',error=self.message(exc));counters['errors']+=1
                 plan['report']['database'].append(dict(installation=installation['path'],**outcome))
         plan['report']['packages']=getattr(refs,'receipts',{})
+        plan['report']['processes']=self.processes(plan['root'])
         self.save(plan,status='ready',report=plan['report'],work_job=None,error=None,revision=uuid.uuid4().hex)
         self.store.finish(job,'partial' if counters.get('errors') or counters.get('skipped') or counters.get('unverified') else 'completed',counters)
 
@@ -194,12 +195,34 @@ class WordPressRecovery:
     def message(exc):
         return str(exc) if isinstance(exc,ClamShieldError) else 'Inspection or recovery data is unavailable'
 
+    @staticmethod
+    def processes(root):
+        """Informational open-file/cwd snapshot, never evidence of a write."""
+        result=[];budget=10000;prefix=root.rstrip('/')+'/'
+        try:pids=[path for path in Path('/proc').iterdir() if path.name.isdigit()][:2000]
+        except OSError:return result
+        for pid in pids:
+            try:
+                matched=[];cwd=os.readlink(pid/'cwd')
+                if cwd==root or cwd.startswith(prefix):matched.append('cwd: '+cwd)
+                for path in (pid/'fd').iterdir():
+                    budget-=1
+                    if budget<0:return result
+                    try:target=os.readlink(path)
+                    except OSError:continue
+                    if target.startswith(prefix):matched.append(target)
+                    if len(matched)>=10:break
+                if matched:result.append(dict(pid=int(pid.name),executable=Path(os.readlink(pid/'exe')).name,files=matched,note='Open files/cwd do not establish that this process changed them.'))
+                if len(result)>=100:return result
+            except OSError:continue
+        return result
+
     def check_cancel(self,job):
         if self.store.cancelled(job['id']):raise Conflict('Recovery was cancelled; completed changes are retained for undo')
 
     def selected(self,plan):
         selected=set(plan['selection'])
-        return [item for item in self.items(plan) if item['id'] in selected]
+        return sorted((item for item in self.items(plan) if item['id'] in selected),key=lambda item:(0 if item['action']=='database' else 2 if PurePosixPath(item['path']).name=='wp-config.php' else 1,item['path'],item['id']))
 
     def require(self,context,items,undo=False):
         permissions=WebsitePermissions(self.settings,self.store,self.hestia)

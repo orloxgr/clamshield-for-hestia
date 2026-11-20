@@ -3,14 +3,15 @@ import hashlib
 
 from .errors import Conflict
 from .paths import snapshot
-from .wordpress import header, joined
-from .wordpress_sources import References, archive_files, token
+from .wordpress import header
+from .wordpress_sources import References, ReferenceUnavailable, archive_files, token
 
 
 class RecoveryReferences(References):
     def __init__(self, settings, root, options):
         super().__init__(settings)
         self.root,self.options,self.packages,self.receipts=root,options,{},{}
+        self.manifests,self.archives={},{}
 
     def target(self, component):
         return component | {'version':self.options['versions'].get(component['path'],component['version'])}
@@ -35,13 +36,27 @@ class RecoveryReferences(References):
 
     def manifest(self, component):
         files=self.package(component)
-        if files is None:return super().manifest(self.target(component))
+        if files is None:
+            target=self.target(component);key=(target['kind'],target['path'],target['version'])
+            if key not in self.manifests:self.manifests[key]=super().manifest(target)
+            return self.manifests[key]
         return dict(source='Selected vendor ZIP: '+self.receipts[component['path']]['source'],
                     files={name:dict(algorithm='sha256',digest=hashlib.sha256(content).hexdigest()) for name,content in files.items()})
 
     def replacement(self, component, path, expected):
         files=self.package(component)
-        if files is None:return super().replacement(self.target(component),path,expected)
+        if files is None:
+            target=self.target(component);manifest=self.manifest(component)
+            if manifest['files'].get(path)!=expected:raise ReferenceUnavailable('Release reference changed')
+            kind=target['kind'];version=token(target['version'],'version');slug=token(target.get('slug','wordpress'),'slug')
+            language='' if target.get('locale','en_US')=='en_US' else token(target['locale'],'locale')+'/'
+            url=f'https://downloads.wordpress.org/release/{language}wordpress-{version}.zip' if kind=='core' else f'https://downloads.wordpress.org/{kind}/{slug}.{version}.zip'
+            if url not in self.archives:
+                self.archives[url]=archive_files(self.get(url,80*1024**2),'wordpress' if kind=='core' else slug)
+                if sum(len(value) for archive in self.archives.values() for value in archive.values())>256*1024**2:raise Conflict('Recovery packages exceed the memory limit; select fewer components')
+            content=self.archives[url].get(path)
+            if content is None or hashlib.new(expected['algorithm'],content).hexdigest()!=expected['digest']:raise ReferenceUnavailable('Replacement differs from the official release checksum')
+            return content,dict(source=url,reference=manifest['source'],expected=expected,sha256=hashlib.sha256(content).hexdigest(),size=len(content))
         content=files.get(path)
         if content is None or hashlib.sha256(content).hexdigest()!=expected['digest']:raise Conflict('Vendor ZIP content no longer matches the analyzed package')
         return content,self.receipts[component['path']]|dict(size=len(content),sha256=hashlib.sha256(content).hexdigest())
