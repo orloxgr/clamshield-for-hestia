@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.0.2** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.1.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -46,22 +46,33 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
 
 3. **Log into Hestia and open Plugins → ClamShield.**
 
-   As administrator, select and update your **Signature providers**, stage and
-   activate the required **YARA rules**, then choose **Start website ClamAV** in
-   **Resources**. Confirm readiness in the dashboard before starting a scan.
+   As administrator, select and update your **Updates → Signature providers**, stage and
+   activate the required **Updates → YARA rules**, then choose **Start website ClamAV** in
+   **Settings → Resources**. Confirm readiness in the dashboard before starting a scan.
    Set the independent service limits to fit the server and selected data.
 
 4. **Configure protection for websites and email.**
 
-   Choose site schedules and changed-file monitoring under **Websites**.
-   Review **Automatic actions** and **Website permissions** for tenant access.
+   Choose site schedules and changed-file monitoring under **Scheduled Scanner**.
+   Review **Settings → Automatic actions** and **Settings → Website permissions** for tenant access.
    For native Exim/SpamAssassin email, configure scores and domain/mailbox
-   policies, then explicitly enable **Mail integration** under **Email**.
+   policies, then explicitly enable **Mail integration** under **Email Shield → Email policies**.
    Saved mail policies are enforced only while that integration is connected.
 
 This repository is public; cloning does not require GitHub credentials.
 See the [administration guide](docs/administration.md) for daily operation,
 resources, recovery, update and removal.
+
+## Panel navigation
+
+Dashboard | Email Shield | On-demand Scan | Scheduled Scanner | Results |
+Exceptions | Quarantine | Updates | History | Settings
+
+The main menu stays visible; secondary links organize each section. Dashboard
+Manage links open the matching controls. Dashboard engine versions, rule counts,
+build times and provider download times come from recorded server state, not
+example values. Provider downloads and configured DNS checks do not by themselves
+establish active scanning coverage or access to a public blocklist.
 
 ## Website protection
 

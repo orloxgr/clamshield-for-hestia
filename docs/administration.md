@@ -30,22 +30,41 @@ failure. Console output does not assert that scanning data or email protection
 is active merely because application installation succeeded: follow the next
 setup steps in the summary and check readiness in Hestia.
 
+## Panel structure
+
+The persistent main menu contains Dashboard, Email Shield, On-demand Scan,
+Scheduled Scanner, Results, Exceptions, Quarantine, Updates, History and Settings.
+Secondary links retain access to all website and server tools. Dashboard Manage
+links select the matching secondary view. Tenants retain the same primary menu;
+server-wide forms remain administrator-only and backend authorization is unchanged.
+
+The dashboard distinguishes rule build times and successful provider downloads
+from active scanner readiness. SpamAssassin displays service, mail integration,
+process verification, score and configured DNS checks, plus pending tasks shown
+in the recent maintenance list. These are runtime/configuration facts; no
+automatic refinement or external reputation service is implied.
+
 ## Initial scanning data and resources
 
-Open **Plugins → ClamShield** as administrator. In **Signature providers**, select
+Open **Plugins → ClamShield** as administrator. In **Updates → Signature providers**, select
 the official data and desired SaneSecurity/SecuriteInfo feeds. Enter the
 provider credential in the password field; leaving it empty on a later save
 retains the saved credential. Subscription entitlement is decided by the provider.
 Updates validate candidates, authenticate feeds where supported and retain
 previous data for rollback. Review the maintenance result and provider health.
 
-In **YARA rules**, stage Core, Extended or Full and any managed/local sources.
+In **Updates → YARA rules**, choose Core, Extended or Full in the dropdown and
+click **Install rules** or **Update rules**. Wait for the Forge task to complete,
+refresh rule status, then click **Activate validated candidate** and wait for
+the activation task to complete. Install/Update downloads and checks a candidate;
+it does not replace active rules on its own. Additional managed/local sources
+and individual rule controls are in the expandable advanced section.
 Inspect the source/license/dependency receipts and run candidate trials before
 activation. A source change builds a candidate; it does not immediately change
 the active policy. Managed PHP/web sources default to review-only eligibility.
 Rule data is compiled by Ubuntu's `yarac`, without building an engine.
 
-**Resources** controls six independent owned services: website scanning, website
+**Settings → Resources** controls six independent owned services: website scanning, website
 ClamAV, mail broker/YARA, mail ClamAV, mail SpamAssassin and maintenance.
 CPU100% equals one core. Memory is a ceiling, not reserved RAM. I/O weight is
 relative priority under contention. Fit the complete set of services and selected
@@ -60,17 +79,18 @@ updates verify the running scanner without restarting it.
 ## Websites and remediation
 
 The administrator selects an account; each hosting user sees its own native
-account generation. **Website permissions** delegates specific tenant actions.
+account generation. **Settings → Website permissions** delegates specific tenant actions.
 The root bridge rechecks scope and authority for each operation, including
 asynchronous work. Recreated accounts do not inherit the old account's access.
 
-Use **Websites** for path/site/account scans, schedules and changed-file monitoring.
-**Scans** shows queue, live progress and cancellation. Check coverage, not just
+Use **On-demand Scan → Websites** for path/site/account scans.
+**Scheduled Scanner** manages schedules and changed-file monitoring.
+**On-demand Scan → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results
 are retained when ClamAV fails, and vice versa.
 
-**Findings** records engine/source/rule/signature, severity, file identity and
+**Results → Findings** records engine/source/rule/signature, severity, file identity and
 the scanning generation. Hosting heuristics, website spam matches and software
 advisories require review. A match alone does not establish that an entire
 site is compromised. Rule candidates should be evaluated against relevant clean
@@ -81,27 +101,27 @@ the recorded metadata and refuses to overwrite changed destinations. A moved,
 removed, suspended or recreated site/account can make historical operations
 unavailable while preserving their evidence.
 
-**WordPress** discovers installations and checks core/plugin/theme integrity
-where reliable references exist. **Repairs** can prepare a nonmutating diff from
+**On-demand Scan → WordPress integrity** discovers installations and checks core/plugin/theme integrity
+where reliable references exist. **Results → Repairs and cleaning** can prepare a nonmutating diff from
 a verified reference or selected backup member. Review the preview before
 applying it. Changes retain the original or its absence, recheck the published
 file and support undo. Targeted cleaning handles its recognized definitions;
 other infections remain reviewable or repairable from a verified clean source.
 Quarantine, deletion, cleaning and replacement remain distinct actions.
 
-**Automatic actions** supports account defaults and site policies, with explicit
+**Settings → Automatic actions** supports account defaults and site policies, with explicit
 eligibility, current content/generation checks, audit and interrupted-operation
 recovery. Review these policies together with delegated tenant permissions.
 
 ## Email and SpamAssassin
 
-In **Email**, domain policy provides mailbox defaults. Selecting a mailbox and
+In **Email Shield → Email policies**, domain policy provides mailbox defaults. Selecting a mailbox and
 enabling a field override changes only that field. Other fields continue to
 inherit later domain edits. **Use domain policy for this mailbox** removes its
 overrides. Sender allowlists affect spam scoring; malware/phishing policies
 remain independent. Exact-content exceptions have separate scope and permissions.
 
-**SpamAssassin** provides its classification threshold, installed-rule catalog,
+**Email Shield → SpamAssassin** provides its classification threshold, installed-rule catalog,
 rule overrides, RBL/URIBL switches and DNS-zone restrictions. Domain spam/high-spam
 thresholds act on the final score including signature weights. The catalog
 shows installed base scores; the editor records applied overrides. Zone/list

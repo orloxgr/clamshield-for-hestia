@@ -75,5 +75,6 @@
   });
   refresh.addEventListener('click', load);
   document.querySelector('[data-tab=history]')?.addEventListener('click', () => { if (!loaded) load(); });
+  document.addEventListener('clamshield-tab-change', event => { if (event.detail === 'history' && !loaded) load(); });
   if (sessionStorage.getItem('clamshield-tab') === 'history') queueMicrotask(load);
 })();

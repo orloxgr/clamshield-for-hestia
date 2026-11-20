@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.1.0
+
+- Organize the panel around ten persistent primary sections, with focused
+  secondary navigation and direct Manage links using native Hestia controls.
+- Open a dashboard with live engine/rule metadata, recorded provider download
+  times, scanner readiness, account counts and actual SpamAssassin state.
+- Separate website schedules/monitoring from on-demand scanning; retain scan
+  progress, WordPress integrity, findings, repair and automatic-action tools.
+- Replace three Forge stage buttons with a profile dropdown and Install/Update
+  action; place validated candidates, activation and task status together.
+- Show pending recent SpamAssassin configuration tasks and their outcomes.
+- Preserve tenant authorization, lazy-loaded mail/history controls and scan
+  polling when navigating nested views. No Hestia vendor/theme files change.
+
 ## 1.0.2
 
 - Show timestamped installer stages, native command activity and ten-second

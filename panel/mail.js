@@ -488,5 +488,6 @@
   byId('quarantine-form').addEventListener('submit', event => { event.preventDefault(); quarantineSearch = new FormData(event.target).get('search'); quarantine(); });
   byId('quarantine-more').addEventListener('click', () => quarantine(false));
   document.querySelector('[data-tab="mail"]')?.addEventListener('click', () => { if (!loaded) load(); });
+  document.addEventListener('clamshield-tab-change', event => { if (event.detail === 'mail' && !loaded) load(); });
   if (sessionStorage.getItem('clamshield-tab') === 'mail') queueMicrotask(load);
 })();

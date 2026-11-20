@@ -1,0 +1,36 @@
+/* Managed by clamshield */
+(() => {
+  'use strict';
+  const map=JSON.parse(document.getElementById('cs-navigation-map').textContent);
+  const pages=new Set(Object.values(map).flat()), remembered=new Map();
+  const groupOf=page=>Object.keys(map).find(group=>map[group].includes(page));
+  function stored(){try{return sessionStorage.getItem('clamshield-tab');}catch{return null;}}
+  function select(group,page,writeHash=true){
+    if(!map[group])group='dashboard';
+    if(!map[group].includes(page))page=remembered.get(group)||map[group][0];
+    remembered.set(group,page);
+    document.querySelectorAll('[data-page]').forEach(section=>section.hidden=section.dataset.page!==page);
+    document.querySelectorAll('[data-subnav]').forEach(nav=>nav.hidden=nav.dataset.subnav!==group);
+    document.querySelectorAll('[data-main-tab]').forEach(link=>{
+      if(link.dataset.mainTab===group)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
+    });
+    document.querySelectorAll('[data-tab]').forEach(link=>{
+      if(link.dataset.tab===page)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
+    });
+    try{sessionStorage.setItem('clamshield-tab',page);}catch{}
+    if(writeHash)history.replaceState(null,'','#'+group+(page===map[group][0]?'':'/'+page));
+    document.dispatchEvent(new CustomEvent('clamshield-tab-change',{detail:page}));
+  }
+  document.querySelectorAll('[data-main-tab],[data-tab]').forEach(link=>link.addEventListener('click',event=>{
+    event.preventDefault();const page=link.dataset.tab;
+    select(page?groupOf(page):link.dataset.mainTab,page);
+    const target=document.getElementById(link.dataset.focusId||('cs-provider-'+link.dataset.focusProvider));
+    if(target){target.scrollIntoView?.({block:'nearest'});target.focus();}
+  }));
+  function fromHash(){
+    const [group,page]=location.hash.slice(1).split('/');
+    if(group){select(group,page,false);return;}
+    const saved=stored();select(pages.has(saved)?groupOf(saved):'dashboard',saved,false);
+  }
+  window.addEventListener('hashchange',fromHash);fromHash();
+})();
