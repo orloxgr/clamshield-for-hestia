@@ -68,3 +68,4 @@ class BellClear:
                 db.execute('''UPDATE notification_bell_clears SET status=?,attempted=?,error=?
                   WHERE actor=? AND identity=? AND notification_id=?''',
                   (status,time.time(),error,row['actor'],row['identity'],row['notification_id']))
+        return result
