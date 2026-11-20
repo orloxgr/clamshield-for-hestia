@@ -314,12 +314,27 @@ time.sleep(60)
 
     def test_interrupted_mail_transition_is_recovered_before_code_publication(self):
         path=self.settings.state/'mail-integration-journal.json';write_json(path,{})
-        integration=Mock()
-        def recover():path.unlink();return {'recovered':True}
-        integration.recover.side_effect=recover
-        with patch('clamshield.mail_integration.MailIntegration',return_value=integration):
-            result=self.installation.recover_configuration()
-        self.assertEqual({'recovered':True},result[path.name]);integration.recover.assert_called_once()
+        package=self.release/'src/clamshield';package.mkdir(parents=True)
+        (package/'__init__.py').write_text('')
+        (package/'settings.py').write_text('class Settings:\n def __init__(self,state,hestia):self.state,self.hestia,self.database=state,hestia,state/"state.sqlite3"\n')
+        (package/'store.py').write_text('class Store:\n def __init__(self,path):pass\n')
+        (package/'hestia.py').write_text('class Hestia:\n def __init__(self,path):pass\n')
+        (package/'mail_integration.py').write_text('''class MailIntegration:
+ def __init__(self,settings,store,hestia):self.settings=settings
+ def recover(self):
+  (self.settings.state/'mail-integration-journal.json').unlink()
+  return {'recovered':True,'source':__file__}
+''')
+        result=self.installation.recover_mail_configuration()
+        self.assertEqual(str(package/'mail_integration.py'),result['source'])
+        self.assertFalse(path.exists());self.assertEqual(self.release,self.installation.target.resolve())
+        self.assertEqual([],self.installation.calls)
+
+    def test_mail_recovery_cannot_report_success_while_its_journal_remains(self):
+        path=self.settings.state/'mail-integration-journal.json';write_json(path,{})
+        with patch('clamshield.installation.subprocess.run',return_value=subprocess.CompletedProcess([],0,b'{"recovered":true}',b'')):
+            with self.assertRaises(Conflict):self.installation.recover_mail_configuration()
+        self.assertTrue(path.exists());self.assertEqual([],self.installation.calls)
 
     def test_linked_or_writable_recovery_metadata_is_refused_before_controllers(self):
         path=self.settings.state/'resources-activation.json';path.symlink_to(self.custody)

@@ -221,8 +221,7 @@ class Installation:
 
     def recover_configuration(self):
         """Recover existing scanner intent before publication, under installer gates."""
-        names=('resources-activation.json','signature-activation.json','spamassassin-activation.json','website-engine-activation.json',
-               'mail-integration-journal.json')
+        names=('resources-activation.json','signature-activation.json','spamassassin-activation.json','website-engine-activation.json')
         pending=[name for name in names if (self.settings.state/name).exists() or (self.settings.state/name).is_symlink()]
         if not pending:return {}
         self.code(self.target.resolve())
@@ -231,15 +230,12 @@ class Installation:
         from .resources import Resources
         from .signatures import Signatures
         from .spamassassin import SpamAssassinControls
-        from .mail_integration import MailIntegration
-        from .hestia import Hestia
         from .store import Store
         resources=Resources(self.settings,unit_dir=self.at('/etc/systemd/system'))
         handlers={'resources-activation.json':resources.recover_limits,
             'signature-activation.json':lambda:Signatures(self.settings).recover(),
             'spamassassin-activation.json':lambda:SpamAssassinControls(self.settings).recover(),
-            'website-engine-activation.json':resources.recover_website,
-            'mail-integration-journal.json':lambda:MailIntegration(self.settings,Store(self.settings.database),Hestia(self.settings.hestia)).recover()}
+            'website-engine-activation.json':resources.recover_website}
         store=Store(self.settings.database);context=dict(actor='clamshield-installer',owner='@admin',identity='');result={}
         for name in pending:
             path=self.settings.state/name
@@ -251,6 +247,27 @@ class Installation:
             store.audit(context,'installation.configuration_recovered',name,dict(journal_sha256=journal_sha,result=recovered))
             store.notify('@admin','','installation.recovered',name,dict(message='Interrupted scanner configuration recovered before code installation'))
         return result
+
+    def recover_mail_configuration(self):
+        path=self.settings.state/'mail-integration-journal.json'
+        if not path.exists() and not path.is_symlink():return None
+        self.read(path);release=self.target.resolve();self.code(release)
+        # Recovery must agree with the still-installed broker, adapter source
+        # and guard templates, rather than importing the unpublished checkout.
+        script=('import sys,json;from pathlib import Path;sys.path.insert(0,sys.argv[1]);'
+                'from clamshield.settings import Settings;from clamshield.store import Store;'
+                'from clamshield.hestia import Hestia;from clamshield.mail_integration import MailIntegration;'
+                'settings=Settings(state=Path(sys.argv[2]),hestia=Path(sys.argv[3]));'
+                'print(json.dumps(MailIntegration(settings,Store(settings.database),Hestia(settings.hestia)).recover()))')
+        result=subprocess.run(['/usr/bin/python3','-I','-B','-c',script,str(release/'src'),
+                               str(self.settings.state),str(self.settings.hestia)],capture_output=True,check=True)
+        value=json.loads(result.stdout)
+        if not isinstance(value,dict) or value.get('recovered') is not True or path.exists() or path.is_symlink():
+            raise Conflict('Installed mail integration recovery did not finish before code publication')
+        from .store import Store
+        Store(self.settings.database).audit(dict(actor='clamshield-installer',owner='@admin',identity=''),
+                                           'installation.configuration_recovered',path.name,value)
+        return value
 
     def migrate_signatures(self):
         """Complete retained data compatibility before opening the install gate."""

@@ -141,6 +141,7 @@ def install(args,lifecycle):
         run(str(hestia / 'php/bin/php'), '-l', str(path))
     progress.stage('[3/10] Recovering any interrupted scanner configuration')
     lifecycle.recover_configuration()
+    lifecycle.recover_mail_configuration()
     if lifecycle.settings.database.exists():lifecycle.recover_operations()
     progress.stage('[4/10] Publishing application code and native Hestia integration')
     extension_directory(hestia / 'web/plugins')
