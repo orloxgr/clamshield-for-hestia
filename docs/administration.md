@@ -114,6 +114,18 @@ a website override; **Use global scan defaults** removes an account override.
 **Settings → Automatic actions** follows the same server/account/site hierarchy.
 Administrator-configured automatic protection retains administrator authority
 when user controls are restricted. Policy changes still fence queued actions.
+
+**On-demand Scan → WordPress integrity** shows a website table with its last
+check, current status, coverage counters and actions. **Discover and verify**
+searches the whole website, including nested installations. **Check a specific
+folder** contains the optional relative folder path and its explanation.
+The row immediately shows submission, queue and running states; active checks
+refresh while the page is visible and resume after reopening. Repeated clicks
+or concurrent identical requests reuse the pending check. **Check again** becomes
+available once it finishes. **View report** loads differences and unverified
+entries inline; **Previous integrity reports** retains the detailed component
+history. Failed or partial coverage remains explicit rather than implying a
+clean website. File integrity checking does not modify site files.
 **On-demand Scan → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results

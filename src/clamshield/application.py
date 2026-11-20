@@ -257,14 +257,16 @@ class Application:
             return method(context, request.get('plan_id'))
         if action == 'wordpress-report':
             return WordPress(self.settings, self.store, self.hestia).report(context, request.get('job_id'), request.get('offset', 0))
+        if action=='wordpress-status':
+            return WordPress(self.settings,self.store,self.hestia).status(context,request.get('job_id'))
         if action == 'wordpress-scan':
             site = next((s for s in self.hestia.sites(context['owner'])
                          if s['domain'] == request.get('domain') and not s['suspended']), None)
             if site is None:
                 raise AccessDenied('Site unavailable')
             target = relative_path(request.get('path', ''))
-            job_id = self.store.enqueue(context, site, target, source='wordpress-integrity', generation=self.generation())
-            return {'jobs': [job_id]}
+            job_id = self.store.enqueue(context, site, target, source='wordpress-integrity', generation=self.generation(),reuse_active=True)
+            return {'jobs':[job_id],**WordPress(self.settings,self.store,self.hestia).status(context,job_id)}
         if action == 'scan':
             domain = request.get('domain')
             scope = request.get('scope', 'site')

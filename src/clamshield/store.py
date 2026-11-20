@@ -265,11 +265,16 @@ class Store:
         else:
             db.execute('INSERT INTO audit VALUES(NULL,?,?,?,?,?,?,?)', values)
 
-    def enqueue(self, context, site, target='', source='manual', generation='unknown', dedup_key=None):
+    def enqueue(self, context, site, target='', source='manual', generation='unknown', dedup_key=None, *, reuse_active=False):
         if (site['owner'], site['identity']) != self.scope(context):
             raise AccessDenied('Site does not belong to this account generation')
         job_id = uuid.uuid4().hex
         with self.connection(True) as db:
+            if reuse_active:
+                existing=db.execute('''SELECT id FROM jobs WHERE owner=? AND identity=? AND domain=?
+                  AND root=? AND source=? AND target=? AND status IN ('queued','running')
+                  ORDER BY created,id LIMIT 1''',(*self.scope(context),site['domain'],site['root'],source,target)).fetchone()
+                if existing:return existing['id']
             if dedup_key is not None:
                 existing = db.execute('''SELECT id FROM jobs WHERE owner=? AND identity=? AND domain=?
                   AND source=? AND target=? AND dedup_key=?''',

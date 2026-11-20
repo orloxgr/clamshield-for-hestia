@@ -254,6 +254,19 @@ class WordPress:
               self.store.scope(context)).fetchall()
         return [dict(row) | {'report': json.loads(row['report']), 'counters': json.loads(row['counters'])} for row in rows]
 
+    def status(self, context, job_id):
+        job=self.store.job(context,job_id)
+        if job['source']!='wordpress-integrity':raise AccessDenied('WordPress integrity job unavailable')
+        with self.store.connection() as db:
+            row=db.execute('''SELECT json_extract(report,'$.discovery_complete') AS complete
+              FROM wordpress_reports WHERE job_id=? AND owner=? AND identity=?''',
+              (job_id,*self.store.scope(context))).fetchone()
+        fields=('id','owner','domain','target','status','created','started','finished','heartbeat','cancel_requested','counters','error')
+        result={key:job[key] for key in fields}
+        result.update(report_ready=bool(row) and not job['counters'].get('history_expired',False),
+                      discovery_complete=bool(row and row['complete']))
+        return {'job':result}
+
     def report(self, context, job_id, offset=0):
         job = self.store.job(context, job_id)
         if job['counters'].get('history_expired'):raise AccessDenied('Detailed scan history expired under this account retention policy')

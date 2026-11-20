@@ -41,6 +41,18 @@ class ScopedStore(unittest.TestCase):
         self.assertEqual(ids, set(claimed))
         self.assertEqual(len(ids), len(claimed))
 
+    def test_active_integrity_reuse_binds_root_target_source_and_native_generation(self):
+        first=self.store.enqueue(self.alice,self.site,source='wordpress-integrity',reuse_active=True)
+        self.assertEqual(first,self.store.enqueue(self.alice,self.site,source='wordpress-integrity',reuse_active=True))
+        variants=[(self.alice,self.site,'blog','wordpress-integrity'),
+            (self.alice,self.site,'','manual'),
+            (self.alice,self.site|{'root':'/srv/replacement'},'','wordpress-integrity'),
+            (self.alice|{'identity':'recreated'},self.site|{'identity':'recreated'},'','wordpress-integrity')]
+        ids={first}
+        for context,site,target,source in variants:
+            job=self.store.enqueue(context,site,target,source=source,reuse_active=True)
+            self.assertNotIn(job,ids);ids.add(job)
+
     def test_cancellation_is_terminal_for_queued_job(self):
         job = self.store.enqueue(self.alice, self.site)
         self.store.cancel(self.alice, job)

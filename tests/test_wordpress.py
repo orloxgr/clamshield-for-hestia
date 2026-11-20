@@ -6,6 +6,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 
 from clamshield.application import Application
 from clamshield.errors import AccessDenied
@@ -135,6 +136,35 @@ class WordPressIntegrity(unittest.TestCase):
         self.assertEqual('failed', self.store.job(self.context, job_id)['status'])
         with self.assertRaises(AccessDenied):
             app.dispatch(dict(actor='alice', action='wordpress-scan', domain='site.test', path='../bob'))
+
+    def test_repeated_and_concurrent_discovery_reuses_one_pending_check(self):
+        app=Application(self.settings,self.store,self.hestia)
+        request=dict(actor='alice',action='wordpress-scan',domain='site.test')
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            results=list(pool.map(lambda _:app.dispatch(request),range(12)))
+        ids={result['jobs'][0] for result in results}
+        self.assertEqual(1,len(ids));self.assertEqual(1,len(self.store.list_jobs(self.context)))
+        self.assertTrue(all(result['job']['status']=='queued' for result in results))
+        job=self.store.claim('fixture')
+        self.assertEqual(job['id'],app.dispatch(request)['jobs'][0])
+        self.wp.run(job)
+        second=app.dispatch(request)['jobs'][0]
+        self.assertNotEqual(job['id'],second);self.assertEqual(2,len(self.store.list_jobs(self.context)))
+
+    def test_integrity_status_is_scoped_and_never_returns_an_unrelated_scan(self):
+        job_id=self.store.enqueue(self.context,self.site,source='wordpress-integrity')
+        initial=self.wp.status(self.context,job_id)['job']
+        self.assertEqual('queued',initial['status']);self.assertFalse(initial['report_ready'])
+        for changes in ({'owner':'bob'},{'identity':'recreated'}):
+            with self.assertRaises(AccessDenied):self.wp.status(self.context|changes,job_id)
+        manual=self.store.enqueue(self.context,self.site)
+        with self.assertRaises(AccessDenied):self.wp.status(self.context,manual)
+        job=self.store.claim('fixture');self.wp.run(job)
+        final=self.wp.status(self.context,job_id)['job']
+        self.assertEqual('completed',final['status']);self.assertTrue(final['report_ready'])
+        self.assertTrue(final['discovery_complete']);self.assertEqual(1,final['counters']['installations'])
+        self.store.progress(job_id,final['counters']|{'history_expired':True})
+        self.assertFalse(self.wp.status(self.context,job_id)['job']['report_ready'])
 
     def test_ambiguous_release_assignments_are_not_evaluated_or_guessed(self):
         with self.assertRaises(ReferenceUnavailable): assignment("$wp_version='6.8';\n$wp_version='6.9';", 'wp_version')

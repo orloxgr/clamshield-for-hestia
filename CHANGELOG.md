@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.6.2
+
+- Organize WordPress integrity into a website table with immediate queue feedback,
+  live progress, last-check times, inline reports and visible retryable errors.
+- Move the optional folder path into an explained disclosure; whole-website
+  discovery remains the default. Preserve previous detailed integrity reports.
+- Disable repeated starts during queued/running checks and atomically reuse the
+  same pending integrity job for concurrent requests with the same account
+  generation, website root and target. Fresh checks remain available on completion.
+
 ## 1.6.1
 
 - Highlight both the active main tab and its active subtab with Hestia's

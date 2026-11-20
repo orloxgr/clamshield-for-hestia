@@ -237,3 +237,69 @@ test('hidden rule views stop polling and resume after navigation',async()=>{
     f.click('[data-main-tab=updates]');await settle();assert.ok(f.requests.length>count);assert.equal(f.timers.size,1);
   }finally{await f.close();}
 });
+
+const integrityJob=(status,extra={})=>({id:'integrity-one',owner:'alice',domain:'site.test',root:'/home/alice/web/site.test/public_html',target:'',source:'wordpress-integrity',created:1,started:null,finished:null,heartbeat:null,cancel_requested:false,status,counters:{seen:0,scanned:0,installations:0},error:null,report_ready:false,discovery_complete:false,...extra});
+
+test('integrity table explains the optional folder and one click follows queued/running/completed work',async()=>{
+  let completeQueue,statusIndex=0;
+  const snapshots=[integrityJob('running',{counters:{seen:100,scanned:20,installations:1}}),integrityJob('completed',{finished:2,report_ready:true,discovery_complete:true,counters:{seen:120,scanned:40,installations:1,modified:1}})];
+  const f=fixture({hash:'#scan/wordpress',api:body=>{
+    if(body.action==='wordpress-scan')return new Promise(resolve=>{completeQueue=()=>resolve({ok:true,json:async()=>({ok:true,jobs:['integrity-one'],job:integrityJob('queued')})});});
+    if(body.action==='wordpress-status')return {ok:true,json:async()=>({ok:true,job:snapshots[Math.min(statusIndex++,1)]})};
+    return {ok:true,json:async()=>({ok:true,job:snapshots[1],files:[{path:'<img src=x onerror=alert(1)>.php',status:'modified',detail:{message:'Review this difference',component:{kind:'core',version:'fixture'}}}],next_offset:null})};
+  }});
+  try{const row=f.document.querySelector('.cs-integrity-row'),form=row.querySelector('form'),button=row.querySelector('.cs-integrity-start');
+    assert.equal(row.querySelector('details').open,false);assert.match(row.textContent,/Leave empty to search the whole website/);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    assert.equal(button.disabled,true);assert.equal(button.textContent,'Starting check…');assert.match(row.querySelector('.cs-integrity-status').textContent,/Submitting/);
+    for(let i=0;i<50;i++)form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    assert.equal(f.requests.length,1);assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'alice',action:'wordpress-scan',domain:'site.test',path:''});
+    completeQueue();await settle();assert.equal(button.textContent,'Queued…');assert.match(row.querySelector('.cs-integrity-status').textContent,/Waiting for the scanner/);
+    await f.tick();assert.equal(button.textContent,'Checking…');assert.match(row.querySelector('.cs-integrity-counts').textContent,/20 files checked/);
+    await f.tick();assert.equal(button.disabled,false);assert.equal(button.textContent,'Check again');assert.match(row.querySelector('.cs-integrity-status').textContent,/differences need review/);
+    assert.equal(row.querySelector('.cs-integrity-show-report').hidden,false);assert.equal(f.timers.size,0);
+    row.querySelector('.cs-integrity-show-report').click();await settle();
+    const report=f.document.querySelector('.cs-integrity-report-row');assert.equal(report.hidden,false);assert.match(report.textContent,/Review this difference/);assert.equal(report.querySelector('img'),null);
+    assert.equal(f.requests.filter(body=>body.action==='wordpress-scan').length,1);
+  }finally{await f.close();}
+});
+
+test('integrity Global actions bind the selected website owner and explicit folder',async()=>{
+  const f=fixture({hash:'#scan/wordpress',change:values=>{values.context.view_scope='server';values.sites[0].owner='bob';},api:async()=>({ok:true,json:async()=>({ok:true,job:integrityJob('queued',{owner:'bob',target:'blog'})})})});
+  try{const row=f.document.querySelector('.cs-integrity-row');row.querySelector('details').open=true;row.querySelector('input[name=path]').value='blog';row.querySelector('form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'bob',action:'wordpress-scan',domain:'site.test',path:'blog'});
+    assert.match(row.querySelector('.cs-integrity-counts').textContent,/Folder: blog/);assert.equal(row.querySelector('.cs-integrity-start').disabled,true);
+  }finally{await f.close();}
+});
+
+test('integrity queue failures stay visible and retryable even after a previous completed check',async()=>{
+  const f=fixture({hash:'#scan/wordpress',change:values=>values.jobs=[integrityJob('completed',{discovery_complete:true})],api:async()=>({ok:false,json:async()=>({ok:false,error:'<b>Scanner unavailable</b>'})})});
+  try{const row=f.document.querySelector('.cs-integrity-row');row.querySelector('form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(row.querySelector('.cs-integrity-start').disabled,false);assert.equal(row.querySelector('.cs-integrity-error').textContent,'<b>Scanner unavailable</b>');assert.equal(row.querySelector('.cs-integrity-error b'),null);
+    assert.match(row.querySelector('.cs-integrity-status').textContent,/could not be completed/);
+  }finally{await f.close();}
+});
+
+test('reopening integrity resumes an existing job and hidden pages stop polling',async()=>{
+  const f=fixture({hash:'#scan/wordpress',change:values=>values.jobs=[integrityJob('running')],api:async()=>({ok:true,json:async()=>({ok:true,job:integrityJob('running',{counters:{seen:50,scanned:0,installations:0}})})})});
+  try{await settle();assert.equal(f.requests[0].action,'wordpress-status');assert.equal(f.requests.some(body=>body.action==='wordpress-scan'),false);assert.equal(f.timers.size,1);
+    f.click('[data-main-tab=dashboard]');assert.equal(f.timers.size,0);const count=f.requests.length;await settle();assert.equal(f.requests.length,count);
+    f.click('[data-tab=wordpress]');await settle();assert.equal(f.requests.length,count+1);assert.equal(f.document.querySelector('.cs-integrity-start').disabled,true);
+  }finally{await f.close();}
+});
+
+test('integrity status errors preserve pending state and an empty partial report never claims success',async()=>{
+  let failed=true;
+  const f=fixture({hash:'#scan/wordpress',change:values=>values.jobs=[integrityJob('running')],api:async body=>body.action==='wordpress-status'&&failed?{ok:false,json:async()=>({ok:false,error:'Status unavailable'})}:{ok:true,json:async()=>body.action==='wordpress-status'?{ok:true,job:integrityJob('partial',{report_ready:true,counters:{errors:1,installations:0,scanned:0}})}:{ok:true,job:integrityJob('partial'),files:[],next_offset:null}}});
+  try{await settle();const row=f.document.querySelector('.cs-integrity-row');assert.match(row.querySelector('.cs-integrity-error').textContent,/last recorded state/);assert.equal(row.querySelector('.cs-integrity-start').disabled,true);
+    failed=false;f.click('#cs-integrity-refresh');await settle();assert.match(row.querySelector('.cs-integrity-status').textContent,/Incomplete/);
+    row.querySelector('.cs-integrity-show-report').click();await settle();assert.match(f.document.querySelector('.cs-integrity-report-status').textContent,/Coverage is incomplete/);
+  }finally{await f.close();}
+});
+
+test('revoked scan permission keeps integrity starts disabled while recorded results remain readable',async()=>{
+  const f=fixture({hash:'#scan/wordpress',admin:false,change:values=>values.website_permissions.effective.scan=false});
+  try{const row=f.document.querySelector('.cs-integrity-row');assert.equal(row.querySelector('.cs-integrity-start').disabled,true);
+    row.querySelector('form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.requests.length,0);
+  }finally{await f.close();}
+});
