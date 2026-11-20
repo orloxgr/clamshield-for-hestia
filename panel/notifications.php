@@ -60,7 +60,7 @@ $notification_counts = ['scanned'=>'Scanned files', 'infected'=>'Files with dete
 <tr><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$notification['created']))?></td>
 <td><?=$escape($title)?></td><td><?=$escape($subject)?>
 <?php foreach($parts as $part): ?><p><?=$escape($part)?></p><?php endforeach ?>
-<details><summary>Technical details</summary><pre style="white-space:pre-wrap"><?=$escape(json_encode(['event'=>$notification['event'],'detail'=>$notification['detail']],JSON_PRETTY_PRINT))?></pre></details>
+<details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Technical details</summary><pre style="white-space:pre-wrap"><?=$escape(json_encode(['event'=>$notification['event'],'detail'=>$notification['detail']],JSON_PRETTY_PRINT))?></pre></details>
 </td><td><?php if(!$notification['read_at']): ?><button class="button" data-action="notification-read" data-notification_id="<?=$escape($notification['id'])?>">Mark read</button><?php else: ?>Read<?php endif ?></td></tr>
 <?php endforeach ?>
 </tbody></table></div></section>

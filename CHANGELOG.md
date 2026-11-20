@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.2.1
+
+- Make expandable sections throughout the panel recognizable as native Hestia
+  buttons, with a caret indicating their closed/open state. Retain native
+  details/summary keyboard behavior and theme appearance, including nested tools.
+
 ## 1.2.0
 
 - Make Install/Update rules a single queued download, validation and activation
