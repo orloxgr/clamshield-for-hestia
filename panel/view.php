@@ -3,21 +3,29 @@
 /* ClamShield layout only. Hestia owns control appearance and theme colors. */
 .cs{margin:28px auto;padding:0 20px}
 .cs .sub{margin:2px 0 24px}
-.cs .card{padding:12px}.cs section{padding:20px 0;margin-bottom:20px}
-.cs .cs-activity{margin-bottom:20px}.cs .cs-activity h3{display:flex;align-items:center;gap:10px}
+.cs .card{padding:12px;margin-bottom:12px}.cs section{padding:20px 0;margin-bottom:20px}
+.cs :is(h2,h3,h4,p,form,details,.row,.scroll,pre,dl,ul,ol):not(:empty){margin-bottom:12px}
+.cs .button{margin-inline-end:12px;margin-bottom:12px}
+.cs p>.button{margin-bottom:0}
+.cs :is(.row,nav,.cs-native-backups)>.button{margin:0}
+.cs .row>:is(h2,h3,h4,p){margin-bottom:0}
+.cs :is(.form-control,.form-select)+.button{margin-inline-start:12px}
+.cs :is(.row,nav,.cs-native-backups)>:is(.form-control,.form-select)+.button{margin-inline-start:0}
+.cs .cs-activity h3{display:flex;align-items:center;gap:10px}
 .cs .cs-activity-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0}
 .cs .cs-activity dt{display:flex;align-items:center;gap:10px}.cs .cs-activity dd{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin:0;text-align:right}
 .cs .cs-activity dd a{min-width:8em}.cs .cs-activity strong{min-width:3ch;overflow-wrap:anywhere}
 .cs .cs-dashboard-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;margin-bottom:12px}.cs .cs-engine-info{display:grid;grid-template-columns:minmax(9em,1fr) minmax(0,2fr);gap:12px}.cs .cs-engine-info dd{margin:0;overflow-wrap:anywhere}
-.cs details>summary.cs-disclosure{display:inline-flex;align-items:center;gap:8px;max-width:100%;white-space:normal;list-style:none}
+.cs details>summary.cs-disclosure{display:inline-flex;align-items:center;gap:8px;max-width:100%;margin:0;white-space:normal;list-style:none}
+.cs details[open]>summary.cs-disclosure{margin-bottom:12px}
 .cs summary.cs-disclosure::-webkit-details-marker{display:none}
 .cs .cs-disclosure-icon{flex-shrink:0}.cs details[open]>summary.cs-disclosure>.cs-disclosure-icon{transform:rotate(90deg)}
-.cs nav{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}
+.cs nav{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}
 .cs table{width:100%;border-collapse:collapse}.cs td,.cs th{text-align:left;padding:10px;overflow-wrap:anywhere}
 .cs .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.cs [hidden]{display:none}
 .cs .notice{display:block;margin:14px 0}.cs .path{font-family:monospace;overflow-wrap:anywhere}.cs .scroll{overflow:auto}
 .cs .form-control,.cs .form-select{max-width:100%;width:auto}.cs textarea.form-control{width:100%}
-.cs .cs-native-backups{display:flex;flex-direction:column;align-items:flex-start;gap:6px;max-width:20rem}
+.cs .cs-native-backups{display:flex;flex-direction:column;align-items:flex-start;gap:12px;max-width:20rem}
 .cs .cs-native-backups select{width:20rem;max-width:100%;min-width:0;box-sizing:border-box}.cs .cs-native-backups button{white-space:normal}
 .cs .scroll table{min-width:760px}.cs th{white-space:nowrap}.cs td{vertical-align:top}
 .cs #cs-mail-fields>p{display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px}

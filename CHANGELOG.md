@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.5.1
+
+- Add 12px spacing below cards and between controls, disclosures and content
+  throughout the panel. Keep Hestia's native control appearance and use existing
+  flex gaps without adding duplicate button margins inside control rows.
+
 ## 1.5.0
 
 - Add WordPress recovery with queued Analyze → Review → Apply/Undo batches,
