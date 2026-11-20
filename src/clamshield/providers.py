@@ -150,6 +150,7 @@ class Providers:
         return {'name': name, 'activation_required': True}
 
     def status(self, name, **changes):
+        self.settings.prepare()
         path = self.settings.state / 'provider-status.json'
         with (self.settings.state / 'providers-config.lock').open('a+b') as lock:
             fcntl.flock(lock, fcntl.LOCK_EX)
