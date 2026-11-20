@@ -5,6 +5,8 @@
 - Fix reinstall after completed removal when the old code directory is absent.
   Preserve retained data and validate recorded controller ownership before
   starting installation; installed-state code checks remain enforced.
+- Report every remaining ClamShield directory after uninstall, its contents and
+  an exact manual deletion command. Add `uninstall.py --json` for scripts.
 
 ## 1.10.1
 

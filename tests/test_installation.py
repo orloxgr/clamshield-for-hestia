@@ -149,6 +149,21 @@ class InstalledLifecycle(unittest.TestCase):
         self.installation.target.symlink_to(self.release);self.installation.register(self.release);self.installation.finish_install()
         self.installation.available();self.assertEqual(b'Preserved quarantine original',self.custody.read_bytes());self.assertTrue(self.config.exists())
 
+    def test_uninstall_lists_all_existing_owned_data_code_and_runtime_directories(self):
+        extras=[self.settings.signatures,self.settings.provider_cache,self.settings.mail_adapters,
+                self.installation.at('/var/lib/clamshield-spamd'),self.installation.at('/opt/clamshield-mail'),
+                self.installation.at('/run/clamshield-mail-scan'),
+                self.installation.at('/usr/local/hestia/web/plugins/clamshield'),
+                self.installation.at('/etc/systemd/system/clamshield-worker.service.d')]
+        for path in extras:path.mkdir(parents=True,exist_ok=True)
+        result=self.installation.uninstall()
+        paths={row['path'] for row in result['retained_directories']}
+        expected={str(path) for path in extras+[self.settings.state,self.installation.releases,self.config.parent]}
+        self.assertEqual(expected,paths)
+        self.assertTrue(all(row['purpose'] for row in result['retained_directories']))
+        self.assertEqual(paths,{row['path'] for row in self.installation.uninstall()['retained_directories']})
+        self.assertEqual(b'Preserved quarantine original',self.custody.read_bytes())
+
     def test_reinstall_after_removal_does_not_require_old_release_directory(self):
         self.installation.uninstall()
         self.installation.releases.rename(self.root/'removed-code')

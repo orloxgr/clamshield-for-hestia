@@ -411,12 +411,27 @@ class Installation:
         if allow_missing and not self.target.exists() and not self.target.is_symlink():return
         if not self.target.is_symlink() or self.target.resolve()!=Path(release):raise Conflict('Installed code pointer changed; no foreign target was removed')
 
+    def retained_directories(self):
+        paths=[(self.at('/etc/clamshield'),'Service configuration and saved settings'),
+               (self.settings.state,'Policies, credentials, scan/email history, quarantine, recovery originals and YARA rules'),
+               (self.settings.signatures,'Validated ClamAV signature generations'),
+               (self.settings.provider_cache,'Downloaded signature data and provider cache'),
+               (self.settings.mail_adapters,'Compiled mail adapters and verification data'),
+               (self.at('/var/lib/clamshield-spamd'),'ClamShield SpamAssassin state'),
+               (self.releases,'ClamShield application code snapshots'),
+               (self.at('/opt/clamshield-mail'),'ClamShield mail library'),
+               (self.at('/usr/local/hestia/web/plugins/clamshield'),'ClamShield panel directory and ownership marker')]
+        paths.extend((self.at('/etc/systemd/system')/(name+'.d'),'ClamShield unit overrides, including any administrator additions') for name in UNITS)
+        paths.extend((self.at('/run')/name,'ClamShield runtime files') for name in
+                     ('clamshield','clamshield-mail','clamshield-mail-scan','clamshield-mail-clamd','clamshield-mail-spamd'))
+        return [dict(path=str(path),purpose=purpose) for path,purpose in paths if path.exists() or path.is_symlink()]
+
     def uninstall(self):
         with self.locked(exclusive=True,control=True):
             if self.install_journal.exists() or self.install_journal.is_symlink():raise Conflict('Finish the pending root installation before uninstalling')
             manifest=self.inventory();value=self.read(self.journal)
             if value is None:
-                if manifest['phase']=='removed':return dict(uninstalled=True,unchanged=True,data_retained=True)
+                if manifest['phase']=='removed':return dict(uninstalled=True,unchanged=True,data_retained=True,retained_directories=self.retained_directories())
                 self.check_pointer(manifest['release'])
                 value=dict(owner='clamshield',schema=1,phase='quiescing',release=manifest['release'],files=manifest['files']|self.resources(),started=time.time())
                 self.validate_files(value);write_json(self.journal,value)
@@ -447,4 +462,4 @@ class Installation:
                     value['phase']='removed';write_json(self.journal,value)
                 manifest.update(phase='removed',updated=time.time());write_json(self.manifest,manifest)
                 self.journal.unlink();sync_directory(self.settings.state)
-                return dict(uninstalled=True,data_retained=True,code_retained=True,packages_removed=False)
+                return dict(uninstalled=True,data_retained=True,code_retained=True,packages_removed=False,retained_directories=self.retained_directories())

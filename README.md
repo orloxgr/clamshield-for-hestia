@@ -204,7 +204,9 @@ sudo python3 /opt/clamshield/tools/uninstall.py
 
 Removal retains configuration, credentials, history, scanning data and private
 custody for reinstall/recovery. It does not remove shared Ubuntu packages or
-purge retained data. See [removal and interruption recovery](docs/administration.md#removal).
+purge retained data. The final report lists the remaining directories, what each
+contains and exact deletion commands for complete manual cleanup. Use `--json`
+for a machine-readable report. See [removal and interruption recovery](docs/administration.md#removal).
 
 ## Development
 

@@ -416,6 +416,21 @@ Shared packages, foreign extensions and protected private data remain.
 Configuration, credentials, history, signatures/rules, custody and release code
 are retained. There is no automatic purge option.
 
+Successful removal prints every remaining ClamShield directory, its contents
+and a separate `sudo rm -rf -- ...` command for manual deletion. The list includes
+service settings, the state directory (policies, credentials, history, website
+and email quarantine, recovery originals and local rules), signatures/cache,
+mail adapters, SpamAssassin state, code snapshots, the source checkout and any
+remaining runtime, panel-plugin and ClamShield unit-override directories. Only
+paths that still exist are listed. Shared
+Ubuntu packages and Hestia directories are not cleanup targets. `--json` includes
+the same `retained_directories` list and `delete_command` fields.
+
+Deleting the state directory removes all retained originals and undo data.
+After completed removal, reinstall also works if the old code snapshots were
+deleted while data was kept. A retained source checkout uses `git pull --ff-only`
+followed by the installer; it does not need to be cloned again.
+
 Repeat the same command after an interruption. If the active code pointer has
 already been removed, use the original checkout:
 
