@@ -140,6 +140,17 @@ class Scheduler:
             if stale and admin:
                 admin_context = dict(actor=admin['owner'], owner=admin['owner'], identity=admin['identity'])
                 self.store.enqueue_task(admin_context, 'signatures-update', {'provider': 'all'})
+        from .rule_updates import RuleUpdates
+        from .rule_manager import RuleManager
+        rule_schedule = RuleUpdates(self.settings).status()
+        if rule_schedule['automatic'] and now.timestamp() >= rule_schedule['next_allowed']:
+            admin = next((a for a in inventory if a['role'] == 'admin' and not a['suspended']), None)
+            if admin:
+                with self.store.connection() as db:
+                    pending = db.execute("SELECT 1 FROM maintenance WHERE action LIKE 'rules-%' AND status IN ('queued','running') LIMIT 1").fetchone()
+                payload = None if pending else RuleManager(self.settings).automatic_update()
+                if payload:
+                    self.store.enqueue_task(dict(actor=admin['owner'],owner=admin['owner'],identity=admin['identity']), 'rules-install', payload)
         for account in inventory:
             if account['suspended']:
                 continue

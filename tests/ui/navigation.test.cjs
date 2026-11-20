@@ -354,6 +354,34 @@ test('email normal view keeps technical controls closed and management links ope
   }finally{await f.close();}
 });
 const inactive={configured:false}, installed={configured:true,profile:'extended',enabled:5089,version:'fixture-new',generation:'generation-installed',created:1};
+test('YARA schedule saves numeric intervals and automatic toggle with native controls and without reloading',async()=>{
+  const schedule={automatic:true,interval_minutes:1440,last_attempt:1,last_success:2,next_allowed:0};
+  const f=fixture({hash:'#updates/rules',change:v=>{v.rule_manager.updates=schedule;},api:async body=>({ok:true,json:async()=>({ok:true,schedule:{...schedule,...JSON.parse(body.policy)}})})});
+  try{await settle();const form=f.document.getElementById('cs-yara-schedule'),input=form.elements.interval_minutes;
+    assert.equal(input.value,'1440');assert.equal(input.min,'60');input.value='59';assert.equal(input.checkValidity(),false);
+    input.value='60.5';assert.equal(input.checkValidity(),false);input.value='2880';assert.equal(input.checkValidity(),true);
+    form.elements.automatic.checked=false;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const requests=f.requests.filter(r=>r.action==='rules-schedule-save');assert.equal(requests.length,1);
+    assert.deepEqual(JSON.parse(requests[0].policy),{automatic:false,interval_minutes:2880});
+    assert.equal(f.document.getElementById('cs-yara-schedule-status').textContent,'Update schedule saved.');
+    assert.match(f.document.getElementById('cs-yara-timing').textContent,/Automatic checks are off/);
+    assert.match(f.document.getElementById('cs-yara-update-schedule').textContent,/publishes weekly.*default check is every 24 hours/s);
+    assert.match(f.document.getElementById('cs-yara-last_success').textContent,/1970-/);
+    assert.equal(f.document.querySelector('[data-tab=rules]').getAttribute('aria-current'),'page');
+  }finally{await f.close();}
+});
+test('YARA timing resumes a shared cooldown across profile changes and keeps failed schedule saves visible',async()=>{
+  const schedule={automatic:true,interval_minutes:1440,last_attempt:1,last_success:2,next_allowed:4071000000,retry_after:4071000000};
+  const f=fixture({hash:'#updates/rules',change:v=>{v.rule_manager.updates=schedule;},ruleSnapshots:[{pending:false,latest:null,active:installed,schedule}],api:async()=>({ok:false,json:async()=>({ok:false,error:'<b>Schedule unavailable</b>'})})});
+  try{await settle();const form=f.document.getElementById('cs-forge-install');assert.equal(form.querySelector('button').disabled,true);
+    form.elements.profile.value='full';for(let i=0;i<50;i++)form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.filter(r=>r.action==='rules-install').length,0);assert.match(f.document.getElementById('cs-yara-timing').textContent,/GitHub cooldown/);
+    assert.match(f.document.getElementById('cs-yara-next_allowed').textContent,/2099-/);
+    f.document.getElementById('cs-yara-schedule').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const status=f.document.getElementById('cs-yara-schedule-status');assert.match(status.textContent,/Schedule unavailable/);assert.equal(status.querySelector('b'),null);
+    assert.equal(form.querySelector('button').disabled,true);f.click('[data-main-tab=dashboard]');assert.equal(f.timers.size,0);
+  }finally{await f.close();}
+});
 function installSnapshot(status,phase,active=inactive){return {pending:['queued','running'].includes(status),active,latest:{status,phase,profile:'extended',generation:installed.generation,activated:status==='completed'}};}
 test('one Install click downloads, checks and activates with automatic progress and no advanced controls',async()=>{
   const f=fixture({hash:'#updates',change:values=>{values.rules=inactive;values.engines.yara.rules_available=false;},

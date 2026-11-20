@@ -9,6 +9,7 @@ from clamshield.engines import Yara
 from clamshield.errors import AccessDenied,ClamShieldError,Conflict,EngineError
 from clamshield.rule_catalog import analyze
 from clamshield.rule_manager import RuleManager,revision
+from clamshield.rule_updates import RuleUpdates
 from clamshield.rule_trials import RuleTrials
 from clamshield.settings import Settings
 from clamshield.store import Store
@@ -104,6 +105,7 @@ class ManagedRules(unittest.TestCase):
         self.assertEqual(['downloading','checking','activating'],stages)
         self.assertTrue(active['activated']);self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
         self.assertEqual(1,len(self.scan()))
+        RuleUpdates(self.settings).record(last_attempt=1,last_success=1)  # A later scheduled check.
         with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture(b'rule NewFixture {condition:false}')):
             self.manager.install('extended')
         self.assertEqual([],self.scan());self.manager.rollback()
@@ -112,6 +114,7 @@ class ManagedRules(unittest.TestCase):
     def test_one_install_failure_keeps_previous_active_generation(self):
         with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
             active=self.manager.install('core')
+        RuleUpdates(self.settings).record(last_attempt=1,last_success=1)
         with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture(b'not valid YARA')),self.assertRaises(ClamShieldError):
             self.manager.install('extended')
         self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
@@ -120,9 +123,29 @@ class ManagedRules(unittest.TestCase):
     def test_one_install_refuses_source_changes_before_automatic_activation(self):
         with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
             active=self.manager.install('core')
+            RuleUpdates(self.settings).record(last_attempt=1,last_success=1)
             def change(phase):
                 if phase=='activating':self.manager.toggle_source('forge',False)
             with self.assertRaises(Conflict):self.manager.install('extended',progress=change)
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+
+    def test_download_cannot_overwrite_source_edits_or_activate_after_automatic_updates_are_disabled(self):
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()):
+            active=self.manager.install('core')
+        RuleUpdates(self.settings).record(last_attempt=1,last_success=1)
+        payload=self.manager.automatic_update()
+        def disable(phase):
+            if phase=='checking':RuleUpdates(self.settings).save({'automatic':False})
+        with patch.object(self.manager.rules,'fetch_forge',return_value=self.forge_fixture()),self.assertRaises(Conflict):
+            self.manager.install('core',progress=disable,automatic=payload)
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+        RuleUpdates(self.settings).record(last_attempt=1,last_success=1)
+        def change(*args):
+            self.manager.toggle_source('forge',False)
+            return self.forge_fixture()
+        with patch.object(self.manager.rules,'fetch_forge',side_effect=change),self.assertRaises(Conflict):
+            self.manager.install('core')
+        self.assertFalse(self.manager.read()['sources']['forge']['enabled'])
         self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
 
     def test_candidate_is_not_active_and_preserves_source_notices_and_provenance(self):

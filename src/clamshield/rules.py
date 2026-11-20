@@ -155,8 +155,11 @@ class Rules:
                                       'licenses': 'Upstream license notices retained in original source'}
 
     def forge(self, profile='core', release=None):
-        content, metadata = self.fetch_forge(profile, release)
-        return self.publish(content, metadata)
+        from .rule_updates import RuleUpdates
+        def operation():
+            content, metadata = self.fetch_forge(profile, release)
+            return self.publish(content, metadata)
+        return RuleUpdates(self.settings).run(profile, operation)
 
     def validate_generation(self, name):
         if not isinstance(name, str) or not re.fullmatch('generation-[a-zA-Z0-9_-]{1,80}', name):

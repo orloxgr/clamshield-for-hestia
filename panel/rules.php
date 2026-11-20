@@ -7,6 +7,24 @@ $cs_rule_pending=(bool)array_filter($data['maintenance']??[],static fn($task)=>s
 <form id="cs-forge-install" class="row" data-configured="<?=$data['rules']['configured']?'true':'false'?>" data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>"><label for="cs-yara-profile">Rule profile</label><select class="form-select" id="cs-yara-profile" name="profile" <?=$cs_rule_pending?'disabled':''?>><?php foreach(['core','extended','full'] as $profile): ?><option value="<?=$profile?>" <?=($data['rules']['profile']??'core')===$profile?'selected':''?>><?=ucfirst($profile)?></option><?php endforeach ?></select><button class="button" type="submit" <?=$cs_rule_pending?'disabled':''?>><?=$data['rules']['configured']?'Update rules':'Install rules'?></button></form>
 <p>Download, checks and activation happen automatically. Choose Core if you are unsure.</p>
 <p id="cs-forge-status" role="status" aria-live="polite"><?=$cs_rule_pending?'Rule work is in progress…':''?></p>
+<?php $cs_rule_schedule=$data['rule_manager']['updates']??['automatic'=>true,'interval_minutes'=>1440,'next_allowed'=>0]; ?>
+<article class="card" id="cs-yara-update-schedule">
+<h3>Automatic rule updates</h3>
+<form id="cs-yara-schedule" class="row">
+<label><input type="checkbox" name="automatic" <?=!empty($cs_rule_schedule['automatic'])?'checked':''?>> Automatically update the installed profile</label>
+<label>Check every (minutes) <input class="form-control" type="number" name="interval_minutes" min="60" max="525600" step="1" required value="<?=$escape($cs_rule_schedule['interval_minutes'])?>"></label>
+<button class="button" type="submit">Save update schedule</button>
+</form>
+<p>YARA Forge publishes weekly releases. The default check is every 24 hours. ClamShield requires at least 60 minutes between attempts, including manual updates and profile changes. You can choose a longer interval. GitHub cooldowns take precedence.</p>
+<p>Automatic updates download, check and activate the installed profile. Install rules once to get started. Pending source edits pause automatic updates. The YARA engine is updated by Ubuntu through APT.</p>
+<div class="scroll"><table><thead><tr><th>Last attempt (UTC)</th><th>Last success (UTC)</th><th>Next permitted update (UTC)</th></tr></thead><tbody><tr>
+<?php foreach(['last_attempt','last_success','next_allowed'] as $cs_time): $cs_timestamp=$cs_rule_schedule[$cs_time]??0; ?><td id="cs-yara-<?=$cs_time?>"><?=$escape($cs_timestamp?gmdate('Y-m-d H:i:s',(int)$cs_timestamp):($cs_time==='next_allowed'?'Due now':'Never'))?></td><?php endforeach ?>
+</tr></tbody></table></div>
+<p id="cs-yara-timing" role="status" aria-live="polite"></p>
+<p id="cs-yara-schedule-status" role="status" aria-live="polite"></p>
+<p><a href="https://github.com/YARAHQ/yara-forge#readme" target="_blank" rel="noopener noreferrer">YARA Forge release information</a></p>
+<script type="application/json" id="cs-yara-schedule-data"><?=json_encode($cs_rule_schedule,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?></script>
+</article>
 <?php endif ?>
 <details id="cs-rules-advanced"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Advanced rule tools</summary>
 <?php if($data['context']['admin']): ?>

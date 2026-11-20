@@ -16,6 +16,7 @@ from .atomic import write, write_json, sync_directory
 from .engines import engine_identity, sealed_file, Yara
 from .errors import ClamShieldError, Conflict, EngineError
 from .rules import Rules, download
+from .rule_updates import RuleUpdates
 from .store import encode
 
 
@@ -230,12 +231,18 @@ class RuleManager:
         return {'revision':revision(config)}
 
     def forge(self, profile, release=None, *, progress=None):
+        return RuleUpdates(self.settings).run(profile, lambda: self._forge(profile, release, progress=progress))
+
+    def _forge(self, profile, release=None, *, progress=None):
+        wanted = revision(self.read())
         if progress: progress('downloading')
         content, upstream = self.rules.fetch_forge(profile, release)
         if progress: progress('checking')
         self.read()
         with self.locked():
             config = self.read()
+            if revision(config) != wanted:
+                raise Conflict('Rule configuration changed during download; active rules were retained')
             filename = 'forge-' + sha(content) + '.yar'
             write(self.folder / filename, content)
             config['sources']['forge'] = dict(id='forge', namespace='default', name='YARA Forge', kind='forge', enabled=True,
@@ -245,11 +252,36 @@ class RuleManager:
             write_json(self.config_path, config)
         return self.build(revision(config))
 
-    def install(self, profile, release=None, *, progress=None):
-        candidate = self.forge(profile, release, progress=progress)
-        if progress: progress('activating')
-        active = self.activate(candidate['generation'])
-        return {**active, 'activated': True}
+    def install(self, profile, release=None, *, progress=None, automatic=None):
+        def operation():
+            if automatic is not None and self.automatic_update() != automatic:
+                raise Conflict('Automatic YARA update settings changed; active rules were retained')
+            candidate = self._forge(profile, release, progress=progress)
+            if automatic is not None and not RuleUpdates(self.settings).status()['automatic']:
+                raise Conflict('Automatic YARA updates were disabled; active rules were retained')
+            if progress: progress('activating')
+            active = self.activate(candidate['generation'])
+            return {**active, 'activated': True}
+        return RuleUpdates(self.settings).run(profile, operation)
+
+    def automatic_update(self):
+        """Never activate pending source edits or enable a disabled Forge source."""
+        schedule = RuleUpdates(self.settings).status()
+        if not schedule['automatic']:
+            return None
+        config = self.read()
+        active = self.rules.status()
+        source = config['sources'].get('forge', {})
+        if (not active.get('configured') or not source.get('enabled') or
+                source.get('profile') not in ('core', 'extended', 'full')):
+            return None
+        wanted = revision(config)
+        # Legacy Forge installations have no composite configuration hash.
+        if active.get('config_sha256') and active['config_sha256'] != wanted:
+            return None
+        if active.get('profile') != source['profile']:
+            return None
+        return {'profile': source['profile'], 'release': None, 'automatic': True, 'revision': wanted}
 
     def parse(self, request):
         def limits():
@@ -421,4 +453,5 @@ class RuleManager:
     def status(self):
         config=self.read()
         return dict(sources=list(config['sources'].values()),disabled=config['disabled'],revision=revision(config),
-                    candidate=self.candidate(),parser_available=importlib.util.find_spec('plyara') is not None)
+                    candidate=self.candidate(),parser_available=importlib.util.find_spec('plyara') is not None,
+                    updates=RuleUpdates(self.settings).status())

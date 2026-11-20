@@ -33,9 +33,27 @@ class RuleInstallation(unittest.TestCase):
 
     def test_install_and_status_require_real_administrator_authority(self):
         self.hestia.authorize.return_value = self.context | {'admin':False}
-        for action in ('rules-install','rules-status'):
+        for action in ('rules-install','rules-status','rules-schedule-save'):
             with self.subTest(action=action), self.assertRaises(AccessDenied):
                 self.app.dispatch(dict(actor='operator', action=action, admin=True, profile='core'))
+
+    def test_admin_schedule_save_and_status_are_global_but_cannot_bypass_download_interval(self):
+        from clamshield.rule_updates import RuleUpdates
+        saved=self.app.dispatch(dict(actor='operator',owner='tenant',action='rules-schedule-save',policy={'automatic':False,'interval_minutes':180}))
+        self.assertEqual(180,saved['schedule']['interval_minutes'])
+        RuleUpdates(self.settings).record(last_attempt=__import__('time').time())
+        for action in ('rules-install','rules-update'):
+            with self.assertRaisesRegex(ClamShieldError,'Next permitted'):
+                self.app.dispatch(dict(actor='operator',action=action,profile='full'))
+        status=self.app.dispatch(dict(actor='operator',action='rules-status'))
+        self.assertFalse(status['schedule']['automatic']);self.assertGreater(status['schedule']['next_allowed'],status['schedule']['last_attempt'])
+
+    def test_queued_automatic_update_revalidates_policy_before_any_install(self):
+        payload={'profile':'core','release':None,'automatic':True,'revision':'old'}
+        self.store.enqueue_task(self.context,'rules-install',payload)
+        self.worker(lambda *args,**kwargs:self.fail('Stale automatic work must not install'))
+        status=self.store.rule_install_status(self.context)
+        self.assertEqual('failed',status['latest']['status']);self.assertIn('settings changed',status['latest']['error'])
 
     def test_progress_and_latest_status_are_account_generation_scoped(self):
         task_id = self.store.enqueue_task(self.context,'rules-install',{'profile':'core'})

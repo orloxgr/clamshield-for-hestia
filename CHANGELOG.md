@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.9.0
+
+- Add automatic YARA Forge rule updates with a configurable interval, last
+  attempt/success and next permitted update under Updates → YARA rules.
+  Default to daily checks of the installed profile; Forge publishes weekly.
+- Enforce a conservative hourly minimum across manual, automatic and legacy
+  updates, including profile changes, failures and interrupted downloads.
+  Retain longer GitHub Retry-After/rate-limit deadlines across restarts.
+- Revalidate queued automatic updates and pause them for pending source edits
+  or disabled Forge sources. Only validated rules are activated; the engine
+  remains the Ubuntu APT package.
+
 ## 1.8.0
 
 - Show per-provider update intervals, minimums, last attempt/success and next

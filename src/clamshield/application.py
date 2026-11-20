@@ -19,6 +19,7 @@ from .health import Health
 from .wordpress import WordPress
 from .repairs import Repairs
 from .rule_manager import RuleManager
+from .rule_updates import RuleUpdates
 from .rule_trials import RuleTrials
 from .mail_policy import MailPolicies
 from .mail_custody import MailCustody
@@ -312,11 +313,17 @@ class Application:
         if action=='quarantine-recover':
             row=Quarantine(self.settings,self.store,self.hestia).recover(context,request.get('operation_id'))
             return {'operation_id':row['id'],'status':row['status']}
+        if action=='rules-schedule-save':
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            result=RuleUpdates(self.settings).save(request.get('policy'))
+            self.store.audit(context,'rules.schedule_saved','server',{'automatic':result['automatic'],'interval_minutes':result['interval_minutes']})
+            return {'schedule':result}
         if action=='rules-status':
             if not context['admin']:raise AccessDenied('Administrator access required')
             task_context=self.hestia.authorize(context['actor'],context['actor'])
             active=Rules(self.settings).status()
             return {**self.store.rule_install_status(task_context),
+                    'schedule':RuleUpdates(self.settings).status(),
                     'active':{key:active[key] for key in ('configured','profile','version','enabled','rules','generation','created') if key in active}}
         if action in ('rules-install','rules-update','rules-php-hosting','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
                       'rules-source-toggle','rules-source-review','rules-source-fetch','rules-rule-toggle','rules-catalog'):
@@ -328,6 +335,7 @@ class Application:
             task_action,payload=action,{}
             if action in ('rules-install','rules-update'):
                 if request.get('profile','core') not in ('core','extended','full'):raise ClamShieldError('Invalid Forge profile')
+                RuleUpdates(self.settings).check_due()
                 payload={'profile':request.get('profile','core'),'release':request.get('release')}
             elif action=='rules-source-save':
                 saved=manager.save_source(request.get('source'))

@@ -98,6 +98,29 @@ including after reopening the view. Success is shown only after activation;
 a failed download, validation or source-revision check does not activate the
 candidate. Existing active data remains available after failed validation.
 
+**Automatic rule updates** shows the saved interval, last attempt, last successful
+update and next permitted update in UTC. Checks default to every 1440 minutes
+(24 hours) and automatically validate and activate the installed Forge profile.
+Install a profile once before background updates can start. Save any whole-minute
+interval from 60 to 525600; unchecking the automatic option leaves manual updates
+available when due. These are server-wide administrator settings in every account
+view; hosting users cannot change them.
+
+[YARA Forge publishes weekly releases](https://github.com/YARAHQ/yara-forge#readme).
+Our hourly minimum is a conservative polling floor, not a claimed Forge quota.
+Manual and automatic updates, profile changes and the legacy updater share one
+durable gate. Failed or interrupted attempts also consume the interval. Longer
+[GitHub Retry-After/rate-limit deadlines](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api)
+take precedence, including after a restart or interval change. Success is recorded
+after the entire requested operation finishes: activation for the normal flow,
+validated staging for an advanced Forge update.
+
+Automatic updates use the currently installed profile, skip disabled Forge
+sources and pause while source/rule edits differ from the active configuration.
+Queued work rechecks settings and native administrator authority before running.
+Changing the profile dropdown alone does not change the installed profile.
+Additional PHP/web/custom sources retain their separate staging controls.
+
 **Advanced rule tools** retains staging, per-source/per-rule selections, receipts,
 comparison trials, manual candidate activation and rollback. Those controls are
 optional for normal Forge installation. Managed PHP/web hosting sources retain

@@ -104,3 +104,27 @@ class Monitoring(unittest.TestCase):
             providers.status('official',retry_after=None)
             self.scheduler.tick(instant)
             with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+
+    def test_yara_timer_uses_saved_interval_cooldown_installed_profile_and_deduplicates_work(self):
+        from clamshield.rule_updates import RuleUpdates
+        Providers(self.settings).save({'automatic':False})
+        updates=RuleUpdates(self.settings);instant=datetime.now(timezone.utc)
+        updates.save({'interval_minutes':180});updates.record(last_attempt=instant.timestamp()-7200)
+        self.scheduler.hestia.inventory.return_value=[{'owner':'admin','identity':'admin-generation','role':'admin','suspended':False,'sites':[]}]
+        payload={'profile':'extended','release':None,'automatic':True,'revision':'fixture'}
+        with patch('clamshield.scheduler.Health'),patch('clamshield.rule_manager.RuleManager') as manager:
+            manager.return_value.automatic_update.return_value=payload
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            updates.save({'interval_minutes':60});updates.record(retry_after=instant.timestamp()+3600)
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            updates.record(retry_after=None)
+            manager.return_value.automatic_update.return_value=None
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            manager.return_value.automatic_update.return_value=payload
+            self.scheduler.tick(instant);self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            task=self.store.claim_task('test');self.assertEqual(payload,task['payload'])
+            self.assertEqual(('admin','admin-generation'),(task['owner'],task['identity']))
