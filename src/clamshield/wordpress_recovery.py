@@ -333,36 +333,38 @@ class WordPressRecovery:
                 if expected!=actual:raise Conflict('A selected file changed after analysis: '+item['path'])
 
     def work(self,job,engines):
-        with self.locked():
+        # Match the HTTP analysis guard's lock order: delegation, then recovery.
+        # Reversing this order can deadlock an analysis request and revocation.
+        with WebsitePermissions(self.settings,self.store,self.hestia).locked(),self.locked():
             with self.store.connection() as db:row=db.execute('SELECT id FROM wordpress_recovery WHERE work_job=?',(job['id'],)).fetchone()
             if not row:raise AccessDenied('Recovery work unavailable')
             plan=self.get(job,row['id']);context=self.context(plan,actor=job['actor'])
-            if job['source']=='wordpress-recovery':return self.inspect(job,engines)
+            if job['source']=='wordpress-recovery':
+                WebsitePermissions(self.settings,self.store,self.hestia).require(context,'scan')
+                return self.inspect(job,engines)
             operation=job['source'].removeprefix('wordpress-recovery-');items=self.selected(plan)
             counters=dict(seen=len(items),scanned=0,infected=0,detections=0,skipped=0,errors=0,bytes=0)
             try:
-                # Serialize tenant delegation changes with this reviewed mutation.
-                with WebsitePermissions(self.settings,self.store,self.hestia).locked():
-                    self.require(context,items,undo=operation=='undo')
-                    if operation!='undo':self.preflight(plan,context,items,allow_applied=operation=='apply')
-                    if operation=='preview':
-                        for item in items:
-                            self.check_cancel(job)
-                            if item['action']=='replace':self.claim_preview(plan,context,item,job,engines)
-                            else:self.save_item(item,status='prepared')
-                            counters['scanned']+=1;self.store.progress(job['id'],counters)
-                        self.save(plan,status='reviewed',revision=uuid.uuid4().hex,work_job=None)
-                    else:
-                        for item in reversed(items) if operation=='undo' else items:
-                            self.check_cancel(job);self.context(plan,actor=context['actor'])
-                            if (operation=='apply' and item['status']=='done') or (operation=='undo' and item['status'] in ('undone','proposed','prepared')):continue
-                            self.perform(plan,context,item,undo=operation=='undo')
-                            counters['scanned']+=1;self.store.progress(job['id'],counters)
-                        site=dict(owner=plan['owner'],identity=plan['identity'],domain=plan['domain'],root=plan['root'])
-                        checks=[self.store.enqueue(context,site,plan['target'],source=source,generation=generation(self.settings)) for source in ('wordpress-integrity','wordpress-recovery-recheck')]
-                        self.save(plan,status='undone' if operation=='undo' else 'applied',work_job=None,
-                                  report=plan['report']|dict(recheck_jobs=checks),revision=uuid.uuid4().hex)
-                    self.store.audit(context,'wordpress.recovery_'+operation,plan['id'],dict(selected=len(items),completed=counters['scanned']))
+                self.require(context,items,undo=operation=='undo')
+                if operation!='undo':self.preflight(plan,context,items,allow_applied=operation=='apply')
+                if operation=='preview':
+                    for item in items:
+                        self.check_cancel(job)
+                        if item['action']=='replace':self.claim_preview(plan,context,item,job,engines)
+                        else:self.save_item(item,status='prepared')
+                        counters['scanned']+=1;self.store.progress(job['id'],counters)
+                    self.save(plan,status='reviewed',revision=uuid.uuid4().hex,work_job=None)
+                else:
+                    for item in reversed(items) if operation=='undo' else items:
+                        self.check_cancel(job);self.context(plan,actor=context['actor'])
+                        if (operation=='apply' and item['status']=='done') or (operation=='undo' and item['status'] in ('undone','proposed','prepared')):continue
+                        self.perform(plan,context,item,undo=operation=='undo')
+                        counters['scanned']+=1;self.store.progress(job['id'],counters)
+                    site=dict(owner=plan['owner'],identity=plan['identity'],domain=plan['domain'],root=plan['root'])
+                    checks=[self.store.enqueue(context,site,plan['target'],source=source,generation=generation(self.settings)) for source in ('wordpress-integrity','wordpress-recovery-recheck')]
+                    self.save(plan,status='undone' if operation=='undo' else 'applied',work_job=None,
+                              report=plan['report']|dict(recheck_jobs=checks),revision=uuid.uuid4().hex)
+                self.store.audit(context,'wordpress.recovery_'+operation,plan['id'],dict(selected=len(items),completed=counters['scanned']))
                 self.store.finish(job,'completed',counters)
             except (OSError,ClamShieldError) as exc:
                 counters['errors']+=1;message=self.message(exc)
