@@ -23,6 +23,8 @@ class UninstallerOutput(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             base=Path(folder);state=base/'state';state.mkdir()
             source=base/"checkout '$(do-not-run)'";source.mkdir()
+            (source/'pyproject.toml').write_text('name = "clamshield-hestia"\n')
+            (source/'src/clamshield').mkdir(parents=True);(source/'src/clamshield/__init__.py').write_text('')
             original=state/'quarantine-original';original.write_text('retained original')
             result=uninstaller.cleanup_report(dict(uninstalled=True,data_retained=True,
                 retained_directories=[dict(path=str(state),purpose='Settings, history and quarantine')]),source)
@@ -52,3 +54,8 @@ class UninstallerOutput(unittest.TestCase):
         result=dict(uninstalled=False,error='Owned file changed',retained_directories=[dict(path='/unused',delete_command='sudo rm -rf -- /unused')])
         text=self.render(result)
         self.assertIn('Owned file changed',text);self.assertNotIn('sudo rm',text)
+
+    def test_copying_the_script_into_an_unrelated_directory_does_not_make_it_a_cleanup_target(self):
+        with tempfile.TemporaryDirectory() as folder:
+            result=uninstaller.cleanup_report(dict(uninstalled=True,retained_directories=[]),folder)
+            self.assertEqual([],result['retained_directories'])

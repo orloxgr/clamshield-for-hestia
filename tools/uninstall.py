@@ -14,7 +14,10 @@ sys.path.insert(0,str(SOURCE/'src'))
 def cleanup_report(result,source):
     if not result.get('uninstalled'):return result
     directories=list(result.get('retained_directories',[]));source=Path(source)
-    if source.exists() and not any(source.is_relative_to(Path(row['path'])) for row in directories):
+    project=source/'pyproject.toml'
+    checkout=(source.is_dir() and not source.is_symlink() and project.is_file() and not project.is_symlink() and
+              'name = "clamshield-hestia"' in project.read_text(encoding='utf-8') and (source/'src/clamshield/__init__.py').is_file())
+    if checkout and not any(source.is_relative_to(Path(row['path'])) for row in directories):
         directories.append(dict(path=str(source),purpose='ClamShield source checkout'))
     return result|{'retained_directories':[row|{'delete_command':shlex.join(['sudo','rm','-rf','--',row['path']])} for row in directories]}
 
