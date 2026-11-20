@@ -56,7 +56,7 @@ class Installation:
         """Only interrupt controllers recorded as our exact owned integrations."""
         manifest=self.read(self.manifest);pending=self.read(self.install_journal)
         if manifest is None and not self.target.exists():return (),()
-        inventory=self.inventory() if manifest is not None else {'files':{}}
+        inventory=self.inventory(allow_legacy=True) if manifest is not None else {'files':{}}
         published=None
         if pending and pending.get('owner')=='clamshield' and pending.get('schema')==1 and self.target.exists():
             published=self.target.resolve();self.code(published)
@@ -317,9 +317,18 @@ class Installation:
         value=dict(owner='clamshield',schema=1,phase='installed',release=str(release),files=files,updated=time.time())
         write_json(self.manifest,value);return value
 
-    def inventory(self):
+    def inventory(self,*,allow_legacy=False):
         value=self.read(self.manifest)
         required=set(map(str,self.files()))-{str(self.at('/etc/apparmor.d')/name) for name in PROFILES}
+        # Only the installer may admit the exact pre-Bell inventory. Runtime and
+        # removal still require the complete current inventory. Existing foreign
+        # files at the new unit paths are checked separately by update_units.
+        if allow_legacy and isinstance(value,dict) and isinstance(value.get('files'),dict) and isinstance(value.get('release'),str):
+            added={'clamshield-notifications.service','clamshield-notifications.timer'}
+            paths={str(self.at('/etc/systemd/system')/name) for name in added}
+            release=Path(value['release']);self.code(release)
+            if not paths.intersection(value['files']) and not (release/'src/clamshield/notification_preferences.py').exists() and not any((release/'systemd'/name).exists() for name in added):
+                required-=paths
         if (not isinstance(value,dict) or value.get('owner')!='clamshield' or value.get('schema')!=1 or
                 value.get('phase') not in ('installed','removed') or not isinstance(value.get('files'),dict) or
                 not isinstance(value.get('release'),str) or len(value['release'])>4096 or not required<=set(value['files']) or

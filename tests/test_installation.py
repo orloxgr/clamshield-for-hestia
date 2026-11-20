@@ -238,6 +238,39 @@ time.sleep(60)
             self.assertTrue(self.installation.install_journal.exists())
         self.assertEqual([],self.installation.calls)
 
+    def legacy_bell_inventory(self):
+        value=self.installation.read(self.installation.manifest)
+        paths=[self.root/'etc/systemd/system'/name for name in ('clamshield-notifications.service','clamshield-notifications.timer')]
+        for path in paths:value['files'].pop(str(path));path.unlink()
+        write_json(self.installation.manifest,value)
+        return paths
+
+    def test_pre_bell_upgrade_admits_only_the_old_inventory_and_registers_new_owned_units(self):
+        paths=self.legacy_bell_inventory()
+        with self.assertRaises(Conflict):self.installation.inventory()
+        with self.installation.update(self.release):
+            for path in paths:path.write_bytes(self.contents[path])
+            self.installation.register(self.release)
+            self.installation.finish_install()
+        self.installation.available()
+        self.assertTrue(all(str(path) in self.installation.inventory()['files'] for path in paths))
+        for call in self.installation.calls:
+            self.assertFalse(any(name in call for name in ('clamshield-notifications.service','clamshield-notifications.timer')))
+
+    def test_pre_bell_upgrade_never_stops_a_foreign_file_at_the_new_service_path(self):
+        paths=self.legacy_bell_inventory();paths[0].write_text('Foreign service')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.release):pass
+        self.assertEqual([],self.installation.calls);self.assertFalse(self.installation.install_journal.exists())
+        self.assertEqual('Foreign service',paths[0].read_text())
+
+    def test_current_release_cannot_masquerade_as_pre_bell_inventory(self):
+        self.legacy_bell_inventory()
+        source=self.release/'src/clamshield/notification_preferences.py';source.parent.mkdir(parents=True);source.write_text('Current release')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.release):pass
+        self.assertEqual([],self.installation.calls)
+
     def resource_fixture(self,enabled=None,active=False):
         if enabled is not None:write_json(self.settings.state/'website-engine.json',dict(owner='clamshield',schema=1,enabled=enabled,changed_at=1))
         resource=Mock();resource.locked.side_effect=lambda:nullcontext();resource.worker_lock.side_effect=lambda:nullcontext()
