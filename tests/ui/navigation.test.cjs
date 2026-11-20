@@ -141,6 +141,92 @@ test('provider interval fields are sent as numbers while masked credentials and 
 const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',other:'Other notifications'};
 const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
 const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});
+const reviewResponse=(body,extra={})=>({ok:true,json:async()=>({ok:true,list:body.list,html:'<tr><td>Current page</td></tr>',total:560,offset:Number(body.offset||0),limit:Number(body.limit||50),next_offset:50,options:{status:['open'],type:['clamav'],provider:['official']},accounts:['alice','bob'],can_clear:true,...extra})});
+
+test('Review filters query the complete server list and paginate beyond the old preview limit',async()=>{
+  const f=fixture({hash:'#review/findings',change:v=>{v.context.view_scope='server';},api:async body=>reviewResponse(body,{next_offset:550})});
+  try{await settle();const form=f.document.querySelector('[data-review-list=findings]'),bar=f.document.querySelector('[data-review-pager=findings]');
+    assert.match(bar.textContent,/Showing 1–50 of 560/);bar.querySelector('[data-review-command=next]').click();await settle();
+    assert.equal(f.requests.filter(r=>r.action==='review-list').at(-1).offset,'550');assert.match(bar.textContent,/Showing 551–560 of 560/);
+    form.elements.search.value='site.test';form.elements.account.value='bob';form.elements.type.value='clamav';form.elements.provider.value='official';form.elements.from.value='2026-11-01';form.elements.to.value='2026-11-20';form.elements.rows.value='25';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const sent=f.requests.filter(r=>r.action==='review-list').at(-1);assert.equal(sent.scope,'server');assert.equal(sent.token,'fixture-token');assert.equal(sent.offset,'0');assert.equal(sent.limit,'25');
+    assert.deepEqual(JSON.parse(sent.filters),{search:'site.test',account:'bob',status:'',type:'clamav',provider:'official',from:'2026-11-01',to:'2026-11-20',order:'newest'});
+    assert.equal(form.elements.account.options[1].textContent,'alice');assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('Review ignores stale responses, serializes refreshes and retains rows on escaped failures',async()=>{
+  const pending=[];
+  const f=fixture({hash:'#review/history',api:body=>new Promise(resolve=>pending.push({body,resolve}))});
+  try{await settle();const form=f.document.querySelector('[data-review-list=history]'),rows=f.document.getElementById('cs-review-history-rows');
+    form.elements.search.value='latest';form.dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(pending.length,1);
+    pending[0].resolve(reviewResponse(pending[0].body,{html:'<tr><td>STALE RESPONSE</td></tr>'}));await settle();
+    assert.doesNotMatch(rows.textContent,/STALE/);assert.equal(pending.length,2);assert.equal(JSON.parse(pending[1].body.filters).search,'latest');
+    pending[1].resolve(reviewResponse(pending[1].body,{html:'<tr><td>Latest rows</td></tr>'}));await settle();assert.equal(rows.textContent,'Latest rows');
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));pending[2].resolve({ok:false,json:async()=>({ok:false,error:'<b>Query unavailable</b>'})});await settle();
+    assert.equal(rows.textContent,'Latest rows');assert.match(form.nextElementSibling.nextElementSibling.textContent,/Query unavailable.*last loaded rows are kept/);assert.equal(form.nextElementSibling.nextElementSibling.querySelector('b'),null);
+    assert.equal(form.querySelector('[type=submit]').disabled,false);
+  }finally{await f.close();}
+});
+
+test('newly paged findings retain owner-bound actions and administrator capability restrictions',async()=>{
+  const html='<tr data-owner="bob"><td><button class="button" data-action="quarantine" data-finding_id="next-page-finding">Quarantine</button><button class="button" data-action="exception-add" data-finding_id="next-page-finding">Trust</button></td></tr>';
+  const f=fixture({hash:'#review/findings',change:v=>{v.context.view_scope='server';v.website_permissions.effective.exceptions=false;},api:async body=>body.action==='review-list'?reviewResponse(body,{html}):{ok:false,json:async()=>({ok:false,error:'Fixture action stopped'})}});
+  try{await settle();const rows=f.document.getElementById('cs-review-findings-rows');
+    assert.equal(rows.querySelector('[data-action=exception-add]').disabled,true);rows.querySelector('[data-action=quarantine]').click();await settle();
+    const request=f.requests.find(r=>r.action==='quarantine');assert.equal(request.owner,'bob');assert.equal(request.finding_id,'next-page-finding');assert.equal(request.token,'fixture-token');
+    assert.match(f.document.getElementById('cs-message').textContent,/Fixture action stopped/);assert.equal(rows.querySelector('[data-action=quarantine]').disabled,false);
+  }finally{await f.close();}
+});
+
+test('Delete all history requires a scoped count confirmation and guards repeated confirmation clicks',async()=>{
+  let finish;
+  const f=fixture({hash:'#review/history',change:v=>{v.context.view_scope='server';},api:async body=>{
+    if(body.action==='review-bulk-preview')return {ok:true,json:async()=>({ok:true,token:'bound-proof',count:734,scope:'server'})};
+    if(body.action==='review-bulk-clear')return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,changed:734})});});
+    return reviewResponse(body);
+  }});
+  try{await settle();f.click('[data-review-pager=history] [data-review-command=delete-all]');await settle();
+    const confirmation=f.document.querySelector('[data-review-confirmation=history]');assert.equal(confirmation.hidden,false);assert.match(confirmation.textContent,/734 history events.*all current server accounts.*hidden by filters/);
+    assert.equal(f.requests.filter(r=>r.action==='review-bulk-clear').length,0);confirmation.querySelector('button').click();confirmation.querySelector('button').click();
+    const sent=f.requests.filter(r=>r.action==='review-bulk-clear');assert.equal(sent.length,1);assert.equal(sent[0].confirmation,'bound-proof');assert.equal(sent[0].scope,'server');assert.equal(sent[0].list,'history');
+    finish();await settle();assert.equal(confirmation.hidden,true);assert.equal(f.requests.filter(r=>r.action==='review-list').at(-1).offset,'0');
+  }finally{await f.close();}
+});
+
+test('bulk notification read and dynamically loaded individual Mark read both use AJAX',async()=>{
+  let finish;
+  const html='<tr data-owner="bob" data-notification="paged-notice" data-event="scan.malware_found" data-read="false"><td>Finding</td><td><button type="button" class="button cs-notification-read">Mark read</button><p class="cs-notification-read-status"></p></td></tr>';
+  const f=fixture({hash:'#review/notices',change:v=>{v.context.view_scope='server';},api:async body=>{
+    if(body.action==='notification-settings-get')return {ok:true,json:async()=>({ok:true,...notificationSettings()})};
+    if(body.action==='review-read-all')return new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,changed:734})});});
+    if(body.action==='notification-read')return {ok:true,json:async()=>({ok:true,read:true})};
+    return reviewResponse(body,{html});
+  }});
+  try{await settle();f.click('[data-review-pager=notices] [data-review-command=read-all]');f.click('[data-review-pager=notices] [data-review-command=read-all]');
+    const sent=f.requests.filter(r=>r.action==='review-read-all');assert.equal(sent.length,1);assert.equal(sent[0].scope,'server');finish();await settle();
+    f.click('#cs-notification-list .cs-notification-read');await settle();assert.equal(f.requests.find(r=>r.action==='notification-read').owner,'bob');
+    assert.deepEqual(f.visible(),['notices']);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('Review supplies separate scoped controls for all-account email records and operation lists',async()=>{
+  const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='review-list'?reviewResponse(body,{html:'<tr><td>fixture account</td></tr>'}):{ok:false,json:async()=>({ok:false,error:'Fixture summary unavailable'})}});
+  try{await settle();
+    assert.deepEqual([...f.document.querySelectorAll('[data-review-list]')].map(form=>form.dataset.reviewList).sort(),['activity','automatic','email-decisions','email-stored','exceptions','findings','history','notices','quarantine','repairs']);
+    for(const kind of ['email-stored','email-decisions'])assert.ok(f.requests.find(r=>r.action==='review-list'&&r.list===kind&&r.scope==='server'));
+    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-mail-activity-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+2);
+    assert.equal(f.document.querySelector('[data-review-pager=quarantine] [data-review-command=delete-all]'),null);
+    assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('navigation controls in paged automatic actions still open their Review destination',async()=>{
+  const f=fixture({hash:'#review/activity',api:async body=>reviewResponse(body,{html:'<tr><td><button class="button" data-tab="repairs">Review repair</button></td></tr>'})});
+  try{await settle();f.click('#cs-review-automatic-rows [data-tab=repairs]');await settle();assert.deepEqual(f.visible(),['repairs']);assert.equal(f.w.location.hash,'#review/repairs');assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
 
 test('notification preferences save selected types and Bell without reload while filters retain access to recorded events',async()=>{
   const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found'),notice('scan.partial','notice-two'),notice('wordpress.integrity_issues','notice-three')],api:async body=>({ok:true,json:async()=>({ok:true,...notificationSettings(body.action==='notification-settings-save'?JSON.parse(body.policy):{})})})});

@@ -62,3 +62,29 @@ require $argv[1].'/route.php';
         self.assertEqual(0,result.returncode,result.stderr)
         value=json.loads(result.stdout);self.assertFalse(value['ok']);self.assertIn('panel files are unavailable',value['error'])
         self.assertNotIn('HEADER',result.stdout);self.assertEqual('',result.stderr)
+
+    def review_route(self,templates=True):
+        if templates:shutil.copytree(ROOT/'panel',self.base/'old/panel',dirs_exist_ok=True)
+        (self.base/'hestia/web/inc/main.php').write_text('<?php $_SESSION=["user"=>"admin","token"=>"fixture-token"];')
+        value=dict(ok=True,list='notices',total=1,offset=0,limit=50,next_offset=None,options={},accounts=['alice'],can_clear=True,
+                   records=[dict(private_marker='ROOT_RECORD_ONLY')],view_data=dict(context=dict(owner='admin',view_scope='server'),notifications=[dict(owner='alice',id='notice',event='scan.malware_found',subject='<img src=x>',created=1,read_at=None,detail={})]))
+        (self.base/'response.json').write_text(json.dumps(value),encoding='utf-8')
+        (self.base/'bridge').write_text('#!/usr/bin/python3\nimport pathlib,sys\nsys.stdin.read()\nprint(pathlib.Path(__file__).with_name("response.json").read_text())\n')
+        (self.base/'runner.php').write_text('''<?php
+$_SERVER['REQUEST_METHOD']='POST';
+$_POST=['action'=>'review-list','owner'=>'admin','scope'=>'server','token'=>'fixture-token','list'=>'notices','limit'=>'50','offset'=>'0','filters'=>'{}'];
+require $argv[1].'/route.php';
+''')
+        result=subprocess.run(self.command(),capture_output=True,text=True,timeout=20)
+        self.assertEqual(0,result.returncode,result.stderr);self.assertEqual('',result.stderr)
+        return json.loads(result.stdout)
+
+    def test_review_post_renders_escaped_shared_rows_without_native_page_or_raw_data(self):
+        value=self.review_route()
+        self.assertTrue(value['ok']);self.assertEqual(1,value['total']);self.assertIn('&lt;img',value['html']);self.assertNotIn('<img',value['html'])
+        self.assertNotIn('records',value);self.assertNotIn('view_data',value)
+        self.assertNotIn('ROOT_RECORD_ONLY',json.dumps(value));self.assertNotIn('HEADER',value['html'])
+
+    def test_missing_review_renderer_returns_explicit_json_error(self):
+        value=self.review_route(templates=False)
+        self.assertFalse(value['ok']);self.assertIn('Review templates are unavailable',value['error'])

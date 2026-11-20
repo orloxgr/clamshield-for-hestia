@@ -21,12 +21,13 @@
     if(writeHash)history.replaceState(null,'','#'+group+(page===map[group][0]?'':'/'+page));
     document.dispatchEvent(new CustomEvent('clamshield-tab-change',{detail:page}));
   }
-  document.querySelectorAll('[data-main-tab],[data-tab]').forEach(link=>link.addEventListener('click',event=>{
+  document.addEventListener('click',event=>{
+    const link=event.target.closest('[data-main-tab],[data-tab]');if(!link||link.disabled)return;
     event.preventDefault();const page=link.dataset.tab;
     select(page?groupOf(page):link.dataset.mainTab,page);
     const target=document.getElementById(link.dataset.focusId||('cs-provider-'+link.dataset.focusProvider));
     if(target){for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;target.scrollIntoView?.({block:'nearest'});target.focus();}
-  }));
+  });
   function fromHash(){
     const [group,page]=location.hash.slice(1).split('/');
     const legacy={results:'findings',exceptions:'exceptions',quarantine:'quarantine',history:'history'};

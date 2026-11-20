@@ -140,11 +140,25 @@ class ReviewTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('php'),'PHP renderer')
     def test_shared_php_fragments_render_all_lists_and_escape_notifications(self):
-        self.notice(self.alice,subject='<img src=x onerror=alert(1)>');self.findings(1)
+        self.notice(self.alice,subject='<img src=x onerror=alert(1)>');job=self.findings(1)
+        owner,identity=self.store.scope(self.alice);root=str(self.base/owner)
+        with self.store.connection() as db:
+            finding=db.execute('SELECT id FROM findings WHERE job_id=?',(job,)).fetchone()[0]
+            def insert(table,**fields):
+                db.execute('INSERT INTO '+table+' ('+','.join(fields)+') VALUES('+','.join('?' for _ in fields)+')',list(fields.values()))
+            insert('repair_plans',id=job,finding_id=finding,owner=owner,identity=identity,actor=owner,status='ready',created=1,metadata='{}')
+            insert('operations',id='operation',finding_id=finding,owner=owner,identity=identity,actor=owner,kind='quarantine',status='quarantined',created=1,metadata=encode(dict(root=root,path='uploads/fixture.php')))
+            insert('exceptions',id='exception',owner=owner,identity=identity,actor=owner,domain='alice.test',root=root,path='fixture.php',kind='file',engine='yara',signature='Fixture',sha256='a'*64,note='Fixture',created=1)
+            insert('remediation_actions',id='automatic',owner=owner,identity=identity,actor=owner,job_id=job,finding_id=finding,path='fixture.php',status='quarantined',created=1,updated=1,detail=encode(dict(policy=dict(mode='quarantine'),operation_id='operation')))
+            insert('maintenance',id='task',owner=owner,identity=identity,actor=owner,action='signatures-update',payload='{}',created=1)
+            insert('mail_transactions',id='transaction',exim_id='fixture-exim',created=1,updated=1,status='accepted',sha256='a'*64,size=1,metadata='{}')
+            insert('mail_recipients',id='recipient',transaction_id='transaction',owner=owner,identity=identity,domain='alice.test',mailbox='inbox',recipient='inbox@alice.test',action='tag',status='delivered',created=1,updated=1,detail='{}')
+            insert('mail_decisions',id='decision',owner=owner,identity=identity,domain='alice.test',mailbox='inbox',recipient='inbox@alice.test',sender='sender@site.test',exim_id='fixture-exim',created=1,sha256='a'*64,action='tag',classification='clean',detail='{}')
         renderer=Path(__file__).resolve().parents[1]/'panel/review_render.php'
-        code="$data=json_decode(stream_get_contents(STDIN),true);$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];"
+        code="set_error_handler(function($s,$m){throw new ErrorException($m,0,$s);});$data=json_decode(stream_get_contents(STDIN),true);$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];"
         for kind in SPECS:
             value=self.page(kind,self.admin,'server')
+            self.assertGreater(value['total'],0,kind)
             result=subprocess.run(['php','-d','display_errors=stderr','-r',code,str(renderer)],input=encode(value),capture_output=True,text=True)
             self.assertEqual(0,result.returncode,result.stderr);self.assertEqual('',result.stderr,kind)
             if kind=='notices':self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)

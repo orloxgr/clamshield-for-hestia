@@ -45,7 +45,10 @@
   });
   by('reset')?.addEventListener('click',async()=>{if(!current||busy)return;busy=true;try{render(await api('mail-account-reset',{revision:current.revision}));status.textContent='Account inherits global email defaults and permissions.';}catch(error){status.textContent=error.message;}finally{busy=false;}});
   by('refresh').addEventListener('click',load);
-  document.getElementById('cs-mail-activity-refresh')?.addEventListener('click',()=>activity().catch(error=>{document.getElementById('cs-mail-server-totals').textContent=error.message;}));
+  document.getElementById('cs-mail-activity-refresh')?.addEventListener('click',()=>{
+    activity().catch(error=>{document.getElementById('cs-mail-server-totals').textContent=error.message;});
+    for(const kind of ['email-stored','email-decisions'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));
+  });
   document.addEventListener('clamshield-tab-change',event=>{if(['mail-settings','email-review'].includes(event.detail)&&!loaded)load();});
   if(['mail-settings','email-review'].includes(sessionStorage.getItem('clamshield-tab')))queueMicrotask(load);
 })();
