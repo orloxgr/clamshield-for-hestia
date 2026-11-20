@@ -149,6 +149,43 @@ class InstalledLifecycle(unittest.TestCase):
         self.installation.target.symlink_to(self.release);self.installation.register(self.release);self.installation.finish_install()
         self.installation.available();self.assertEqual(b'Preserved quarantine original',self.custody.read_bytes());self.assertTrue(self.config.exists())
 
+    def test_reinstall_after_removal_does_not_require_old_release_directory(self):
+        self.installation.uninstall()
+        self.installation.releases.rename(self.root/'removed-code')
+        self.installation.calls=[]
+        self.assertTrue(self.installation.uninstall()['unchanged'])
+        with self.assertRaises(Conflict):self.installation.available()
+        with self.installation.update(self.root/'checkout'):
+            self.assertEqual([],self.installation.calls)
+            release=self.installation.releases/'release-reinstalled';release.mkdir(parents=True)
+            (release/'.clamshield-owner').write_text('clamshield\n')
+            for path,content in self.contents.items():path.write_bytes(content)
+            self.installation.target.symlink_to(release)
+            self.installation.register(release);self.installation.finish_install()
+        self.installation.available()
+        self.assertEqual(b'Preserved quarantine original',self.custody.read_bytes())
+        self.assertEqual('Preserved administrator settings',self.config.read_text())
+
+    def test_missing_removed_release_does_not_admit_foreign_controller_or_manifest_path(self):
+        self.installation.uninstall();self.installation.releases.rename(self.root/'removed-code')
+        self.installation.calls=[]
+        path=self.installation.at('/etc/systemd/system/clamshield-worker.service')
+        path.write_text('Foreign replacement')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.root/'checkout'):self.fail('Foreign controller admitted')
+        self.assertEqual([],self.installation.calls);self.assertFalse(self.installation.install_journal.exists())
+        self.assertEqual('Foreign replacement',path.read_text())
+        value=self.installation.read(self.installation.manifest)
+        write_json(self.installation.manifest,value|{'release':str(self.root/'foreign/release-test')})
+        with self.assertRaises(Conflict):self.installation.inventory()
+
+    def test_installed_state_still_requires_trusted_previous_code(self):
+        self.installation.releases.rename(self.root/'missing-installed-code')
+        self.installation.calls=[]
+        with self.assertRaises(FileNotFoundError):
+            with self.installation.update(self.root/'checkout'):self.fail('Missing installed code admitted')
+        self.assertEqual([],self.installation.calls);self.assertFalse(self.installation.install_journal.exists())
+
     def test_exclusive_lifecycle_gate_waits_for_an_existing_request(self):
         path=self.settings.state/'installation.lock';fd=os.open(path,os.O_CREAT|os.O_RDWR,0o600)
         try:

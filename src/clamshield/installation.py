@@ -323,7 +323,7 @@ class Installation:
         # Only the installer may admit the exact pre-Bell inventory. Runtime and
         # removal still require the complete current inventory. Existing foreign
         # files at the new unit paths are checked separately by update_units.
-        if allow_legacy and isinstance(value,dict) and isinstance(value.get('files'),dict) and isinstance(value.get('release'),str):
+        if allow_legacy and isinstance(value,dict) and value.get('phase')!='removed' and isinstance(value.get('files'),dict) and isinstance(value.get('release'),str):
             added={'clamshield-notifications.service','clamshield-notifications.timer'}
             paths={str(self.at('/etc/systemd/system')/name) for name in added}
             release=Path(value['release']);self.code(release)
@@ -334,7 +334,14 @@ class Installation:
                 not isinstance(value.get('release'),str) or len(value['release'])>4096 or not required<=set(value['files']) or
                 set(value['files'])-set(map(str,self.files())) or any(not isinstance(v,str) or len(v)!=64 or any(c not in '0123456789abcdef' for c in v) for v in value['files'].values())):
             raise Conflict('Install/update ClamShield to establish a valid owned integration inventory')
-        self.code(value['release']);return value
+        if value['phase']=='removed':
+            # Completed removal no longer executes the recorded code. Its
+            # private inventory still authenticates any remaining controllers.
+            release=Path(value['release'])
+            if release.parent!=self.releases or not release.name.startswith('release-'):
+                raise Conflict('Unexpected installed code generation')
+        else:self.code(value['release'])
+        return value
 
     def resources(self):
         from .resources import Resources,SERVICES,render

@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.2
+
+- Fix reinstall after completed removal when the old code directory is absent.
+  Preserve retained data and validate recorded controller ownership before
+  starting installation; installed-state code checks remain enforced.
+
 ## 1.10.1
 
 - Remove the PHP hosting / PHP Malware Finder integration, downloader, settings
