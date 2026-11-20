@@ -24,7 +24,7 @@ async function fixture(options={}){
     return {ok:true,json:async()=>({ok:true,policy,revision,last_run:null,error:null,blocked:options.blocked||null,
       preview:{server_events:2,read_server_notifications:3,maintenance_details:4}})};
   };
-  w.sessionStorage.setItem('clamshield-tab','history');w.eval(source);
+  w.sessionStorage.setItem('clamshield-tab','retention');w.eval(source);
   if(admin)await until(()=>!w.document.getElementById('cs-server-history-refresh').disabled);
   return {w,requests,byId:id=>w.document.getElementById('cs-server-history-'+id),close:()=>w.close()};
 }

@@ -113,6 +113,7 @@ class RuleUpdateTiming(unittest.TestCase):
         with self.assertRaises(ClamShieldError):self.updates.status()
 
     def test_automatic_profile_excludes_pending_edits_disabled_sources_and_uninstalled_rules(self):
+        self.updates.save({'profile':'extended'})
         manager=RuleManager(self.settings)
         config={'sources':{'forge':{'enabled':True,'profile':'extended'}},'disabled':[]}
         active={'configured':True,'profile':'extended','config_sha256':revision(config)}

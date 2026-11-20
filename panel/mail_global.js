@@ -27,7 +27,7 @@
     form.hidden=false;
   }
   function rows(id,values){const body=by(id);if(!body)return;body.replaceChildren();for(const valuesRow of values){const row=document.createElement('tr');for(const value of valuesRow){const cell=document.createElement('td');if(value instanceof Node)cell.append(value);else cell.textContent=String(value);row.append(cell);}body.append(row);}}
-  function accountLink(owner){const link=document.createElement('a'),url=new URL(location.href);url.searchParams.set('owner',owner);url.searchParams.delete('scope');url.hash='email';link.href=url.href;link.textContent='Manage account';return link;}
+  function accountLink(owner){const link=document.createElement('a'),url=new URL(location.href);url.searchParams.set('owner',owner);url.searchParams.delete('scope');url.hash='review/email-review';link.href=url.href;link.textContent='Open review';return link;}
   async function activity(){if(root.dataset.global!=='true')return;const value=await api('mail-server-activity');by('totals').textContent=value.totals.domains+' mail domains · '+value.totals.quarantine+' stored recipient records · '+value.totals.decisions+' decisions';rows('accounts',value.accounts.map(row=>[row.owner,row.domains,row.quarantine,row.decisions,accountLink(row.owner)]));for(const key of ['quarantine','decisions'])rows(key,value[key].map(row=>[row.owner+' / '+row.recipient,new Date(row.created*1000).toISOString(),key==='quarantine'?row.status:row.action+' · '+row.classification]));}
   async function load(){if(busy)return;busy=true;by('refresh').disabled=true;status.textContent='Loading server email settings…';try{render(await api(prefix+'get'));loaded=true;await activity();status.textContent=root.dataset.scope==='server'?'Defaults apply across all accounts. Customers inherit the permissions shown above.':'Account overrides apply to its existing and future domains. Domain and mailbox overrides remain in effect.';}catch(error){status.textContent=error.message;}finally{busy=false;by('refresh').disabled=false;}}
   form.addEventListener('submit',async event=>{
@@ -45,6 +45,7 @@
   });
   by('reset')?.addEventListener('click',async()=>{if(!current||busy)return;busy=true;try{render(await api('mail-account-reset',{revision:current.revision}));status.textContent='Account inherits global email defaults and permissions.';}catch(error){status.textContent=error.message;}finally{busy=false;}});
   by('refresh').addEventListener('click',load);
-  document.addEventListener('clamshield-tab-change',event=>{if(event.detail==='mail'&&!loaded)load();});
-  if(sessionStorage.getItem('clamshield-tab')==='mail')queueMicrotask(load);
+  document.getElementById('cs-mail-activity-refresh')?.addEventListener('click',()=>activity().catch(error=>{document.getElementById('cs-mail-server-totals').textContent=error.message;}));
+  document.addEventListener('clamshield-tab-change',event=>{if(['mail-settings','email-review'].includes(event.detail)&&!loaded)load();});
+  if(['mail-settings','email-review'].includes(sessionStorage.getItem('clamshield-tab')))queueMicrotask(load);
 })();

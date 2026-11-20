@@ -145,7 +145,9 @@ class Remediation:
                     data=json.loads(result['detail'])
                     candidates=db.execute("SELECT * FROM findings WHERE job_id=? AND path=? AND status='open' AND engine IN ('clamav','yara') AND COALESCE(json_extract(detail,'$.review_only'),0)!=1 ORDER BY created,id",(job['id'],result['path'])).fetchall()
                     finding=next((v for v in candidates if v['engine']!='clamav' or not advisory_kind(json.loads(v['detail']))),None)
-                    if finding and not data.get('failures') and set(data.get('engines',[]))=={'clamav','yara'}:
+                    from .yara_settings import YaraSettings
+                    required={'clamav','yara'} if YaraSettings(self.settings).read()['enabled'] else {'clamav'}
+                    if finding and not data.get('failures') and set(data.get('engines',[]))==required:
                         fp=json.loads(finding['fingerprint'])
                         if fp.get('sha256')==data.get('sha256') and fp.get('links')==1:
                             action=uuid.uuid4().hex;now=time.time()

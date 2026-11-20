@@ -34,22 +34,61 @@ function fixture(options={}){
   w.fetch=async(url,request)=>{const body=Object.fromEntries(request.body);requests.push(body);if(body.action==='rules-status'){const value=options.ruleSnapshots?.[Math.min(statusIndex++,options.ruleSnapshots.length-1)]??{pending:false,latest:null,active:values.rules};return {ok:true,json:async()=>({ok:true,...value})};}if(options.api)return options.api(body);return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
   for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
   return {w,requests,timers,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
-    visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
+    visible:()=>[...new Set([...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page))]};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
+
+test('configuration, update operations and all-account email records stay in their own views',async()=>{
+  const f=fixture({hash:'#updates/rules',change:v=>{v.context.view_scope='server';}});
+  try{await settle();
+    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-server-quarantine','email-review'],['cs-sa-tasks','activity'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
+      assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,page,id);
+    for(const node of f.document.querySelectorAll('[data-page]'))assert.equal(node.hidden,node.dataset.page!=='rules');
+    assert.equal(f.document.querySelector('[data-action=rules-build],[data-action=rules-activate]'),null);
+    const form=f.document.getElementById('cs-forge-install');assert.equal(form.elements.profile.type,'hidden');
+    assert.equal(f.document.querySelector('#cs-yara-schedule select[name=profile]').closest('[data-page]').dataset.page,'yara-settings');
+  }finally{await f.close();}
+});
+test('Support Us retains the supplied links and full source notices never appear in operational or technical views',async()=>{
+  const full='FULL_UPSTREAM_LICENSE_MARKER '.repeat(100);
+  const f=fixture({hash:'#settings/support',change:v=>{
+    v.rule_manager.sources=[{id:'php_hosting',name:'PHP fixture',kind:'php-hosting',enabled:true,review_only:true,version:'fixture',source_url:'https://github.com/example/rules',license_url:'https://github.com/example/rules/LICENSE',license:full}];
+    v.notifications=[{id:'notice',event:'maintenance.completed',owner:'alice',created:1,read_at:null,subject:'fixture',detail:{license:full}}];
+  }});
+  try{assert.doesNotMatch(f.document.body.textContent,/FULL_UPSTREAM_LICENSE_MARKER/);
+    const support=f.document.querySelector('[data-page=support]');
+    for(const code of ['LDBFB3RRB3E9J','G5RNTC3UF58VU','4NP9RNUYRFRFA'])assert.ok(support.querySelector('a[href="https://www.paypal.com/ncp/payment/'+code+'"]'));
+    assert.ok(support.querySelector('a[href="https://sanesecurity.com/donate/"]'));
+    for(const link of support.querySelectorAll('a')){assert.equal(link.target,'_blank');assert.match(link.rel,/noopener/);}
+  }finally{await f.close();}
+});
+test('YARA scanning settings send real booleans/numbers once and follow maintenance without a page reload',async()=>{
+  let resolveSave;
+  const f=fixture({hash:'#settings/yara-settings',api:async body=>{
+    if(body.action==='yara-settings-save')return new Promise(resolve=>{resolveSave=()=>resolve({ok:true,json:async()=>({ok:true,queued:true})});});
+    if(body.action==='yara-settings-status')return {ok:true,json:async()=>({ok:true,pending:false,task:null})};
+    return {ok:false,json:async()=>({ok:false,error:'Unused fixture operation'})};
+  }});
+  try{await settle();const form=f.document.getElementById('cs-yara-scanning');form.elements.enabled.checked=false;form.elements.timeout_seconds.value='12';form.elements.max_file_mib.value='8';
+    for(let i=0;i<50;i++)form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    const sent=f.requests.filter(r=>r.action==='yara-settings-save');assert.equal(sent.length,1);assert.deepEqual(JSON.parse(sent[0].policy),{enabled:false,timeout_seconds:12,max_file_mib:8});
+    assert.equal(form.querySelector('button').disabled,true);resolveSave();await settle();assert.equal(form.querySelector('button').disabled,false);
+    assert.deepEqual(f.visible(),['yara-settings']);
+  }finally{await f.close();}
+});
 
 test('Trial scans and its permission/category are removed while ordinary YARA controls remain available',async()=>{
   const f=fixture({hash:'#updates/rules',change:v=>{v.rule_trials=[{job_id:'retired-comparison-id',generation:'old-generation'}];}});
   try{await settle();assert.equal(f.document.querySelector('[data-action="rules-trial"]'),null);
     assert.equal(f.document.querySelector('[data-capability="rule_trials"]'),null);
     assert.doesNotMatch(f.document.body.textContent,/Trial scans|Run comparison trial|retired-comparison-id/);
-    assert.ok(f.document.getElementById('cs-forge-install'));assert.ok(f.document.querySelector('[data-action="rules-activate"]'));
+    assert.ok(f.document.getElementById('cs-forge-install'));assert.equal(f.document.querySelector('[data-action="rules-activate"]'),null);
     assert.equal(f.document.querySelector('[name="category"][value="trials"]'),null);
   }finally{await f.close();}
 });
 
 test('provider schedule exposes per-provider intervals, minimums and timing with clean database labels',async()=>{
-  const f=fixture({hash:'#updates/providers',change:v=>{
+  const f=fixture({hash:'#settings/provider-settings',change:v=>{
     v.providers.automatic=true;v.providers.official={enabled:true,interval_minutes:180};v.providers.securiteinfo.interval_minutes=120;
     v.providers.sanesecurity.interval_minutes=60;v.providers.catalog.securiteinfo=[{name:'securiteinfo.ign2',description:'Provider false-positive exceptions',paid:false}];
     v.providers.catalog.sanesecurity=[{name:'phish.ndb',description:'Phishing and malware',risk:'low'}];
@@ -69,7 +108,7 @@ test('provider schedule exposes per-provider intervals, minimums and timing with
 });
 
 test('provider interval fields are sent as numbers while masked credentials and database selections retain their behavior',async()=>{
-  const f=fixture({hash:'#updates/providers',api:async()=>({ok:false,json:async()=>({ok:false,error:'Fixture: no update performed'})})});
+  const f=fixture({hash:'#settings/provider-settings',api:async()=>({ok:false,json:async()=>({ok:false,error:'Fixture: no update performed'})})});
   try{const form=f.document.getElementById('cs-providers');form.elements.official_interval_minutes.value='180';form.elements.securiteinfo_interval_minutes.value='120';form.elements.sanesecurity_interval_minutes.value='90';
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     const request=f.requests.find(r=>r.action==='providers-save');assert.ok(request);const policy=JSON.parse(request.providers);
@@ -202,8 +241,8 @@ test('Global admin view defaults the scan target and progress to the entire serv
 
 const mailDefaults={malware_action:'reject',phishing_action:'quarantine',spam_action:'junk',spam_high_action:'reject',block_action:'quarantine',spam_threshold:5,spam_high_threshold:15,signature_spam_score:5,allow_senders:[],block_senders:[]};
 const mailPermissions={manage_policy:false,manage_exceptions:false,release:false,delete:false};
-test('Global Email Shield loads server settings and all-account activity without reading admin mail domains',async()=>{
-  const f=fixture({hash:'#email',change:values=>{values.context.view_scope='server';values.accounts.push({owner:'bob'});},api:async body=>({ok:true,json:async()=>({ok:true,...(body.action==='mail-server-activity'?{totals:{domains:2,quarantine:1,decisions:4},accounts:[{owner:'bob',domains:2,quarantine:1,decisions:4}],quarantine:[{owner:'bob',recipient:'inbox@bob.test',created:1,status:'quarantined'}],decisions:[]}:{defaults:mailDefaults,permissions:mailPermissions,revision:'server-revision'})})})});
+test('Global email settings and Review load server settings and all-account activity without reading admin mail domains',async()=>{
+  const f=fixture({hash:'#settings/mail-settings',change:values=>{values.context.view_scope='server';values.accounts.push({owner:'bob'});},api:async body=>({ok:true,json:async()=>({ok:true,...(body.action==='mail-server-activity'?{totals:{domains:2,quarantine:1,decisions:4},accounts:[{owner:'bob',domains:2,quarantine:1,decisions:4}],quarantine:[{owner:'bob',recipient:'inbox@bob.test',created:1,status:'quarantined'}],decisions:[]}:{defaults:mailDefaults,permissions:mailPermissions,revision:'server-revision'})})})});
   try{await settle();
     assert.ok(f.requests.some(row=>row.action==='mail-server-get'));assert.ok(f.requests.some(row=>row.action==='mail-server-activity'));
     assert.equal(f.requests.some(row=>row.action==='mail-dashboard'),false);
@@ -235,7 +274,7 @@ test('Global row actions and site schedules send the actual record owner',async(
 
 test('account email editor saves only selected overrides and preserves inherited permissions',async()=>{
   const value={defaults:mailDefaults,permissions:mailPermissions,overrides:{},permissions_inherited:true,revision:'account-revision'};
-  const f=fixture({hash:'#email',api:async body=>({ok:true,json:async()=>({ok:true,...value})})});
+  const f=fixture({hash:'#settings/mail-settings',api:async body=>({ok:true,json:async()=>({ok:true,...value})})});
   try{await settle();const form=f.document.getElementById('cs-mail-server-form');
     assert.equal(form.elements.spam_threshold.disabled,true);assert.equal(form.elements.manage_policy.disabled,true);
     const toggle=form.querySelector('[data-mail-default-override=spam_threshold]');toggle.click();assert.equal(form.elements.spam_threshold.disabled,false);
@@ -291,19 +330,17 @@ test('full panel opens Dashboard and keeps the seven native menu links while nav
     assert.equal(f.document.querySelectorAll('[id]').length,new Set([...f.document.querySelectorAll('[id]')].map(node=>node.id)).size);
   }finally{await f.close();}
 });
-test('Manage links select the right group, preserve leaf refresh state and load lazy email/history views',async()=>{
-  const f=fixture();try{
-    f.click('#cs-dashboard [data-tab=rules]');assert.deepEqual(f.visible(),['rules']);assert.equal(f.w.location.hash,'#updates');
-    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard [data-focus-provider=securiteinfo]');
-    assert.deepEqual(f.visible(),['providers']);assert.equal(f.document.activeElement.id,'cs-provider-securiteinfo');
-    f.click('[data-main-tab=email]');f.click('[data-main-tab=review]');f.click('[data-subnav=review] [data-tab=history]');
-    await new Promise(resolve=>setImmediate(resolve));
-    assert.ok(f.requests.some(request=>request.action==='mail-dashboard'));assert.ok(f.requests.some(request=>request.action==='history-retention-get'));
-    assert.equal(f.w.sessionStorage.getItem('clamshield-tab'),'history');
-  }finally{await f.close();}
+test('Manage links select Settings, while records and retention each load in their own view',async()=>{
+ const f=fixture();try{
+  f.click('#cs-dashboard [data-tab=provider-settings]');assert.deepEqual(f.visible(),['provider-settings']);
+  f.click('[data-main-tab=settings]');f.click('[data-subnav=settings] [data-tab=mail-settings]');
+  f.click('[data-subnav=settings] [data-tab=retention]');await settle();
+  assert.ok(f.requests.some(request=>request.action==='mail-dashboard'));assert.ok(f.requests.some(request=>request.action==='history-retention-get'));
+  f.click('[data-subnav=review] [data-tab=history]');assert.equal(f.w.sessionStorage.getItem('clamshield-tab'),'history');
+ }finally{await f.close();}
 });
 test('direct links, old saved leaf tabs and unavailable administrator views have deterministic fallbacks',async()=>{
-  for(const [options,page] of [[{hash:'#updates/providers'},'providers'],[{saved:'jobs'},'jobs'],[{saved:'retired-view'},'dashboard'],[{admin:false,hash:'#settings/resources'},'automatic']]){
+  for(const [options,page] of [[{hash:'#settings/provider-settings'},'provider-settings'],[{saved:'jobs'},'jobs'],[{saved:'retired-view'},'dashboard'],[{admin:false,hash:'#settings/resources'},'mail-settings']]){
     const f=fixture(options);try{assert.deepEqual(f.visible(),[page]);}finally{await f.close();}
   }
 });
@@ -312,7 +349,7 @@ test('Review groups existing review tools and remembers the selected child while
   const f=fixture();try{
     f.click('[data-main-tab=review]');assert.deepEqual(f.visible(),['findings']);
     const review=f.document.querySelector('[data-subnav=review]');
-    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','History']);
+    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','Email','History','Activity','Notifications']);
     for(const page of ['findings','repairs','exceptions','quarantine','history']){
       f.click('[data-subnav=review] [data-tab='+page+']');assert.deepEqual(f.visible(),[page]);
       assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');
@@ -353,14 +390,13 @@ test('dashboard reports stopped and unapplied states with escaped values and rea
   }finally{await f.close();}
 });
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
-test('email normal view keeps technical controls closed and management links open the right section',async()=>{
+test('Email Shield offers protection while configuration and records live in their own sections',async()=>{
   const f=fixture({hash:'#email'});
-  try{await settle();const advanced=f.document.getElementById('cs-mail-advanced');
-    assert.equal(advanced.open,false);
-    assert.equal(f.document.getElementById('cs-mail-protection-toggle').closest('details'),null);
-    for(const selector of ['[data-action="mail-adapter-build"]','[data-action="mail-integration-enable"]','#cs-mail-policy','#cs-mail-history-form','#cs-mail-quarantine-form'])assert.ok(f.document.querySelector(selector).closest('#cs-mail-advanced'));
-    f.click('[data-focus-id="cs-mail-domain"]');assert.equal(advanced.open,true);assert.deepEqual(f.visible(),['mail']);
-    advanced.open=false;f.click('[data-focus-id="cs-mail-quarantine-form"]');assert.equal(advanced.open,true);
+  try{await settle();assert.equal(f.document.getElementById('cs-mail-protection-toggle').closest('[data-page]').dataset.page,'mail');
+    for(const selector of ['[data-action="mail-adapter-build"]','[data-action="mail-integration-enable"]','#cs-mail-policy'])assert.equal(f.document.querySelector(selector).closest('[data-page]').dataset.page,'mail-settings');
+    assert.equal(f.document.getElementById('cs-mail-history-form').closest('[data-page]').dataset.page,'email-review');
+    assert.equal(f.document.getElementById('cs-mail-quarantine-form').closest('[data-page]').dataset.page,'quarantine');
+    f.click('[data-tab=mail-settings]');assert.deepEqual(f.visible(),['mail-settings']);
   }finally{await f.close();}
 });
 const inactive={configured:false}, installed={configured:true,profile:'extended',enabled:5089,version:'fixture-new',generation:'generation-installed',created:1};
@@ -372,10 +408,10 @@ test('YARA schedule saves numeric intervals and automatic toggle with native con
     input.value='60.5';assert.equal(input.checkValidity(),false);input.value='2880';assert.equal(input.checkValidity(),true);
     form.elements.automatic.checked=false;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     const requests=f.requests.filter(r=>r.action==='rules-schedule-save');assert.equal(requests.length,1);
-    assert.deepEqual(JSON.parse(requests[0].policy),{automatic:false,interval_minutes:2880});
-    assert.equal(f.document.getElementById('cs-yara-schedule-status').textContent,'Update schedule saved.');
+    assert.deepEqual(JSON.parse(requests[0].policy),{automatic:false,interval_minutes:2880,profile:'core'});
+    assert.equal(f.document.getElementById('cs-yara-schedule-status').textContent,'Update preferences saved.');
     assert.match(f.document.getElementById('cs-yara-timing').textContent,/Automatic checks are off/);
-    assert.match(f.document.getElementById('cs-yara-update-schedule').textContent,/publishes weekly.*default check is every 24 hours/s);
+    assert.match(f.document.getElementById('cs-yara-update-schedule').textContent,/Minimum interval: 60 minutes/);
     assert.match(f.document.getElementById('cs-yara-last_success').textContent,/1970-/);
     assert.equal(f.document.querySelector('[data-tab=rules]').getAttribute('aria-current'),'page');
   }finally{await f.close();}
@@ -399,7 +435,7 @@ test('one Install click downloads, checks and activates with automatic progress 
     ruleSnapshots:[{pending:false,latest:null,active:inactive},installSnapshot('queued'),installSnapshot('running','downloading'),installSnapshot('running','checking'),installSnapshot('running','activating'),installSnapshot('completed',null,installed)]});
   try{await settle();const form=f.document.getElementById('cs-forge-install'),button=form.querySelector('button');
     assert.equal(button.textContent,'Install rules');assert.equal(f.document.getElementById('cs-rules-advanced').open,false);
-    for(const control of f.document.querySelectorAll('[data-page=rules] button:not([type=submit])'))assert.ok(control.closest('#cs-rules-advanced'));
+    assert.equal(f.document.querySelector('[data-page=rules] [data-action=rules-activate]'),null);
     form.elements.profile.value='extended';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     assert.deepEqual(f.requests.filter(request=>request.action!=='rules-status'),[{token:'fixture-token',owner:'alice',action:'rules-install',profile:'extended'}]);
     for(const label of ['Downloading rules','Checking rules','Activating rules']){await f.tick();assert.match(f.document.getElementById('cs-forge-status').textContent,new RegExp(label));assert.equal(button.disabled,true);}
@@ -420,7 +456,7 @@ test('reopening a pending install resumes polling and a failure preserves active
 test('old staged rules and failed build history do not force manual activation in the normal view',async()=>{
   const f=fixture({hash:'#updates',change:values=>{values.rules=inactive;values.maintenance.push({action:'rules-build',status:'failed',created:1,error:'Outdated revision',result:null});}});
   try{await settle();assert.equal(f.document.querySelector('#cs-forge-install button').textContent,'Install rules');
-    assert.equal(f.document.getElementById('cs-rules-advanced').open,false);assert.ok(f.document.querySelector('[data-action=rules-activate]').closest('#cs-rules-advanced'));
+    assert.equal(f.document.getElementById('cs-rules-advanced').open,false);assert.equal(f.document.querySelector('[data-action=rules-activate]'),null);
     assert.equal(f.document.querySelector('[data-page=rules] ol'),null);
   }finally{await f.close();}
 });

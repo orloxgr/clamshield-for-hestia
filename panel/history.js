@@ -74,7 +74,7 @@
     finally { permission.querySelector('button').disabled = false; }
   });
   refresh.addEventListener('click', load);
-  document.querySelector('[data-tab=history]')?.addEventListener('click', () => { if (!loaded) load(); });
-  document.addEventListener('clamshield-tab-change', event => { if (event.detail === 'history' && !loaded) load(); });
-  if (sessionStorage.getItem('clamshield-tab') === 'history') queueMicrotask(load);
+  document.querySelector('[data-tab=retention]')?.addEventListener('click', () => { if (!loaded) load(); });
+  document.addEventListener('clamshield-tab-change', event => { if (event.detail === 'retention' && !loaded) load(); });
+  if (sessionStorage.getItem('clamshield-tab') === 'retention') queueMicrotask(load);
 })();

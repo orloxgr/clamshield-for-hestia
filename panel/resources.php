@@ -19,10 +19,7 @@ $resources=$data['resources']; $resource_labels=['cpu_percent'=>'CPU percentage'
 <p>Email services follow the protection controls in Email. Stopping website ClamAV leaves YARA scanning available and reports incomplete ClamAV coverage.</p>
 <?php endif ?>
 <button class="button" data-action="resources-recover">Recover resource or engine transition</button>
-<h3>Resource control history</h3><div class="scroll"><table><thead><tr><th>Time UTC</th><th>Action</th><th>Status</th><th>Requested limits / result</th></tr></thead><tbody>
-<?php $resource_actions=['resources-save'=>'Apply resource limits','website-engine-start'=>'Start website ClamAV','website-engine-stop'=>'Stop website ClamAV','resources-recover'=>'Recover controls']; foreach($data['maintenance'] as $task): if(!isset($resource_actions[$task['action']])) continue; ?><tr><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$task['created']))?></td><td><?=$escape($resource_actions[$task['action']])?></td><td><?=$escape($task['status'])?></td><td><?=$escape($task['error']??($task['result']['revision']??''))?><?php if(isset($task['payload']['policy'])): ?><details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Requested limits</summary><pre style="white-space:pre-wrap"><?=$escape(json_encode($task['payload']['policy'],JSON_PRETTY_PRINT))?></pre></details><?php endif ?></td></tr><?php endforeach ?>
-</tbody></table></div>
-</section>
+<p><a href="#review/activity" data-tab="activity">View maintenance history</a></p></section>
 <script>
 (() => {'use strict';const form=document.getElementById('cs-resources');if(!form)return;
  const token=<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>,owner=<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;

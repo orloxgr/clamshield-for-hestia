@@ -10,4 +10,7 @@ def current(settings):
         clamav_name = clamav.resolve().name
     else:
         clamav_name = 'ubuntu-native'
-    return yara_name + '|clamav:' + clamav_name
+    from .yara_settings import YaraSettings
+    policy = YaraSettings(settings)
+    selection = '|scanner:' + policy.token() if policy.path.exists() or policy.path.is_symlink() else ''
+    return yara_name + selection + '|clamav:' + clamav_name

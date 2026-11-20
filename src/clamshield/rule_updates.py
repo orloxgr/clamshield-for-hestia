@@ -11,7 +11,7 @@ from urllib.error import HTTPError
 from .atomic import write_json
 from .errors import ClamShieldError
 
-DEFAULTS = {'automatic': True, 'interval_minutes': 1440}
+DEFAULTS = {'automatic': True, 'interval_minutes': 1440, 'profile': None}
 MINIMUM_MINUTES = 60  # Our conservative polling floor, not an upstream quota.
 SOURCE_URL = 'https://github.com/YARAHQ/yara-forge#readme'
 
@@ -46,6 +46,8 @@ class RuleUpdates:
         if type(value['automatic']) is not bool:
             raise ClamShieldError('Invalid automatic YARA update toggle')
         interval = value['interval_minutes']
+        if value['profile'] is not None and value['profile'] not in ('core','extended','full'):
+            raise ClamShieldError('Choose Core, Extended or Full')
         if type(interval) is not int or not MINIMUM_MINUTES <= interval <= 525600:
             raise ClamShieldError('YARA update interval must be 60 to 525600 whole minutes')
         return value
@@ -54,8 +56,12 @@ class RuleUpdates:
         with self.locked():
             policy = self.validate(self.load(self.policy_path))
             state = self.load(self.state_path)
+        if policy['profile'] is None:
+            from .rules import Rules
+            installed=Rules(self.settings).status().get('profile')
+            policy['profile']=installed if installed in ('core','extended','full') else 'core'
         anchor = max(state.get('last_attempt') or 0, state.get('last_success') or 0)
-        return policy | state | dict(minimum_minutes=MINIMUM_MINUTES, source_url=SOURCE_URL,
+        return state | policy | dict(minimum_minutes=MINIMUM_MINUTES, source_url=SOURCE_URL,
             next_allowed=max(anchor + policy['interval_minutes'] * 60 if anchor else 0, state.get('retry_after') or 0))
 
     def save(self, value):

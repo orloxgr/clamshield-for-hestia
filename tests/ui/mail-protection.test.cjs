@@ -5,7 +5,7 @@ const source=fs.readFileSync(path.resolve(__dirname,'../../panel/mail_protection
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const off={enabled:false,connected:false,defaults_enabled:false,phase:'unconfigured'};
 function fixture(snapshots,options={}){
-  const dom=new JSDOM(`<section id="cs-mail" data-token="csrf" data-owner="selected-account" ${options.hidden?'hidden':''}>${options.tenant?'':'<button id="cs-mail-protection-toggle">Enable mail protection</button><p id="cs-mail-protection-status"></p>'}<details id="cs-mail-advanced"><summary>Advanced</summary></details></section>`,{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only'});
+  const dom=new JSDOM(`<section data-page="mail" id="cs-mail" data-token="csrf" data-owner="selected-account" ${options.hidden?'hidden':''}>${options.tenant?'':'<button id="cs-mail-protection-toggle">Enable mail protection</button><p id="cs-mail-protection-status"></p>'}<details id="cs-mail-advanced"><summary>Advanced</summary></details></section>`,{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only'});
   const w=dom.window,requests=[],timers=new Map();let index=0,id=0,events=0;
   w.setTimeout=fn=>{timers.set(++id,fn);return id;};w.clearTimeout=id=>timers.delete(id);
   w.document.addEventListener('clamshield-mail-protection-changed',()=>events++);

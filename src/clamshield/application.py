@@ -50,6 +50,20 @@ class Application:
 
     def _dispatch(self,request,context):
         action=request.get('action','dashboard')
+        if action in ('yara-settings-status','yara-settings-save','rules-options-save'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            from .yara_settings import YaraSettings
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            if action!='yara-settings-status':
+                policy=request.get('policy')
+                if action=='yara-settings-save':policy=YaraSettings.validate(policy)
+                elif not isinstance(policy,dict) or set(policy)!={'php_hosting','web_hosting','php_automatic','web_automatic'} or any(type(v) is not bool for v in policy.values()):
+                    raise ClamShieldError('Choose boolean hosting-rule options')
+                return {'queued':True,'task_id':self.store.enqueue_task(task_context,action,{'policy':policy})}
+            with self.store.connection() as db:
+                row=db.execute("SELECT id,status,error FROM maintenance WHERE owner=? AND identity=? AND action IN ('yara-settings-save','rules-options-save') ORDER BY created DESC,id DESC LIMIT 1",self.store.scope(task_context)).fetchone()
+                pending=db.execute("SELECT 1 FROM maintenance WHERE owner=? AND identity=? AND action IN ('yara-settings-save','rules-options-save') AND status IN ('queued','running') LIMIT 1",self.store.scope(task_context)).fetchone()
+            return {'policy':YaraSettings(self.settings).read(),'task':dict(row) if row else None,'pending':bool(pending)}
         if action in ('notification-settings-get','notification-settings-save'):
             from .notification_preferences import NotificationPreferences
             preferences=NotificationPreferences(self.settings,self.store,self.hestia)
@@ -345,6 +359,9 @@ class Application:
                 task_action,payload='rules-build',{'revision':saved['revision']}
             elif action=='rules-activate':payload={'generation':request.get('generation')}
             elif action=='rules-build':payload={'revision':manager.status()['revision']}
+            if 'apply' in request:
+                if type(request['apply']) is not bool:raise ClamShieldError('Invalid apply option')
+                if request['apply']:payload['apply']=True
             self.store.audit(context,action,'rules',{'queued_action':task_action})
             return {'task_id':self.store.enqueue_task(task_context,task_action,payload),'queued':True}
         if action in ('policy-defaults-get','policy-defaults-save','policy-defaults-reset'):
@@ -455,6 +472,8 @@ class Application:
                         mail_adapter=MailAdapter(self.settings).status(),mail_integration=MailIntegration(self.settings,self.store,self.hestia).status(),
                         maintenance=self.store.list_tasks(self.hestia.authorize(context['actor'],context['actor'])),
                         accounts=[dict(owner=a['owner'],role=a['role'],suspended=a['suspended'],sites=len(a['sites'])) for a in inventory])
+            from .yara_settings import YaraSettings
+            data['yara_settings']=YaraSettings(self.settings).read()
         return data
 
     def generation(self):

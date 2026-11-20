@@ -257,8 +257,9 @@ class RuleManager:
             if automatic is not None and self.automatic_update() != automatic:
                 raise Conflict('Automatic YARA update settings changed; active rules were retained')
             candidate = self._forge(profile, release, progress=progress)
-            if automatic is not None and not RuleUpdates(self.settings).status()['automatic']:
-                raise Conflict('Automatic YARA updates were disabled; active rules were retained')
+            schedule=RuleUpdates(self.settings).status() if automatic is not None else None
+            if schedule and (not schedule['automatic'] or schedule['profile']!=profile):
+                raise Conflict('Automatic YARA update settings changed; active rules were retained')
             if progress: progress('activating')
             active = self.activate(candidate['generation'])
             return {**active, 'activated': True}
@@ -281,7 +282,46 @@ class RuleManager:
             return None
         if active.get('profile') != source['profile']:
             return None
-        return {'profile': source['profile'], 'release': None, 'automatic': True, 'revision': wanted}
+        return {'profile': schedule['profile'], 'release': None, 'automatic': True, 'revision': wanted}
+
+    def configure_hosting(self, options):
+        """Validate and apply source choices without exposing a build workflow."""
+        keys={'php_hosting','web_hosting','php_automatic','web_automatic'}
+        if not isinstance(options,dict) or set(options)!=keys or any(type(v) is not bool for v in options.values()):
+            raise ClamShieldError('Choose boolean hosting-rule options')
+        from .php_hosting_rules import fetch as php_fetch
+        from .web_hosting_rules import fetch as web_fetch
+        original=self.read();wanted=revision(original);config=json.loads(json.dumps(original))
+        fetched={}
+        for source_id,fetch in (('php_hosting',php_fetch),('web_hosting',web_fetch)):
+            if options[source_id] and source_id not in config['sources']:fetched[source_id]=fetch()
+        with self.locked():
+            if revision(self.read())!=wanted:raise Conflict('Rule settings changed; refresh and save again')
+            for source_id,label in (('php_hosting','PHP Malware Finder'),('web_hosting','Community web hosting')):
+                if source_id in fetched:
+                    if len(config['sources'])>=16:raise ClamShieldError('Rule source count limit reached')
+                    content,metadata=fetched[source_id];filename=source_id+'-'+sha(content)+'.yar'
+                    write(self.folder/filename,content)
+                    config['sources'][source_id]=dict(metadata,id=source_id,namespace=source_id,name=label,
+                        kind='php-hosting' if source_id=='php_hosting' else 'web-hosting',file=filename,sha256=sha(content),fetched=time.time())
+                source=config['sources'].get(source_id)
+                if source:
+                    if source.get('kind')!=('php-hosting' if source_id=='php_hosting' else 'web-hosting'):
+                        raise Conflict('Hosting source ID belongs to another source')
+                    source.update(enabled=options[source_id],review_only=not options[source_id.split('_')[0]+'_automatic'])
+            if not any(s.get('enabled') for s in config['sources'].values()):
+                raise ClamShieldError('Install Forge rules before saving the source selection')
+            active=self.rules.status()
+            if revision(config)==wanted and active.get('config_sha256')==wanted:
+                return active | {'activated':True,'unchanged':True}
+            write_json(self.config_path,config)
+        try:
+            candidate=self.build(revision(config))
+            return self.activate(candidate['generation']) | {'activated':True}
+        except BaseException:
+            with self.locked():
+                if revision(self.read())==revision(config):write_json(self.config_path,original)
+            raise
 
     def parse(self, request):
         def limits():

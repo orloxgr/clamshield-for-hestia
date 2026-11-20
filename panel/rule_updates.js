@@ -15,7 +15,7 @@
     profile.disabled=pending||submitting;button.disabled=profile.disabled||delayed;
     button.textContent=pending||submitting?'Installing…':(configured?'Update rules':'Install rules');
     for(const key of ['last_attempt','last_success','next_allowed'])document.getElementById('cs-yara-'+key).textContent=schedule[key]?utc(schedule[key]):(key==='next_allowed'?'Due now':'Never');
-    document.getElementById('cs-yara-timing').textContent=(delayed?'Next update is allowed after '+utc(schedule.next_allowed)+'. ':'')+(schedule.retry_after?'GitHub cooldown is in effect. ':'')+(schedule.automatic?'Automatic checks are on for the installed profile.':'Automatic checks are off.');
+    document.getElementById('cs-yara-timing').textContent=(delayed?'Next update is allowed after '+utc(schedule.next_allowed)+'. ':'')+(schedule.retry_after?'GitHub cooldown is in effect. ':'')+(schedule.automatic?'Automatic checks are on for the selected profile.':'Automatic checks are off.');
   }
   function again(){
     if(!visible())return;
@@ -63,8 +63,8 @@
     event.preventDefault();if(saving||!scheduleForm.reportValidity())return;
     saving=true;const save=scheduleForm.querySelector('button');save.disabled=true;scheduleStatus.textContent='Saving update schedule…';
     try{
-      const value=await request('rules-schedule-save',{policy:JSON.stringify({automatic:scheduleForm.elements.automatic.checked,interval_minutes:Number(scheduleForm.elements.interval_minutes.value)})});
-      schedule=value.schedule;scheduleStatus.textContent='Update schedule saved.';stop();controls();again();
+      const value=await request('rules-schedule-save',{policy:JSON.stringify({automatic:scheduleForm.elements.automatic.checked,interval_minutes:Number(scheduleForm.elements.interval_minutes.value),profile:scheduleForm.elements.profile.value})});
+      schedule=value.schedule;profile.value=schedule.profile;scheduleStatus.textContent='Update preferences saved.';stop();controls();again();
     }catch(error){scheduleStatus.textContent='Could not save update schedule: '+error.message;}
     finally{saving=false;save.disabled=false;}
   });

@@ -78,6 +78,9 @@ class WebsiteReadiness:
             return dict(state='unavailable', message='Website signatures could not be verified; review activation and scanner status.')
 
     def yara(self):
+        from .yara_settings import YaraSettings
+        if not YaraSettings(self.settings).read()['enabled']:
+            return dict(state='disabled',message='YARA website scanning is disabled by the administrator.')
         try:
             rules = Rules(self.settings); pointer = rules.base / 'current'
             if not pointer.is_symlink() or not self.settings.rules.is_file():
@@ -114,7 +117,7 @@ class WebsiteReadiness:
                     raise EngineError('Rule storage is not protected')
                 stack.enter_context(self.lock(rules / 'update.lock'))
                 clamav, yara = self.clamav(), self.yara()
-                ready = clamav['state'] == yara['state'] == 'ready'
+                ready = clamav['state'] == 'ready' and yara['state'] in ('ready','disabled')
                 return dict(state='healthy' if ready else 'incomplete', clamav=clamav, yara=yara,
                             message='Website engines and selected scanning data are ready.' if ready else 'Website coverage needs attention. ' + ' '.join(row['message'] for row in (clamav, yara) if row['state'] != 'ready'))
         except BlockingIOError:

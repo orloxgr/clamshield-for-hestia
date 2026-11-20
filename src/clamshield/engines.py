@@ -139,6 +139,8 @@ class Yara:
         return self._catalog
 
     def scan(self, path, timeout=None):
+        if getattr(self,'max_file_bytes',None) and Path(path).stat().st_size > self.max_file_bytes:
+            raise EngineError('File exceeds the configured YARA size limit')
         # A mail transaction may have less time left than the website default.
         timeout = self.timeout if timeout is None else min(self.timeout, max(1, int(timeout)))
         if not self.rules.is_file():

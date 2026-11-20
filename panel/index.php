@@ -48,6 +48,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_string($_POST['source'])) $respond(400,['ok'=>false,'error'=>'Invalid rule source.']);
         $request['source']=json_decode($_POST['source']);
     }
+    if (isset($_POST['apply'])) {
+        if (!is_string($_POST['apply']) || !in_array($_POST['apply'],['true','false'],true)) $respond(400,['ok'=>false,'error'=>'Invalid apply option.']);
+        $request['apply']=$_POST['apply']==='true';
+    }
     if (isset($_POST['enabled'])) {
         if (!is_string($_POST['enabled']) || !in_array($_POST['enabled'],['true','false'],true)) $respond(400,['ok'=>false,'error'=>'Invalid state.']);
         $request['enabled']=$_POST['enabled']==='true';

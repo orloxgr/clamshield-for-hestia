@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.10.0
+
+- Separate configuration into Settings, update operations into Updates, and
+  retained email, maintenance, notifications and action records into Review.
+  Preserve old navigation links and scoped account controls.
+- Add server-wide website YARA enable/disable, timeout and file-size settings.
+  Bind saved policy to scan generations, report size-limit gaps and preserve
+  independent repair validation. Apply additional PHP/web sources through one
+  validated settings action rather than manual Build/Candidate/Activate steps.
+- Move rule profiles, provider credentials and update schedules into Settings.
+  Add Support Us with donation/provider links and concise source references;
+  retain upstream notices with rule data without embedding license texts in UI.
+
 ## 1.9.2
 
 - Remove Trial scans, comparison APIs/execution, the delegated trial permission

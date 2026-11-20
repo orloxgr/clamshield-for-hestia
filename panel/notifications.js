@@ -67,6 +67,7 @@
     });
   }
   type.addEventListener('change',filter);state.addEventListener('change',filter);refresh.addEventListener('click',load);
-  document.addEventListener('clamshield-tab-change',()=>{if(!root.hidden&&!preferences)load();});
-  filter();if(!root.hidden)load();
+  const visible=()=>!root.hidden||!document.getElementById('cs-notification-settings').hidden;
+  document.addEventListener('clamshield-tab-change',()=>{if(visible()&&!preferences)load();});
+  filter();if(visible())load();
 })();

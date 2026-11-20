@@ -158,6 +158,26 @@ class ManagedRules(unittest.TestCase):
         self.assertEqual('local:Local',hits[0]['signature']);self.assertEqual('local:Local',hits[0]['rule_id'])
         self.assertEqual('MIT test fixture',hits[0]['license'])
 
+    def test_hosting_settings_download_validate_and_activate_without_manual_build_or_activate(self):
+        self.source();first=self.manager.build();self.manager.activate(first['generation'])
+        options=dict(php_hosting=True,web_hosting=False,php_automatic=False,web_automatic=False)
+        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()) as fetch:
+            active=self.manager.configure_hosting(options)
+            same=self.manager.configure_hosting(options)
+        self.assertTrue(active['activated']);self.assertEqual(1,fetch.call_count)
+        self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
+        self.assertEqual(active['generation'],same['generation']);self.assertTrue(same['unchanged'])
+        self.assertTrue(self.manager.read()['sources']['php_hosting']['review_only'])
+        active=self.manager.configure_hosting(options|{'php_automatic':True})
+        self.assertFalse(self.manager.read()['sources']['php_hosting']['review_only'])
+
+    def test_failed_hosting_settings_restore_selection_and_preserve_active_rules(self):
+        self.source();first=self.manager.build();self.manager.activate(first['generation'])
+        before=self.manager.read()
+        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()),patch.object(self.manager,'build',side_effect=EngineError('Incompatible rule data')):
+            with self.assertRaises(EngineError):self.manager.configure_hosting(dict(php_hosting=True,web_hosting=False,php_automatic=False,web_automatic=False))
+        self.assertEqual(before,self.manager.read());self.assertEqual(first['generation'],self.manager.rules.status()['generation'])
+
     def test_lexer_spans_preserve_braces_strings_comments_and_same_line_rules(self):
         source='/* notice */ rule One {strings:$a="} rule Fake {" condition:$a} rule Two {condition:true}'
         result=analyze({'sources':[dict(id='local',namespace='local',content=source)],'disabled':['local:Two']})

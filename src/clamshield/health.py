@@ -49,6 +49,9 @@ class Health:
                 components[engine.name] = {'state': 'unavailable', 'message': 'Engine health check failed'}
         components['yara-rules'] = {'state': 'healthy' if self.settings.rules.is_file() else 'missing',
                                     'message': 'Validated rules are active' if self.settings.rules.is_file() else 'No validated YARA rules are active'}
+        from .yara_settings import YaraSettings
+        if not YaraSettings(self.settings).read()['enabled']:
+            components['yara-rules']={'state':'healthy','message':'YARA website scanning is disabled by the administrator'}
         providers = Providers(self.settings).public()
         now = time.time()
         for name in ('official', 'securiteinfo', 'sanesecurity'):

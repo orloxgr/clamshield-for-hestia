@@ -31,6 +31,8 @@
     const [group,page]=location.hash.slice(1).split('/');
     const legacy={results:'findings',exceptions:'exceptions',quarantine:'quarantine',history:'history'};
     if(Object.hasOwn(legacy,group)){select('review',map.review.includes(page)?page:legacy[group]);return;}
+    if(page&&pages.has(page)&&groupOf(page)!==group){select(groupOf(page),page);return;}
+    if(pages.has(group)){select(groupOf(group),group);return;}
     if(group){select(group,page,false);return;}
     const saved=stored();select(pages.has(saved)?groupOf(saved):'dashboard',saved,false);
   }

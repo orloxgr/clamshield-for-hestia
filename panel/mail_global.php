@@ -8,14 +8,6 @@ if($data['context']['admin']): ?>
 <p>Customers can make only the changes you allow here. Account-specific permissions override these defaults.</p><div id="cs-mail-server-permissions"></div></details>
 <button class="button" type="submit">Save email defaults and permissions</button></form><?php if(($data['context']['view_scope']??'account')!=='server'): ?><button class="button" id="cs-mail-server-reset" type="button">Use global email defaults and permissions</button><?php endif ?>
 <button class="button" type="button" id="cs-mail-server-refresh">Refresh email defaults</button><p id="cs-mail-server-status" role="status" aria-live="polite"></p>
-<?php if(($data['context']['view_scope']??'account')==='server'): ?>
-<h3>Email across all accounts</h3><p id="cs-mail-server-totals"></p>
-<div class="scroll"><table><thead><tr><th>Account</th><th>Mail domains</th><th>Stored recipient records</th><th>Decisions</th><th>Action</th></tr></thead><tbody id="cs-mail-server-accounts"></tbody></table></div>
-<details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Recent stored email and decisions</summary>
-<p>Up to 100 recent records per list. Open an account for previews, release, recovery, exceptions and its complete history.</p>
-<h4>Stored email</h4><div class="scroll"><table><thead><tr><th>Account / recipient</th><th>Time UTC</th><th>Status</th></tr></thead><tbody id="cs-mail-server-quarantine"></tbody></table></div>
-<h4>Email decisions</h4><div class="scroll"><table><thead><tr><th>Account / recipient</th><th>Time UTC</th><th>Decision</th></tr></thead><tbody id="cs-mail-server-decisions"></tbody></table></div></details>
-<?php endif ?>
 </article>
 <script><?php readfile(__DIR__.'/mail_global.js'); ?></script>
 <?php endif ?>

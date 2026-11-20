@@ -71,7 +71,7 @@ async function fixture(options={}) {
     }
     return {ok:true,json:async()=>({ok:true,...structuredClone(result)})};
   };
-  w.sessionStorage.setItem('clamshield-tab','mail'); w.eval(source);
+  w.sessionStorage.setItem('clamshield-tab','mail-settings'); w.eval(source);
   await until(()=>!w.document.getElementById('cs-mail-policy').hidden && requests.some(r=>r.action==='mail-quarantine'));
   return {dom,w,requests,byId:id=>w.document.getElementById('cs-mail-'+id),close:()=>w.close()};
 }

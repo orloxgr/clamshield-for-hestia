@@ -29,7 +29,7 @@ async function fixture(options={}) {
     return {ok:true,json:async()=>({ok:true,policy,can_manage:canManage,user_allowed:canManage,revision,last_run:null,error:options.error||null,
       preview:{scan_reports:2,scan_file_rows:503,mail_decisions:1,audit_events:3,read_notifications:4}})};
   };
-  w.sessionStorage.setItem('clamshield-tab','history');w.eval(source);
+  w.sessionStorage.setItem('clamshield-tab','retention');w.eval(source);
   await until(()=>requests.length&&!w.document.getElementById('cs-history-refresh').disabled);
   return {w,requests,form:w.document.getElementById('cs-history-form'),byId:id=>w.document.getElementById('cs-history-'+id),close:()=>w.close()};
 }

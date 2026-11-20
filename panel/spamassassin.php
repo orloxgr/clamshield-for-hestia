@@ -30,11 +30,7 @@ $sa = $data['spamassassin']; ?>
 <p>Installed scores are shown for local tests and network tests, with Bayes disabled. UI overrides replace both values when applied.</p>
 <div class="scroll"><table><thead><tr><th>Rule</th><th>Local score</th><th>Network score</th><th>Description</th></tr></thead><tbody id="cs-sa-rules"></tbody></table></div>
 <?php endif ?>
-<h3 id="cs-sa-tasks" tabindex="-1">Configuration tasks</h3><button type="button" class="button" id="cs-sa-refresh-tasks">Refresh task status</button>
-<div class="scroll"><table><thead><tr><th>Requested (UTC)</th><th>Status</th><th>Result</th></tr></thead><tbody>
-<?php foreach(array_filter($data['maintenance']??[],static fn($task)=>$task['action']==='spamassassin-save') as $task): ?><tr><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$task['created']))?></td><td><?=$escape($task['status'])?></td><td><?=$escape($task['error']??($task['result']['revision']??''))?></td></tr><?php endforeach ?>
-</tbody></table></div>
-</section>
+<p><a href="#review/activity" data-tab="activity">View configuration history</a></p></section>
 <script>
 (() => {'use strict';
  document.getElementById('cs-sa-refresh-tasks').addEventListener('click',()=>location.reload());

@@ -210,7 +210,7 @@
       byId('cleanup').textContent = value.cleanup_blocked ?
         'Private email copy cleanup needs review (' + value.cleanup_blocked + '). Open Mail recovery and private-copy cleanup.' : '';
       if (!domains.length) status.textContent += ' No native mail domains exist for this hosting account.';
-      loaded = true; renderPermissions(); selectDomain(); await Promise.all([history(), quarantine(), review()]);
+      loaded = true; renderPermissions(); selectDomain(); syncMirrors(); await Promise.all([history(), quarantine(), review()]);
     } catch (error) { status.textContent = error.message; }
     finally { busy = false; byId('refresh').disabled = false; }
   }
@@ -478,17 +478,18 @@
     } catch (error) { if (selected === reviewRevision) byId('review-status').textContent = error.message; }
     finally { if (selected === reviewRevision) { more.disabled = false; byId('review-refresh').disabled = false; } }
   }
+  function syncMirrors(){for(const [kind,original] of [['domain',domain],['box',mailbox]])for(const select of document.querySelectorAll('.cs-mail-'+kind+'-mirror')){select.replaceChildren(...[...original.options].map(option=>option.cloneNode(true)));select.value=original.value;select.onchange=()=>{original.value=select.value;original.dispatchEvent(new Event('change'));};}}
   byId('review-search').addEventListener('submit', event => { event.preventDefault(); reviewSearch = new FormData(event.target).get('search'); byId('review-result').textContent = ''; review(); });
   byId('review-more').addEventListener('click', () => review(false));
   byId('review-refresh').addEventListener('click', () => { byId('review-result').textContent = ''; review(); });
   byId('expiry-search').addEventListener('submit', event => { event.preventDefault(); expirySearch = new FormData(event.target).get('search'); expiryHistory(); });
   byId('expiry-more').addEventListener('click', () => expiryHistory(false));
-  byId('refresh').addEventListener('click', load); domain.addEventListener('change', selectDomain); mailbox.addEventListener('change', loadPolicy);
+  byId('refresh').addEventListener('click', load); domain.addEventListener('change',()=>{selectDomain();syncMirrors();}); mailbox.addEventListener('change',()=>{loadPolicy();syncMirrors();});
   byId('history-form').addEventListener('submit', event => { event.preventDefault(); historySearch = new FormData(event.target).get('search'); history(); });
   byId('more').addEventListener('click', () => history(false));
   byId('quarantine-form').addEventListener('submit', event => { event.preventDefault(); quarantineSearch = new FormData(event.target).get('search'); quarantine(); });
   byId('quarantine-more').addEventListener('click', () => quarantine(false));
-  document.querySelector('[data-tab="mail"]')?.addEventListener('click', () => { if (!loaded) load(); });
-  document.addEventListener('clamshield-tab-change', event => { if (event.detail === 'mail' && !loaded) load(); });
-  if (sessionStorage.getItem('clamshield-tab') === 'mail') queueMicrotask(load);
+  
+  document.addEventListener('clamshield-tab-change', event => { if (['mail-settings','email-review','quarantine','exceptions'].includes(event.detail) && !loaded) load(); });
+  if (['mail-settings','email-review','quarantine','exceptions'].includes(sessionStorage.getItem('clamshield-tab'))) queueMicrotask(load);
 })();

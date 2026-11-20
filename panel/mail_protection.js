@@ -4,7 +4,7 @@
   const root=document.getElementById('cs-mail'),button=document.getElementById('cs-mail-protection-toggle');if(!button)return;
   const output=document.getElementById('cs-mail-protection-status');
   let enabled=false,connected=false,pending=true,loading=false,submitting=false,timer=null,closed=false,changed=false;
-  const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!document.querySelector('[data-page="mail"]').hidden&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   function controls(){button.disabled=pending||submitting;button.textContent=pending||submitting?'Please wait…':(enabled?'Disable mail protection':'Enable mail protection');}
   async function api(action){

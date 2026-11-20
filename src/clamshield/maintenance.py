@@ -67,7 +67,10 @@ class Maintenance:
                 if not context['admin'] or context['identity'] != task['identity']:
                     raise ClamShieldError('Maintenance account is unavailable or was replaced')
                 signatures = Signatures(self.settings)
-                if task['action']=='resources-save':
+                if task['action']=='yara-settings-save':
+                    from .yara_settings import YaraSettings
+                    result={'policy':YaraSettings(self.settings).apply(task['payload']['policy'])}
+                elif task['action']=='resources-save':
                     result=resources.apply(task['payload']['policy'])
                     self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},'resources.applied','server',dict(result,policy=task['payload']['policy']))
                 elif task['action'] in ('website-engine-start','website-engine-stop'):
@@ -104,7 +107,10 @@ class Maintenance:
                 elif task['action'].startswith('rules-'):
                     from .rule_manager import RuleManager
                     manager=RuleManager(self.settings); payload=task['payload']
-                    if task['action']=='rules-install':
+                    if task['action']=='rules-options-save':
+                        from .yara_settings import YaraSettings
+                        with YaraSettings(self.settings).locked():result=manager.configure_hosting(payload['policy'])
+                    elif task['action']=='rules-install':
                         if payload.get('automatic') and manager.automatic_update()!=payload:
                             raise ClamShieldError('Automatic YARA update settings changed; no rules were downloaded or activated')
                         result=manager.install(payload['profile'],payload.get('release'),progress=lambda phase:self.store.task_progress(task,phase),
@@ -117,6 +123,8 @@ class Maintenance:
                     elif task['action']=='rules-activate':result=manager.activate(payload['generation'])
                     elif task['action']=='rules-rollback':result=manager.rollback()
                     else:raise ClamShieldError('Unsupported rules operation')
+                    if payload.get('apply'):
+                        result=manager.activate(result['generation']) | {'activated':True}
                 else:
                     raise ClamShieldError('Unsupported maintenance operation')
                 self.store.finish_task(task, result=result)

@@ -105,7 +105,7 @@ class NotificationPreferences:
             if isinstance(counters.get(key), (int, float)): body += label+': '+str(counters[key])+'<br>'
         query = {'notice': notification['id']}
         if owner != '@admin': query['owner'] = owner
-        link = '/plugins/clamshield/?'+urlencode(query)+'#settings/notifications'
+        link = '/plugins/clamshield/?'+urlencode(query)+'#review/notices'
         body += '<a href="'+html.escape(link, quote=True)+'">Open ClamShield</a>'
         return title, body
 
