@@ -63,8 +63,10 @@
     draw(value.items,append);by('more').hidden=next===null;controls();
   }
   async function list(){
-    const value=await api('wordpress-recovery-list',{scope:root.dataset.scope}),current=plans.value;plans.replaceChildren(text('option','Choose a plan'));plans.firstChild.value='';
-    for(const item of value.plans){owners.set(item.id,item.owner||root.dataset.owner);const option=text('option',(root.dataset.scope==='server'?item.owner+' / ':'')+item.domain+' · '+item.status+' · '+new Date(item.created*1000).toLocaleString());option.value=item.id;plans.append(option);}plans.value=current;loaded=true;
+    const version=epoch,account=form.elements.owner.value,domain=targets.domain,scope=account?'account':'server';
+    const value=await api('wordpress-recovery-list',{owner:account||root.dataset.owner,scope}),current=plans.value;if(version!==epoch||closed)return;
+    plans.replaceChildren(text('option','Choose a plan'));plans.firstChild.value='';
+    for(const item of value.plans){if(domain&&item.domain!==domain)continue;owners.set(item.id,item.owner||account||root.dataset.owner);const option=text('option',(scope==='server'?item.owner+' / ':'')+item.domain+' · '+item.status+' · '+new Date(item.created*1000).toLocaleString());option.value=item.id;plans.append(option);}plans.value=current;loaded=true;
   }
   async function refresh(append=false){
     if(loading||busy){refreshWanted=true;return;}if(!visible())return;stop();loading=true;const current=epoch;
@@ -101,6 +103,8 @@
   function visibility(){stop();if(visible())refresh();}
   document.addEventListener('clamshield-tab-change',visibility);document.addEventListener('visibilitychange',visibility);
   window.addEventListener('pagehide',()=>{closed=true;stop();});window.addEventListener('pageshow',event=>{if(event.persisted){closed=false;visibility();}});
-  const targets=window.ClamShieldWebsiteTargets(form,{allowed:root.dataset.scanAllowed!=='false',admin:root.dataset.admin==='true',bulk:false,owner:root.dataset.owner,token:root.dataset.token,onChange(){sources={};by('sources').replaceChildren();}});
+  const targets=window.ClamShieldWebsiteTargets(form,{allowed:root.dataset.scanAllowed!=='false',admin:root.dataset.admin==='true',bulk:false,owner:root.dataset.owner,token:root.dataset.token,onChange(){
+    epoch++;stop();sources={};by('sources').replaceChildren();loaded=false;plan=null;initialized=null;workId=null;plans.replaceChildren(text('option','Choose a plan'));plans.firstChild.value='';by('report').hidden=true;by('cancel').hidden=true;output.textContent='';controls();if(visible())refresh();
+  }});
   controls();if(visible())refresh();
 })();

@@ -102,3 +102,16 @@ test('failed or stale recovery account discovery cannot enable analysis or reuse
     assert.equal(form.querySelector('[type=submit]').disabled,true);assert.equal(form.querySelector('[data-target-status] img'),null);assert.match(form.querySelector('[data-target-status]').textContent,/Denied/);
   }finally{denied.close();}
 });
+
+test('an account-view administrator can analyze another account and load its new plan',async()=>{
+  const f=fixture([snapshot('ready')],{api:body=>body.action==='wordpress-recovery-list'?{ok:true,json:async()=>({ok:true,plans:body.owner==='bob'?[{id:'plan-one',owner:'bob',domain:'site.test',status:'ready',created:1}]:[]})}:null});try{
+    await settle();const form=f.by('analyze');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));form.elements.path.value='blog';await settle();
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const request=f.requests.find(r=>r.action==='wordpress-recovery-analyze');assert.equal(request.owner,'bob');assert.equal(request.path,'blog');
+    assert.equal(f.requests.find(r=>r.action==='wordpress-recovery-status').owner,'bob');assert.equal(f.by('report').hidden,false);
+    assert.equal(f.requests.filter(r=>r.action==='wordpress-recovery-list').at(-1).scope,'account');
+    form.elements.owner.value='alice';form.elements.owner.dispatchEvent(new f.w.Event('change'));assert.equal(f.by('report').hidden,true);assert.equal(f.by('apply').disabled,true);await settle();
+    assert.equal(f.by('plans').querySelector('option[value="plan-one"]'),null);
+  }finally{f.close();}
+});
