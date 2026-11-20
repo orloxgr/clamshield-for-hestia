@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.2.2
+
+- Match the Varnish and other addon entries in the shared Plugins menu by using
+  plain list/link elements, without notification classes that change font weight.
+
 ## 1.2.1
 
 - Make expandable sections throughout the panel recognizable as native Hestia

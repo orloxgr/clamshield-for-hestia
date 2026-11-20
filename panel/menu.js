@@ -90,10 +90,9 @@
     }
     const list = menu.querySelector('#hestia-addons-list');
     if (!list || list.querySelector(`[data-hestia-addon="${addon.id}"]`)) return;
+    // Match sibling addons; the shared Plugins menu supplies item/link styling.
     const item = document.createElement('li');
-    item.className = 'top-bar-notification-item';
     const link = document.createElement('a');
-    link.className = 'top-bar-notification-inner';
     link.dataset.hestiaAddon = addon.id;
     link.href = addon.href;
     link.textContent = addon.title;
