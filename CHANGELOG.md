@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.11.7
+
+- Rename the main On-Demand Scan tab to On-Demand Actions, keeping existing routes.
+- Add Account/Website selectors and Check/Check all to WordPress integrity, with
+  native account/server targeting, pending-check reuse and live per-site progress.
+- Add separate Account/Website selectors to WordPress recovery; require an
+  explicit website and discard stale target choices when changing accounts.
+
 ## 1.11.6
 
 - Keep cancelled automatic full rechecks cancelled for the same active signature/

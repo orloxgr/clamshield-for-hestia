@@ -267,15 +267,7 @@ class Application:
             return WordPress(self.settings, self.store, self.hestia).report(context, request.get('job_id'), request.get('offset', 0))
         if action=='wordpress-status':
             return WordPress(self.settings,self.store,self.hestia).status(context,request.get('job_id'))
-        if action == 'wordpress-scan':
-            site = next((s for s in self.hestia.sites(context['owner'])
-                         if s['domain'] == request.get('domain') and not s['suspended']), None)
-            if site is None:
-                raise AccessDenied('Site unavailable')
-            target = relative_path(request.get('path', ''))
-            job_id = self.store.enqueue(context, site, target, source='wordpress-integrity', generation=self.generation(),reuse_active=True)
-            return {'jobs':[job_id],**WordPress(self.settings,self.store,self.hestia).status(context,job_id)}
-        if action == 'scan':
+        if action in ('scan','wordpress-scan'):
             domain = request.get('domain')
             scope = request.get('scope', 'site')
             if scope not in ('site', 'account', 'server'):
@@ -301,7 +293,15 @@ class Application:
             target = relative_path(request.get('path', ''))
             if scope != 'site' and target:
                 raise AccessDenied('Choose one site when scanning a relative path')
-            jobs = [self.store.enqueue(c, site, target, generation=self.generation()) for c, site in targets]
+            integrity=action=='wordpress-scan';generation=self.generation()
+            jobs = [self.store.enqueue(c,site,target,source='wordpress-integrity' if integrity else 'manual',generation=generation,reuse_active=integrity) for c,site in targets]
+            if integrity:
+                fields=('id','owner','domain','target','status','created','started','finished','heartbeat','cancel_requested','counters','error')
+                checks=[]
+                for (account,_site),job_id in zip(targets,jobs):
+                    job=self.store.job(account,job_id)
+                    checks.append({key:job[key] for key in fields}|dict(report_ready=False,discovery_complete=False))
+                return {'jobs':jobs,'checks':checks,**(WordPress(self.settings,self.store,self.hestia).status(context,jobs[0]) if scope=='site' else {})}
             return {'jobs': jobs}
         if action == 'cancel':
             self.store.cancel(context, request.get('job_id'))

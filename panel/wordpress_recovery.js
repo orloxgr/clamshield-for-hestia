@@ -14,7 +14,7 @@
   }
   function controls(){
     const pending=busy||['analyzing','preparing','applying','undoing'].includes(plan?.status);
-    form.querySelector('[type=submit]').disabled=busy||!form.elements.domain.value||root.dataset.scanAllowed==='false';
+    targets.setBusy(busy);
     by('review').disabled=!plan||pending||!['ready','reviewed','preview-failed'].includes(plan.status)||selected.size===0;
     by('apply').disabled=!plan||pending||dirty||!['reviewed','interrupted'].includes(plan.status);
     by('apply').textContent=plan?.status==='interrupted'?'Resume reviewed recovery':'Apply reviewed recovery';
@@ -79,10 +79,10 @@
     finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}
   }
   form.addEventListener('submit',async event=>{
-    event.preventDefault();if(busy)return;busy=true;controls();stop();output.textContent='Queuing WordPress analysis…';let failure=null;
+    event.preventDefault();if(busy||!targets.ready)return;busy=true;controls();stop();output.textContent='Queuing WordPress analysis…';let failure=null;
     try{const values=new FormData(form),policy={versions:{},packages:{}};for(const key of ['uploads_php','uploads_js','additional','database'])policy[key]=values.has(key);
       for(const [component,value]of Object.entries(sources)){if(value.version)policy.versions[component]=value.version;if(value.path)policy.packages[component]=value.path;}
-      const result=await api('wordpress-recovery-analyze',{owner:form.elements.domain.selectedOptions[0]?.dataset.owner||root.dataset.owner,domain:values.get('domain'),path:values.get('path'),policy:JSON.stringify(policy)});
+      const result=await api('wordpress-recovery-analyze',{owner:targets.account,domain:targets.domain,path:form.elements.path.value,policy:JSON.stringify(policy)});
       epoch++;await list();plans.value=result.plan_id;plan=null;initialized=null;
     }catch(error){failure=error.message;}
     finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}
@@ -101,5 +101,6 @@
   function visibility(){stop();if(visible())refresh();}
   document.addEventListener('clamshield-tab-change',visibility);document.addEventListener('visibilitychange',visibility);
   window.addEventListener('pagehide',()=>{closed=true;stop();});window.addEventListener('pageshow',event=>{if(event.persisted){closed=false;visibility();}});
+  const targets=window.ClamShieldWebsiteTargets(form,{allowed:root.dataset.scanAllowed!=='false',admin:root.dataset.admin==='true',bulk:false,owner:root.dataset.owner,token:root.dataset.token,onChange(){sources={};by('sources').replaceChildren();}});
   controls();if(visible())refresh();
 })();

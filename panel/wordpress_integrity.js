@@ -5,18 +5,18 @@
   const allowed=root.dataset.allowed==='true',refresh=document.getElementById('cs-integrity-refresh');
   const initial=JSON.parse(document.getElementById('cs-integrity-initial').textContent);
   const states=[...root.querySelectorAll('.cs-integrity-row')].map(row=>({row,job:initial[row.dataset.index]||null,busy:false,reading:false,reportBusy:false,reportJob:null,next:null}));
-  let timer=null,polling=false,closed=false,epoch=0;
+  let timer=null,polling=false,closed=false,epoch=0,batchBusy=false;
   const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
   const pending=state=>state.job&&['queued','running'].includes(state.job.status);
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const reportRow=state=>root.querySelector('.cs-integrity-report-row[data-index="'+state.row.dataset.index+'"]');
   function text(state,selector,value){state.row.querySelector(selector).textContent=value;}
   async function api(state,action,fields={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:state.row.dataset.owner,action,...fields})});
+    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:state?.row.dataset.owner||root.dataset.owner,action,...fields})});
     const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Integrity request failed');return value;
   }
   function render(state){
-    const job=state.job,c=job?.counters||{},working=state.busy||pending(state);
+    const job=state.job,c=job?.counters||{},working=batchBusy||state.busy||pending(state);
     state.row.setAttribute('aria-busy',String(state.busy));
     const start=state.row.querySelector('.cs-integrity-start');start.disabled=!allowed||working;
     start.textContent=state.busy?'Starting check…':pending(state)?(job.status==='queued'?'Queued…':'Checking…'):job?'Check again':'Discover and verify';
@@ -75,10 +75,10 @@
     }catch(error){status.textContent=error.message;}
     finally{state.reportBusy=false;more.disabled=false;}
   }
-  for(const state of states){
+  function wire(state){
     render(state);
     state.row.querySelector('form').addEventListener('submit',async event=>{
-      event.preventDefault();if(!allowed||state.busy||pending(state))return;
+      event.preventDefault();if(!allowed||batchBusy||state.busy||pending(state))return;
       state.busy=true;render(state);text(state,'.cs-integrity-error','');let failure=null;
       try{const value=await api(state,'wordpress-scan',{domain:state.row.dataset.domain,path:state.row.querySelector('input[name="path"]').value});
         if(!value.job||value.job.domain!==state.row.dataset.domain)throw new Error('The integrity check could not be confirmed. Refresh checks or retry.');
@@ -89,7 +89,38 @@
     state.row.querySelector('.cs-integrity-show-report').addEventListener('click',()=>report(state));
     const box=reportRow(state);box.querySelector('.cs-integrity-close-report').addEventListener('click',()=>{box.hidden=true;});box.querySelector('.cs-integrity-more').addEventListener('click',()=>report(state,true));
   }
-  refresh.addEventListener('click',()=>{if(!states.some(state=>state.job)){document.getElementById('cs-integrity-notice').textContent='No checks have been started in this view. Choose Discover and verify beside a website.';return;}poll(true);});
+  for(const state of states)wire(state);
+  function ensure(owner,domain){
+    let state=states.find(state=>state.row.dataset.owner===owner&&state.row.dataset.domain===domain);if(state)return state;
+    const fragment=document.getElementById('cs-integrity-row-template').content.cloneNode(true),row=fragment.querySelector('.cs-integrity-row'),box=fragment.querySelector('.cs-integrity-report-row'),index='live-'+states.length;
+    row.dataset.index=box.dataset.index=index;row.dataset.owner=owner;row.dataset.domain=domain;row.querySelector('strong').textContent=domain;
+    const name=document.createElement('p');name.textContent=owner;row.children[0].querySelector('strong').after(name);
+    const form=row.querySelector('form'),input=row.querySelector('input[name=path]'),label=row.querySelector('label');form.id='cs-integrity-form-'+index;input.id='cs-integrity-path-'+index;input.setAttribute('form',form.id);input.removeAttribute('aria-describedby');label.htmlFor=input.id;
+    row.querySelector('[id^=cs-integrity-help]').removeAttribute('id');box.querySelector('h3').textContent='Integrity report: '+owner+' / '+domain;
+    const progress=row.querySelector('.cs-integrity-progress'),url=new URL(location.href);url.searchParams.set('owner',owner);url.searchParams.delete('scope');url.searchParams.set('scan_scope','account');url.hash='scan/jobs';progress.href=url.href;progress.removeAttribute('data-tab');
+    const body=document.getElementById('cs-integrity-sites').tBodies[0];if(!states.length)body.replaceChildren();body.append(fragment);
+    state={row,job:null,busy:false,reading:false,reportBusy:false,reportJob:null,next:null};states.push(state);wire(state);return state;
+  }
+  const targetForm=document.getElementById('cs-integrity-target'),notice=document.getElementById('cs-integrity-notice'),progress=document.getElementById('cs-integrity-target-progress');
+  const targets=window.ClamShieldWebsiteTargets(targetForm,{allowed,admin:root.dataset.admin==='true',bulk:true,owner:root.dataset.owner,token:root.dataset.token,onChange(selection){
+    for(const site of selection.sites)if(!site.suspended)ensure(selection.owner,site.domain);
+    for(const state of states){state.row.hidden=!!selection.owner&&(state.row.dataset.owner!==selection.owner||(!!selection.domain&&state.row.dataset.domain!==selection.domain));reportRow(state).hidden=true;}
+    progress.hidden=true;notice.textContent='';
+  }});
+  async function checkAll(server=false){
+    if(batchBusy||!allowed||(server?root.dataset.admin!=='true':!targets.ready))return;
+    const scope=server?'server':targets.scope;batchBusy=true;targets.setBusy(true);for(const state of states)render(state);progress.hidden=true;notice.textContent='Queuing integrity checks…';
+    try{
+      const value=await api(null,'wordpress-scan',{owner:targets.account,scope,...(scope==='site'?{domain:targets.domain,path:targetForm.elements.path.value}:{})});
+      if(server&&targetForm.elements.owner.value){targetForm.elements.owner.value='';targetForm.elements.owner.dispatchEvent(new Event('change'));}
+      for(const job of value.checks||(value.job?[value.job]:[])){const state=ensure(job.owner,job.domain);state.job=job;state.reportJob=null;reportRow(state).hidden=true;}
+      notice.textContent='Queued or already active: '+value.jobs.length+' website integrity check(s). Progress refreshes below.';
+      const url=new URL(location.href);if(scope==='server'){url.searchParams.delete('owner');url.searchParams.set('scope','server');}else{url.searchParams.set('owner',targets.account);url.searchParams.delete('scope');}url.searchParams.set('scan_scope',scope==='server'?'server':'account');url.hash='scan/jobs';progress.href=url.href;progress.removeAttribute('data-tab');progress.hidden=false;
+    }catch(error){notice.textContent=error.message;}
+    finally{batchBusy=false;targets.setBusy(false);for(const state of states)render(state);schedule();}
+  }
+  targetForm.addEventListener('submit',event=>{event.preventDefault();checkAll();});targetForm.querySelector('[data-target-all]')?.addEventListener('click',()=>checkAll(true));
+  refresh.addEventListener('click',()=>{if(!states.some(state=>state.job)){notice.textContent='Choose an account and website above, then press Check.';return;}poll(true);});
   function visibility(){epoch++;stop();if(visible())poll();}
   document.addEventListener('clamshield-tab-change',visibility);document.addEventListener('visibilitychange',visibility);
   window.addEventListener('pagehide',()=>{closed=true;epoch++;stop();});window.addEventListener('pageshow',event=>{if(event.persisted){closed=false;visibility();}});

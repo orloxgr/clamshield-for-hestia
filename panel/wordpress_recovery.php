@@ -3,12 +3,12 @@ $cs_global=($data['context']['view_scope']??'account')==='server';
 $cs_owner=static fn($row)=>$row['owner']??$data['context']['owner'];
 $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']).' / ':'').($row['domain']??'');
 ?>
-<section data-page="wordpress-recovery" id="cs-wp-recovery" data-scope="<?=$cs_global?'server':'account'?>" hidden data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-scan-allowed="<?=($data['website_permissions']['effective']['scan']??true)?'true':'false'?>">
+<section data-page="wordpress-recovery" id="cs-wp-recovery" data-admin="<?=!empty($data['context']['admin'])?'true':'false'?>" data-scope="<?=$cs_global?'server':'account'?>" hidden data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-scan-allowed="<?=($data['website_permissions']['effective']['scan']??true)?'true':'false'?>">
 <h2>WordPress recovery</h2>
 <p>Analyze WordPress files and database content, review a recovery plan, then apply selected actions. Analysis does not change your website. Originals are retained outside the public root for undo.</p>
 <form id="cs-wp-analyze">
-<div class="row"><label>Website <select class="form-select" name="domain" required><?php foreach($data['sites'] as $site): ?><option data-owner="<?=$escape($cs_owner($site))?>" value="<?=$escape($site['domain'])?>" <?=$site['suspended']?'disabled':''?>><?=$escape($cs_label($site))?><?=$site['suspended']?' · Suspended':''?></option><?php endforeach ?></select></label>
-<label>WordPress folder (optional) <input class="form-control" name="path" placeholder="Discover installations in the whole website"></label></div>
+<?php $cs_target_bulk=false;require __DIR__.'/website_targets.php'; ?>
+<p><label>WordPress folder (optional) <input class="form-control" name="path" placeholder="Discover installations in the whole website"></label></p>
 <p><label><input type="checkbox" name="uploads_php" checked> Remove PHP and other server scripts from uploads</label></p>
 <p><label><input type="checkbox" name="uploads_js"> Also remove all JavaScript from uploads</label></p>
 <p><label><input type="checkbox" name="additional" checked> Recommend removing additional files inside verified core/plugin/theme directories</label></p>

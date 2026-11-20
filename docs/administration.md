@@ -32,7 +32,7 @@ setup steps in the summary and check readiness in Hestia.
 
 ## Panel structure
 
-The persistent main menu contains Dashboard, Email Shield, On-demand Scan,
+The persistent main menu contains Dashboard, Email Shield, On-Demand Actions,
 Scheduled Scanner, Review, Updates and Settings. **Review** groups Results,
 Repairs and cleaning, Exceptions, Quarantine and History. Existing bookmarks
 and saved selections continue to select their matching view.
@@ -169,7 +169,7 @@ delegation defaults or explicit permissions for the selected account.
 The root bridge rechecks scope and authority for each operation, including
 asynchronous work. Recreated accounts do not inherit the old account's access.
 
-In **On-demand Scan → Websites**, choose **Scan account** and then a website,
+In **On-Demand Actions → Websites**, choose **Scan account** and then a website,
 or **All websites in this account**, and press **Scan**. Administrators also have
 **Scan all**, which queues active websites across all accounts on the server.
 For a single site, **Scan a folder or file (optional)** accepts a path relative
@@ -184,8 +184,14 @@ a website override; **Use global scan defaults** removes an account override.
 Administrator-configured automatic protection retains administrator authority
 when user controls are restricted. Policy changes still fence queued actions.
 
-**On-demand Scan → WordPress integrity** shows a website table with its last
-check, current status, coverage counters and actions. **Discover and verify**
+**On-Demand Actions → WordPress integrity** offers Account and Website selectors,
+with Global selected by default in the administrator's Global view. **Check**
+queues the chosen website, all active websites in an account, or the entire
+server when Global is selected. **Check all** always queues all active server
+websites. Suspended accounts and websites are skipped for server-wide checks.
+Choosing dropdowns only loads/filters websites; it never starts work. A relative
+folder is available only for a single website. The website table retains last
+check, live status, coverage counters and reports. **Discover and verify**
 searches the whole website, including nested installations. **Folder (optional)**
 contains the relative folder path and its explanation.
 The row immediately shows submission, queue and running states; active checks
@@ -195,7 +201,7 @@ available once it finishes. **View report** loads differences and unverified
 entries inline; **Previous integrity reports** retains the detailed component
 history. Failed or partial coverage remains explicit rather than implying a
 clean website. File integrity checking does not modify site files.
-**On-demand Scan → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
+**On-Demand Actions → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results
 are retained when ClamAV fails, and vice versa.
@@ -211,7 +217,7 @@ the recorded metadata and refuses to overwrite changed destinations. A moved,
 removed, suspended or recreated site/account can make historical operations
 unavailable while preserving their evidence.
 
-**On-demand Scan → WordPress integrity** discovers installations and checks core/plugin/theme integrity
+**On-Demand Actions → WordPress integrity** discovers installations and checks core/plugin/theme integrity
 where reliable references exist. **Review → Repairs and cleaning** can prepare a nonmutating diff from
 a verified reference or selected backup member. Review the preview before
 applying it. Changes retain the original or its absence, recheck the published
@@ -221,7 +227,10 @@ Quarantine, deletion, cleaning and replacement remain distinct actions.
 
 ### WordPress recovery
 
-**On-demand Scan → WordPress recovery** provides a nonmutating analysis followed
+**On-Demand Actions → WordPress recovery** uses separate Account and Website
+selectors. Choose an account and a specific active website before analysis;
+there is no server-wide repair action. Loading/changing accounts clears stale
+website and folder choices. It provides a nonmutating analysis followed
 by a reviewed batch. Select a website and optional installation folder, choose
 the uploads policies and press **Analyze WordPress**. Default PHP/server-script
 cleanup and optional all-JavaScript cleanup are separate controls. Their matches

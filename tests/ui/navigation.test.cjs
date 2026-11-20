@@ -41,7 +41,7 @@ function fixture(options={}){
   return {w,requests,timers,errors,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
     visible:()=>[...new Set([...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page))]};
 }
-const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
+const labels=['Dashboard','Email Shield','On-Demand Actions','Scheduled Scanner','Review','Updates','Settings'];
 
 test('scripts initialize during normal document parsing and SpamAssassin controls remain connected',async()=>{
   const f=fixture({parser:true,hash:'#settings/spamassassin'});
@@ -672,6 +672,49 @@ test('hidden rule views stop polling and resume after navigation',async()=>{
 });
 
 const integrityJob=(status,extra={})=>({id:'integrity-one',owner:'alice',domain:'site.test',root:'/home/alice/web/site.test/public_html',target:'',source:'wordpress-integrity',created:1,started:null,finished:null,heartbeat:null,cancel_requested:false,status,counters:{seen:0,scanned:0,installations:0},error:null,report_ready:false,discovery_complete:false,...extra});
+
+test('integrity Global defaults queue all sites once and show newly discovered account progress',async()=>{
+  let release;const job=integrityJob('queued',{id:'bob-job',owner:'bob',domain:'bob.test'});
+  const f=fixture({hash:'#scan/wordpress',change:v=>{v.context.view_scope='server';v.accounts.push({owner:'bob'});},api:body=>body.action==='wordpress-scan'?new Promise(resolve=>{release=()=>resolve({ok:true,json:async()=>({ok:true,jobs:[job.id],checks:[job]})});}):{ok:true,json:async()=>({ok:true,job})}});
+  try{const form=f.document.getElementById('cs-integrity-target'),start=form.querySelector('[data-target-start]');assert.equal(form.elements.owner.value,'');assert.equal(form.elements.domain.disabled,true);
+    assert.equal(f.document.querySelector('[data-main-tab=scan]').textContent,'On-Demand Actions');assert.equal(f.requests.length,0);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));for(let i=0;i<20;i++)start.click();
+    assert.equal(start.disabled,true);assert.equal(f.requests.length,1);assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'alice',action:'wordpress-scan',scope:'server'});
+    release();await settle();assert.match(f.document.getElementById('cs-integrity-notice').textContent,/Queued or already active: 1/);
+    const row=f.document.querySelector('.cs-integrity-row[data-owner=bob]');assert.ok(row);assert.match(row.textContent,/bob.test/);assert.match(row.querySelector('.cs-integrity-status').textContent,/Queued/);
+    assert.equal(row.querySelector('.cs-integrity-start').disabled,true);assert.equal(new URL(f.document.getElementById('cs-integrity-target-progress').href).searchParams.get('scan_scope'),'server');
+    await f.tick();assert.equal(f.requests.find(r=>r.action==='wordpress-status').owner,'bob');assert.deepEqual(f.errors,[]);
+  }finally{release?.();await f.close();}
+});
+
+test('integrity account and website dropdowns load native sites and queue only after Check',async()=>{
+  const f=fixture({hash:'#scan/wordpress',change:v=>v.accounts.push({owner:'bob'}),api:body=>({ok:true,json:async()=>body.action==='scan-targets'?{ok:true,sites:[{domain:'bob.test',suspended:false},{domain:'stopped.test',suspended:true}]}:{ok:true,jobs:['bob-job'],checks:[integrityJob('queued',{id:'bob-job',owner:'bob',domain:'bob.test',target:body.path||''})]}})});
+  try{const form=f.document.getElementById('cs-integrity-target');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    assert.equal(f.requests.length,1);assert.equal(f.requests[0].action,'scan-targets');assert.equal(form.elements.domain.querySelector('[value="stopped.test"]').disabled,true);
+    form.elements.domain.value='bob.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));form.elements.path.value='blog';
+    assert.equal(f.requests.length,1);assert.equal(form.querySelector('[data-target-path-options]').hidden,false);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests[1],{token:'fixture-token',owner:'bob',action:'wordpress-scan',scope:'site',domain:'bob.test',path:'blog'});
+    assert.match(f.document.querySelector('.cs-integrity-row[data-owner=bob] .cs-integrity-counts').textContent,/Folder: blog/);
+    assert.equal(f.document.querySelector('.cs-integrity-row[data-owner=alice]').hidden,true);
+    const progress=new URL(f.document.getElementById('cs-integrity-target-progress').href);assert.equal(progress.searchParams.get('owner'),'bob');assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('integrity Check all ignores a selected folder and account and errors remain retryable',async()=>{
+  const f=fixture({hash:'#scan/wordpress',api:async()=>({ok:false,json:async()=>({ok:false,error:'Unavailable <img src=x>'})})});
+  try{const form=f.document.getElementById('cs-integrity-target');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));form.elements.path.value='blog';
+    form.querySelector('[data-target-all]').click();await settle();assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'alice',action:'wordpress-scan',scope:'server'});
+    const notice=f.document.getElementById('cs-integrity-notice');assert.match(notice.textContent,/Unavailable <img/);assert.equal(notice.querySelector('img'),null);assert.equal(form.querySelector('[data-target-start]').disabled,false);
+  }finally{await f.close();}
+});
+
+test('integrity tenants have only their account and denied scan permission cannot submit a bulk check',async()=>{
+  const f=fixture({hash:'#scan/wordpress',admin:false,change:v=>v.website_permissions.effective.scan=false});try{
+    const form=f.document.getElementById('cs-integrity-target');assert.equal(form.elements.owner.disabled,true);assert.equal(form.querySelector('[data-target-all]'),null);assert.equal(form.elements.owner.querySelector('option[value=""]'),null);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.requests.length,0);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
 
 test('queued integrity checks show the shared scanner blocker and position while remaining queued',async()=>{
   const job=integrityJob('queued',{queue:{code:'scan-running',position:3,wait_seconds:142,message:'Waiting for automatic scan after signature updates: bob / bob.test.'}});
