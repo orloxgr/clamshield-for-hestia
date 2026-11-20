@@ -2,8 +2,12 @@
 <style>
 /* ClamShield layout only. Hestia owns control appearance and theme colors. */
 .cs{margin:28px auto;padding:0 20px}
-.cs .sub{margin:2px 0 24px}.cs .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px;margin-bottom:20px}
-.cs .card{padding:12px 0}.cs section{padding:20px 0;margin-bottom:20px}.cs .number{font-size:2em;font-weight:700}
+.cs .sub{margin:2px 0 24px}
+.cs .card{padding:12px 0}.cs section{padding:20px 0;margin-bottom:20px}
+.cs .cs-activity{margin-bottom:20px}.cs .cs-activity h3{display:flex;align-items:center;gap:10px}
+.cs .cs-activity-row{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:12px 0}
+.cs .cs-activity dt{display:flex;align-items:center;gap:10px}.cs .cs-activity dd{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin:0;text-align:right}
+.cs .cs-activity dd a{min-width:8em}.cs .cs-activity strong{min-width:3ch;overflow-wrap:anywhere}
 .cs .cs-dashboard-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px}.cs .cs-engine-info{display:grid;grid-template-columns:minmax(9em,1fr) minmax(0,2fr);gap:12px}.cs .cs-engine-info dd{margin:0;overflow-wrap:anywhere}
 .cs nav{display:flex;gap:8px;flex-wrap:wrap;margin:24px 0}
 .cs table{width:100%;border-collapse:collapse}.cs td,.cs th{text-align:left;padding:10px;overflow-wrap:anywhere}
@@ -19,7 +23,8 @@
 .cs #cs-mail-expiry-history td{white-space:pre-line}
 .cs #cs-scans-list td{white-space:pre-line}
 .cs #cs-scans-list td:nth-child(2){min-width:9em}
-@media(max-width:750px){.cs .cs-dashboard-panels{grid-template-columns:1fr}.cs .cs-engine-info{grid-template-columns:1fr}.cs .cs-engine-info dd{margin-bottom:12px}.cs .cards{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media(max-width:750px){.cs .cs-dashboard-panels{grid-template-columns:1fr}.cs .cs-engine-info{grid-template-columns:1fr}.cs .cs-engine-info dd{margin-bottom:12px}}
+@media(max-width:450px){.cs .cs-activity-row{align-items:flex-start}.cs .cs-activity dd{flex-direction:column;align-items:flex-end;gap:4px}.cs .cs-activity dd a{min-width:0}}
 </style>
 <main class="container cs">
 <div class="row"><div><h1>ClamShield <small style="font-size:14px;font-weight:400">for Hestia</small></h1><p class="sub">Website malware scanning &amp; email protection</p></div>

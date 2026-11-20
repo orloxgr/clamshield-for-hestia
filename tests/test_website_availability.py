@@ -85,12 +85,12 @@ class WebsiteHistoryRendering(unittest.TestCase):
         self.assertIn('data-scope="account"', page)
         self.assertNotIn('data-scope="server"', page)
 
-    def test_cards_render_full_scoped_totals_instead_of_bounded_preview_lengths(self):
+    def test_activity_rows_render_full_scoped_totals_instead_of_bounded_preview_lengths(self):
         data=self.data();data['summary']=dict(open_findings=1234,active_scans=201,quarantined=456)
         page=self.render(data)
-        self.assertIn('Open findings<div class="number">1234</div>',page)
-        self.assertIn('id="cs-active-scans">201</div>',page)
-        self.assertIn('Quarantined<div class="number">456</div>',page)
+        self.assertIn('View results</a><strong>1234</strong>',page)
+        self.assertIn('id="cs-active-scans">201</strong>',page)
+        self.assertIn('View files</a><strong>456</strong>',page)
 
     def test_removed_site_keeps_open_finding_and_omits_file_mutations(self):
         data = self.data(); data['sites'] = []

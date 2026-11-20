@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.1.1
+
+- Present dashboard account totals in one activity panel with four rows,
+  native icons and right-aligned values, retaining navigation links and live
+  scan-count updates. Keep Hestia theme colors and control appearance.
+
 ## 1.1.0
 
 - Organize the panel around ten persistent primary sections, with focused
