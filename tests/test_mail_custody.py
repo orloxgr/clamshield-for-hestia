@@ -271,6 +271,35 @@ class MailCustodyTests(unittest.TestCase):
         with self.store.connection() as db:
             self.assertEqual({'prepared'}, {r['status'] for r in db.execute('SELECT status FROM mail_recipients')})
 
+    def revoke_global_before_commit(self,operation):
+        staged=self.capture();delivery=self.delivery(self.alice)
+        self.policies.save_permissions(self.native.authorize('admin','alice'),None,reset=True)
+        admin=self.native.authorize('admin')
+        def defaults(grants):
+            value=self.policies.server(admin)
+            self.policies.save_server(admin,dict(defaults={},permissions=grants),value['revision'])
+        defaults(dict(PERMISSIONS,release=True,delete=True))
+        original=self.custody.policies.permissions;revoked=False
+        def revoke(context,db=None):
+            nonlocal revoked
+            value=original(context,db)
+            if db is None and not revoked:
+                revoked=True;defaults(dict(PERMISSIONS))
+            return value
+        with patch.object(self.custody.policies,'permissions',side_effect=revoke):
+            with self.assertRaises(AccessDenied):
+                if operation=='release':self.custody.queue_release(self.alice,delivery,'Reviewed fixture')
+                else:self.custody.delete(self.alice,delivery)
+        self.assertTrue(revoked)
+        self.assertEqual('quarantined',self.custody.list(self.alice)['messages'][0]['status'])
+        self.assertTrue(self.blob(staged['transaction_id']).exists())
+
+    def test_global_release_permission_revoked_before_commit_keeps_email_quarantined(self):
+        self.revoke_global_before_commit('release')
+
+    def test_global_delete_permission_revoked_before_commit_keeps_original_bytes(self):
+        self.revoke_global_before_commit('delete')
+
     def test_plaintext_preview_skips_html_named_attachments_and_caps_input(self):
         html = safe_preview(b'Content-Type: text/html\n\n<script>no</script>', 48)
         self.assertEqual('', html['text'])

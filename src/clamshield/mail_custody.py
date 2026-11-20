@@ -362,6 +362,8 @@ class MailCustody:
             with self.blob(root, transaction):
                 pass
             with self.store.connection(True) as db:
+                if not context['admin'] and not self.policies.permissions(context,db)['release']:
+                    raise AccessDenied('Email release is disabled for this account')
                 db.execute("UPDATE mail_recipients SET status='release_queued',updated=?,note=? WHERE id=? AND owner=? AND identity=?", (time.time(), note, row['id'], *self.store.scope(context)))
                 self.store.audit(context, 'mail.release_queued', row['id'],
                                  {'reason': note, 'sha256': transaction['sha256'],
@@ -374,6 +376,8 @@ class MailCustody:
             raise AccessDenied('Email deletion is disabled for this account')
         with self.locked() as root:
             with self.store.connection(True) as db:
+                if not context['admin'] and not self.policies.permissions(context,db)['delete']:
+                    raise AccessDenied('Email deletion is disabled for this account')
                 row = self.row(context, delivery_id, db)
                 if row['status'] != 'quarantined':
                     raise Conflict('Only quarantined email can be deleted')
