@@ -1,0 +1,1 @@
+<?php foreach($data['email-decisions'] as $mail_record): ?><tr data-owner="<?=$escape($mail_record['owner'])?>"><td><?=$escape($mail_record['owner'].' / '.$mail_record['recipient'])?></td><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$mail_record['created']))?> UTC</td><td><?=$escape($mail_record['action'].' / '.$mail_record['classification'])?></td></tr><?php endforeach ?>

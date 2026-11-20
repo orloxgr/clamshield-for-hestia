@@ -412,6 +412,11 @@ class Application:
         if action == 'exception-remove':
             Exceptions(self.store).remove(context, request.get('exception_id'))
             return {'removed': True}
+        if action in ('review-list','review-bulk-preview','review-bulk-clear','review-read-all'):
+            from .review import Review
+            review=Review(self.settings,self.store,self.hestia)
+            if action=='review-list':return review.query(context,request.get('list'),request.get('scope','account'),request.get('filters',{}),request.get('offset',0),request.get('limit',50))
+            return review.bulk(context,request.get('list'),request.get('scope','account'),{'review-bulk-preview':'preview','review-bulk-clear':'clear','review-read-all':'read'}[action],request.get('confirmation'))
         if action == 'notification-read':
             self.store.read_notification(context, request.get('notification_id'))
             return {'read': True}
@@ -437,6 +442,8 @@ class Application:
         WebsiteAvailability(context,sites).annotate(data)
         for key in ('jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','remediation_history'):
             data[key]=[dict(row,owner=row.get('owner',context['owner']),identity=row.get('identity',context['identity'])) for row in data[key]]
+        for key in ('findings','quarantine','history','exceptions','notifications','repairs','remediation_history'):
+            data[key]=data[key][:50]
         return data
 
     def dashboard(self,context,*,server=False):
@@ -456,8 +463,9 @@ class Application:
                 unique={}
                 for row in data[key]:unique[(row['owner'],row['identity'],str(row.get('id',row.get('job_id',json.dumps(row,sort_keys=True)))))]=row
                 rows=sorted(unique.values(),key=lambda row:row.get('created',0),reverse=True)
-                if len(rows)>500:data['preview_limits'][key]=500
-                data[key]=rows[:500]
+                limit=50 if key in ('findings','quarantine','history','exceptions','notifications','repairs','remediation_history') else 500
+                if len(rows)>limit:data['preview_limits'][key]=limit
+                data[key]=rows[:limit]
             from .website_permissions import WebsitePermissions
             from .remediation import Remediation
             data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context,server=True)

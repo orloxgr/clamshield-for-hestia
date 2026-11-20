@@ -121,6 +121,13 @@ CREATE TABLE IF NOT EXISTS notifications (
 );
 CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created);
 CREATE INDEX IF NOT EXISTS notifications_scope_created ON notifications(owner,identity,created);
+CREATE TABLE IF NOT EXISTS review_clears (
+ kind TEXT NOT NULL,owner TEXT NOT NULL,identity TEXT NOT NULL,before_created REAL NOT NULL,before_id TEXT NOT NULL,
+ PRIMARY KEY(kind,owner,identity)
+);
+CREATE TABLE IF NOT EXISTS review_confirmations (
+ token TEXT PRIMARY KEY,actor TEXT NOT NULL,identity TEXT NOT NULL,created REAL NOT NULL,detail TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS notification_preferences (
  actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
  categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,
@@ -493,11 +500,11 @@ class Store:
         return dict(row) | {'fingerprint': json.loads(row['fingerprint']),'detail':json.loads(row['detail'])}
 
     def history(self, context):
-        with self.connection() as db:
-            query='SELECT * FROM audit WHERE (owner=? AND identity=?)'
-            if context.get('admin'):query+=" OR (owner='@admin' AND identity='')"
-            rows = db.execute(query+' ORDER BY id DESC LIMIT 300',self.scope(context)).fetchall()
-        return [dict(row) | {'detail': json.loads(row['detail'])} for row in rows]
+        from .review import visible
+        condition='(r.owner=? AND r.identity=?)'
+        if context.get('admin'):condition="("+condition+" OR (r.owner='@admin' AND r.identity=''))"
+        with self.connection() as db:rows=db.execute('SELECT r.* FROM audit r WHERE '+condition+' AND '+visible('history')+' ORDER BY r.id DESC LIMIT 300',self.scope(context)).fetchall()
+        return [dict(row)|{'detail':json.loads(row['detail'])} for row in rows]
 
     def enqueue_task(self, context, action, payload):
         task_id = uuid.uuid4().hex
@@ -588,14 +595,11 @@ class Store:
                 connection.execute(sql, values)
 
     def notifications(self, context):
-        with self.connection() as db:
-            if context.get('admin'):
-                rows = db.execute("SELECT * FROM notifications WHERE (owner=? AND identity=?) OR owner='@admin' ORDER BY created DESC LIMIT 300",
-                                  self.scope(context)).fetchall()
-            else:
-                rows = db.execute('SELECT * FROM notifications WHERE owner=? AND identity=? ORDER BY created DESC LIMIT 300',
-                                  self.scope(context)).fetchall()
-        return [dict(row) | {'detail': json.loads(row['detail'])} for row in rows]
+        from .review import visible
+        condition='(r.owner=? AND r.identity=?)'
+        if context.get('admin'):condition="("+condition+" OR (r.owner='@admin' AND r.identity=''))"
+        with self.connection() as db:rows=db.execute('SELECT r.* FROM notifications r WHERE '+condition+' AND '+visible('notices')+' ORDER BY r.created DESC LIMIT 300',self.scope(context)).fetchall()
+        return [dict(row)|{'detail':json.loads(row['detail'])} for row in rows]
 
     def read_notification(self, context, notification_id):
         with self.connection() as db:

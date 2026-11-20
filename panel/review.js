@@ -1,0 +1,115 @@
+/* Managed by clamshield; bounded server pagination with native Hestia controls. */
+(() => {
+ 'use strict';
+ const root=document.getElementById('cs-review-root');if(!root)return;
+ const config={
+  findings:['cs-review-findings-rows','findings','Engine','Provider'],repairs:['cs-review-repairs-rows','repairs','Source'],
+  exceptions:['cs-review-exceptions-rows','exceptions','Type','Engine'],quarantine:['cs-review-quarantine-rows','quarantine','Type'],
+  history:['cs-review-history-rows','history','Event'],notices:['cs-notification-list','notices','Event'],
+  activity:['cs-review-activity-rows','activity','Operation'],automatic:['cs-review-automatic-rows','activity','Policy'],
+  'email-stored':['cs-mail-server-quarantine','email-review','Action'],'email-decisions':['cs-mail-server-decisions','email-review','Classification']
+ };
+ const states=new Map();
+ const element=(tag,properties={})=>Object.assign(document.createElement(tag),properties);
+ const option=(value,title)=>element('option',{value,textContent:title});
+ const words=value=>String(value).replace(/[._-]/g,' ').replace(/^./,v=>v.toUpperCase());
+ async function api(action,fields={}){
+  const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,scope:root.dataset.scope,action,...fields})});
+  const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Review request failed');return value;
+ }
+ function addField(form,name,title,control){const label=element('label',{textContent:title+' '});control.name=name;control.className=control.tagName==='SELECT'?'form-select':'form-control';label.append(control);form.append(label);return control;}
+ function selection(title){const select=element('select');select.append(option('',title));return select;}
+ function key(state){return 'clamshield-review:'+root.dataset.owner+':'+root.dataset.identity+':'+root.dataset.scope+':'+state.kind;}
+ function remember(state){try{sessionStorage.setItem(key(state),JSON.stringify({fields:Object.fromEntries(new FormData(state.form)),offset:state.offset}));}catch{}}
+ function filters(state){
+  const values=Object.fromEntries(new FormData(state.form));delete values.rows;
+  if(state.kind==='notices'){
+   const kind=document.getElementById('cs-notification-type').value,status=document.getElementById('cs-notification-state').value;
+   if(status!=='all')values.status=status;
+   if(kind==='selected'){const selected=document.getElementById('cs-notifications').dataset.categories;if(selected)values.categories=JSON.parse(selected);}
+   else if(kind!=='all')values.categories=[kind];
+  }
+  return values;
+ }
+ function controls(state){
+  state.previous.disabled=state.loading||state.offset===0;state.next.disabled=state.loading||state.nextOffset===null;
+  state.search.disabled=state.loading;state.clear&&(state.clear.disabled=state.loading||state.mutating||!state.canClear);
+  state.read&&(state.read.disabled=state.loading||state.mutating);
+ }
+ function options(select,values,human=true){if(!select)return;const selected=select.value,title=select.options[0].textContent;select.replaceChildren(option('',title));for(const value of values)select.append(option(String(value),value==='@admin'?'Server':human?words(value):String(value)));if(selected&&!values.map(String).includes(selected))select.append(option(selected,words(selected)));select.value=selected;}
+ async function load(state,reset=false){
+  if(reset)state.offset=0;state.revision++;state.queued=true;
+  if(state.loading||state.mutating)return;
+  state.loading=true;state.queued=false;const version=state.revision;controls(state);state.status.textContent='Loading…';
+  const offset=state.offset,limit=Number(state.form.elements.rows.value),query=filters(state);remember(state);
+  try{
+   const value=await api('review-list',{list:state.kind,offset:String(offset),limit:String(limit),filters:JSON.stringify(query)});
+   if(version!==state.revision)return;
+   if(typeof value.html!=='string')throw new Error('Review rows are unavailable');
+   state.body.innerHTML=value.html;state.offset=value.offset;state.nextOffset=value.next_offset;state.canClear=Boolean(value.can_clear);state.loaded=true;
+   for(const name of ['status','type','provider'])options(state.form.elements.namedItem(name),value.options[name]||[]);
+   options(state.form.elements.namedItem('account'),value.accounts||[],false);
+   const first=value.total?value.offset+1:0,last=Math.min(value.offset+value.limit,value.total);
+   state.count.textContent='Showing '+first+'–'+last+' of '+value.total+' · Page '+(Math.floor(value.offset/value.limit)+1)+' / '+Math.max(1,Math.ceil(value.total/value.limit));
+   state.status.textContent=value.total?'':'No records match these filters.';remember(state);
+   document.dispatchEvent(new CustomEvent('clamshield-review-rows',{detail:state.body}));
+  }catch(error){if(version===state.revision)state.status.textContent=error.message+' The last loaded rows are kept. Use Search to retry.';}
+  finally{state.loading=false;controls(state);if(state.queued)load(state);}
+ }
+ async function previewClear(state){
+  if(state.mutating||state.loading)return;state.mutating=true;controls(state);state.status.textContent='Preparing deletion…';
+  try{const value=await api('review-bulk-preview',{list:state.kind});state.proof=value.token;state.confirmation.replaceChildren();
+   const scope=value.scope==='server'?'all current server accounts':'the selected hosting account';
+   const text=state.kind==='history'?'Clear all '+value.count+' history events for '+scope+', including events hidden by filters? Scan results, quarantine and recovery evidence are kept.':'Delete all '+value.count+' ClamShield notifications for '+scope+'? This includes notifications hidden by filters.';
+   state.confirmation.append(element('p',{textContent:text}));
+   const confirm=element('button',{className:'button',type:'button',textContent:state.kind==='history'?'Confirm clear history':'Confirm delete all'}),cancel=element('button',{className:'button',type:'button',textContent:'Cancel'});
+   confirm.addEventListener('click',()=>clear(state,confirm,cancel));cancel.addEventListener('click',()=>{state.proof=null;state.confirmation.hidden=true;});
+   state.confirmation.append(confirm,cancel);state.confirmation.hidden=false;state.status.textContent='';
+  }catch(error){state.status.textContent=error.message;}
+  finally{state.mutating=false;controls(state);}
+ }
+ async function clear(state,confirm,cancel){
+  if(state.mutating||!state.proof)return;state.mutating=true;confirm.disabled=cancel.disabled=true;controls(state);
+  try{const value=await api('review-bulk-clear',{list:state.kind,confirmation:state.proof});state.proof=null;state.confirmation.hidden=true;state.status.textContent=value.changed+' records cleared.';state.offset=0;state.queued=true;}
+  catch(error){state.status.textContent=error.message;confirm.disabled=cancel.disabled=false;}
+  finally{state.mutating=false;controls(state);if(state.queued)load(state);}
+ }
+ for(const [kind,[id,page,typeTitle,providerTitle]] of Object.entries(config)){
+  const body=document.getElementById(id);if(!body)continue;body.dataset.reviewManaged='true';
+  const form=element('form',{className:'row cs-controls-row'});form.dataset.reviewList=kind;
+  addField(form,'search','Search',element('input',{type:'search',maxLength:300,placeholder:'Account, website, file or event'}));
+  if(root.dataset.scope==='server')addField(form,'account','Account',selection('All accounts'));
+  if(kind!=='history'&&kind!=='notices')addField(form,'status','Status',selection('All statuses'));
+  addField(form,'type',typeTitle,selection('All '+typeTitle.toLowerCase()+'s'));
+  if(providerTitle)addField(form,'provider',providerTitle,selection('All '+providerTitle.toLowerCase()+'s'));
+  addField(form,'from','From (UTC)',element('input',{type:'date'}));addField(form,'to','To (UTC)',element('input',{type:'date'}));
+  const order=element('select');order.append(option('newest','Newest first'),option('oldest','Oldest first'));addField(form,'order','Sort',order);
+  const size=element('select');for(const n of [25,50,100])size.append(option(String(n),String(n)));size.value='50';addField(form,'rows','Rows',size);
+  const search=element('button',{className:'button',type:'submit',textContent:'Search'}),reset=element('button',{className:'button',type:'button',textContent:'Reset filters'});form.append(search,reset);
+  const bar=element('div',{className:'row'}),count=element('p',{role:'status'}),previous=element('button',{className:'button',type:'button',textContent:'Previous',disabled:true}),next=element('button',{className:'button',type:'button',textContent:'Next',disabled:true});bar.dataset.reviewPager=kind;previous.dataset.reviewCommand='previous';next.dataset.reviewCommand='next';bar.append(count,previous,next);
+  const status=element('p',{role:'status'}),confirmation=element('article',{className:'card',hidden:true});status.setAttribute('aria-live','polite');
+  const container=body.closest('.scroll')||body;container.before(form,bar,status,confirmation);
+  confirmation.dataset.reviewConfirmation=kind;
+  const state={kind,page,body,form,bar,count,status,confirmation,previous,next,search,offset:0,nextOffset:null,revision:0,loading:false,mutating:false,queued:false,loaded:false,canClear:false};states.set(kind,state);
+  if(['history','notices'].includes(kind)){
+   state.clear=element('button',{className:'button',type:'button',textContent:kind==='history'?'Delete all history':'Delete all notifications',disabled:true});state.clear.dataset.reviewCommand='delete-all';bar.append(state.clear);state.clear.addEventListener('click',()=>previewClear(state));
+   if(kind==='notices'){state.read=element('button',{className:'button',type:'button',textContent:'Mark all read'});state.read.dataset.reviewCommand='read-all';bar.append(state.read);state.read.addEventListener('click',async()=>{
+    if(state.loading||state.mutating)return;state.mutating=true;controls(state);
+    try{const value=await api('review-read-all',{list:'notices'});state.status.textContent=value.changed+' notifications marked read.';state.queued=true;}
+    catch(error){state.status.textContent=error.message;}
+    finally{state.mutating=false;controls(state);if(state.queued)load(state);}
+   });}
+  }
+  try{const saved=JSON.parse(sessionStorage.getItem(key(state))||'null');if(saved&&saved.fields){for(const [name,value] of Object.entries(saved.fields)){const input=form.elements.namedItem(name);if(!input||typeof value!=='string')continue;if(input.tagName==='SELECT'&&![...input.options].some(option=>option.value===value))input.append(option(value,words(value)));input.value=value;}if(Number.isSafeInteger(saved.offset)&&saved.offset>=0)state.offset=saved.offset;}}catch{}
+  form.addEventListener('submit',event=>{event.preventDefault();load(state,true);});form.addEventListener('change',()=>load(state,true));
+  reset.addEventListener('click',()=>{form.reset();size.value='50';load(state,true);});
+  previous.addEventListener('click',()=>{if(previous.disabled)return;state.offset=Math.max(0,state.offset-Number(size.value));load(state);});
+  next.addEventListener('click',()=>{if(next.disabled||state.nextOffset===null)return;state.offset=state.nextOffset;load(state);});
+ }
+ function selected(){for(const state of states.values())if(!state.body.closest('[data-page]').hidden&&!state.loaded)load(state);}
+ document.addEventListener('clamshield-tab-change',selected);
+ document.addEventListener('clamshield-review-refresh',event=>{for(const state of states.values())if(state.kind===event.detail)load(state);});
+ document.addEventListener('clamshield-notification-preferences',()=>{const state=states.get('notices');if(state&&!state.body.closest('[data-page]').hidden)load(state,true);});
+ for(const id of ['cs-notification-type','cs-notification-state'])document.getElementById(id)?.addEventListener('change',()=>{const state=states.get('notices');if(state)load(state,true);});
+ if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',selected,{once:true});else selected();
+})();

@@ -1,5 +1,5 @@
 <?php // Managed by clamshield
-$automatic_labels=['report'=>'Report only','quarantine'=>'Quarantine detected files','cleanup'=>'Clean recognized infections','cleanup-or-quarantine'=>'Clean recognized infections; quarantine unsupported files'];
+require __DIR__.'/automatic_format.php';
 $automatic_allowed=static function($mode) use ($data){$required=['report'=>[],'quarantine'=>['automatic','quarantine'],'cleanup'=>['automatic','cleanup'],'cleanup-or-quarantine'=>['automatic','cleanup','quarantine']];foreach(($required[$mode]??[]) as $key){if(!$data['website_permissions']['effective'][$key])return false;}return true;}; ?>
 <section data-page="automatic" hidden><h2>Automatic website actions</h2>
 <p>Set global or account defaults and override individual websites. Accounts inherit global defaults until an override is saved. Settings apply to scans queued after saving. Only complete scans with all enabled website engines can trigger an action. Integrity checks and restore/undo rechecks do not trigger automatic actions.</p>

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.0
+
+- Add native search/date/account/type/status controls and server pagination to
+  Review lists, including full Global email records beyond the former previews.
+- Add confirmed scoped history/notification clearing and AJAX Mark all read.
+  Preserve operational recovery evidence and notification deduplication records.
+- Reuse escaped PHP row templates and retain all existing scoped row actions
+  after paging. Keep initial Review previews small and validate nested templates.
+
 ## 1.10.8
 
 - Route Manage quarantined email to Review / Email instead of the Quarantine tab.

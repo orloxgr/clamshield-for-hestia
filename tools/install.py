@@ -135,7 +135,7 @@ def install(args,lifecycle):
         if not Path(binary).is_file():
             raise RuntimeError('Ubuntu engine binary is unavailable after dependency installation: ' + binary)
     # Validate PHP before publishing a new code generation.
-    templates = sorted((SOURCE / 'panel').glob('*.php'))
+    templates = sorted((SOURCE / 'panel').rglob('*.php'))
     progress.stage('[2/10] Validating ' + str(len(templates)) + ' Hestia PHP templates')
     for path in templates:
         run(str(hestia / 'php/bin/php'), '-l', str(path))

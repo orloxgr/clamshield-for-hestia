@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     unset($request['scope']);
     if (!empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) $respond(403, ['ok'=>false,'error'=>'Request token invalid or account is read only.']);
-    foreach (['owner','action','scope','domain','mailbox','path','job_id','finding_id','operation_id','plan_id','delivery_id','profile','release','provider','name','content','exception_id','kind','note','notification_id','generation','search','source_id','rule_id','revision','stage'] as $key) {
+    foreach (['owner','action','scope','domain','mailbox','path','job_id','finding_id','operation_id','plan_id','delivery_id','profile','release','provider','name','content','exception_id','kind','note','notification_id','generation','search','source_id','rule_id','revision','stage','list','confirmation'] as $key) {
         if (isset($_POST[$key])) {
             if (!is_string($_POST[$key])) $respond(400, ['ok'=>false,'error'=>'Invalid request field.']);
             $request[$key] = $_POST[$key];
@@ -64,6 +64,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_string($_POST['policy'])) $respond(400,['ok'=>false,'error'=>'Invalid policy.']);
         // Keep {} as an object through the JSON bridge; [] must stay an array.
         $request['policy'] = json_decode($_POST['policy']);
+    }
+    if (isset($_POST['filters'])) {
+        if (!is_string($_POST['filters'])) $respond(400,['ok'=>false,'error'=>'Invalid Review filters.']);
+        $request['filters']=json_decode($_POST['filters'],true);
+    }
+    if (isset($_POST['limit'])) {
+        if (!is_string($_POST['limit']) || !ctype_digit($_POST['limit'])) $respond(400,['ok'=>false,'error'=>'Invalid page size.']);
+        $request['limit']=(int)$_POST['limit'];
     }
     if (isset($_POST['offset'])) {
         if (!is_string($_POST['offset']) || !ctype_digit($_POST['offset'])) $respond(400,['ok'=>false,'error'=>'Invalid report offset.']);
@@ -96,6 +104,16 @@ foreach ($open as $pipe) fclose($pipe);
 $status = proc_close($process);
 $data = json_decode($output,true);
 if (!is_array($data)) $respond(503, ['ok'=>false,'error'=>'ClamShield is unavailable.']);
+if ($_SERVER['REQUEST_METHOD']==='POST' && $request['action']==='review-list' && $status===0 && !empty($data['ok'])) {
+    clearstatcache(true);
+    $renderer=realpath('/opt/clamshield/panel/review_render.php');
+    if ($renderer===false || !is_readable($renderer)) $respond(503,['ok'=>false,'error'=>'Review templates are unavailable. Rerun the installer.']);
+    $escape=static fn($value)=>htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
+    $result=$data;
+    ob_start();require $renderer;$html=ob_get_clean();
+    unset($result['records'],$result['view_data']);$result['html']=$html;
+    $respond(200,$result);
+}
 if ($_SERVER['REQUEST_METHOD']==='POST' || ($_GET['format']??'')==='json') {
     // The bounded root JSON was validated above. Forward it without a PHP
     // associative-array round trip, which changes empty objects {} into [].

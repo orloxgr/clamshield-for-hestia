@@ -1,0 +1,2 @@
+<?php foreach($data['maintenance']??[] as $task): ?><tr><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$task['created']))?></td><td><?=$escape($cs_operations[$task['action']]??ucfirst(str_replace('-',' ',$task['action'])))?></td><td><?=$escape(ucfirst($task['status']))?></td><td><?=$escape($task['error']??($task['status']==='completed'?'Completed successfully':($task['status']==='queued'?'Waiting to start':'In progress')))?></td></tr><?php endforeach ?>
+
