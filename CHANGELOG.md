@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.1
+
+- Add a Get a key link beside the SecuriteInfo account-key label, opening the
+  provider's registration page in a new tab.
+
 ## 1.9.0
 
 - Add automatic YARA Forge rule updates with a configurable interval, last
