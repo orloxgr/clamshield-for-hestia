@@ -212,8 +212,10 @@ class VendorReferencesTests(unittest.TestCase):
             refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'},'versions':{component['path']:'2.0'}}))
             manifest=refs.manifest(component);content,proof=refs.replacement(component,'premium.php',manifest['files']['premium.php'])
             self.assertIn(b'2.0',content);self.assertEqual('user-supplied',proof['authenticity'])
-            refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'}}))
+            refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'},'versions':{component['path']:'1.0'}}))
             with self.assertRaises(Conflict):refs.manifest(component)
+            refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'}}))
+            refs.manifest(component);self.assertEqual('2.0',component['recovery_version'])
 
     def test_private_vendor_path_uses_selected_account_home(self):
         with tempfile.TemporaryDirectory() as temp:

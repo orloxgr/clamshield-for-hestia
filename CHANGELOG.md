@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.8
+
+- Explain recovery as Analyze, Review proposed changes and Apply selected changes;
+  rename cleanup options as proposals and hide empty previous-analysis history.
+- Default recovery to fresh latest-stable WordPress.org release discovery, with
+  explicit installed-version, per-component version and vendor ZIP alternatives.
+- Show installed and pinned recovery versions together, retaining unverified
+  references without silent fallback or partial component version application.
+- Keep analysis/preview nonmutating and apply/undo bound to retained candidates.
+
 ## 1.11.7
 
 - Rename the main On-Demand Scan tab to On-Demand Actions, keeping existing routes.

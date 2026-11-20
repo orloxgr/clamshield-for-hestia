@@ -22,12 +22,40 @@ function fixture(snapshots,options={}){
 test('analysis sends separate PHP/JS policies and never automatically applies a recovery',async()=>{
   const f=fixture([snapshot('analyzing'),snapshot('ready')]);
   try{await settle();const form=f.by('analyze');assert.equal(form.elements.uploads_php.checked,true);assert.equal(form.elements.uploads_js.checked,false);
-    form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));
+    form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();
     form.elements.uploads_js.checked=true;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
-    const request=f.requests.find(value=>value.action==='wordpress-recovery-analyze');assert.deepEqual(JSON.parse(request.policy),{versions:{},packages:{},uploads_php:true,uploads_js:true,additional:true,database:true});
+    const request=f.requests.find(value=>value.action==='wordpress-recovery-analyze');assert.deepEqual(JSON.parse(request.policy),{versions:{},packages:{},release_policy:'latest',uploads_php:true,uploads_js:true,additional:true,database:true});
     assert.equal(request.domain,'site.test');assert.equal(request.owner,'alice');assert.equal(f.by('apply').disabled,true);
     await f.tick();assert.match(f.by('status').textContent,/ready/);assert.equal(f.requests.some(value=>value.action==='wordpress-recovery-apply'),false);
     assert.equal(f.by('items').querySelector('input').checked,true);
+  }finally{f.close();}
+});
+
+test('recovery explains three stages, keeps empty history hidden and opens a new analysis automatically',async()=>{
+  let analyzed=false;
+  const f=fixture([snapshot('ready')],{api:body=>{
+    if(body.action==='wordpress-recovery-analyze')analyzed=true;
+    if(body.action==='wordpress-recovery-list')return {ok:true,json:async()=>({ok:true,plans:analyzed?[{id:'plan-one',owner:'alice',domain:'site.test',status:'ready',created:1}]:[]})};
+    return null;
+  }});try{
+    await settle();assert.equal(f.by('history').hidden,true);assert.equal(f.by('report').hidden,true);
+    const page=f.w.document.getElementById('cs-wp-recovery');assert.match(page.textContent,/1\. Analyze website/);assert.match(page.textContent,/2\. Review proposed changes/);assert.match(page.textContent,/3\. Apply selected changes/);
+    assert.doesNotMatch(page.textContent,/Remove PHP|Also remove all|Without a selection, repair uses the installed version|Recovery plans/);
+    const form=f.by('analyze');assert.equal(form.elements.release_policy.value,'latest');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.by('report').hidden,false);assert.equal(f.by('plans').value,'plan-one');assert.equal(f.by('history').hidden,false);
+    assert.match(f.by('status').textContent,/Website unchanged/);assert.equal(f.by('apply').disabled,true);
+    assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-preview'||r.action==='wordpress-recovery-apply'),false);
+  }finally{f.close();}
+});
+
+test('installed release policy is explicit and pinned component versions render as escaped text',async()=>{
+  const value=snapshot('ready');value.plan.report.components=[{kind:'plugin',slug:'example',version:'1.0',recovery_version:'2.0',status:'different'},{kind:'theme',slug:'<img src=x>',version:'1.0',recovery_version:null,status:'unverified',error:'Reference unavailable'}];
+  const f=fixture([value]);try{
+    const form=f.by('analyze');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();form.elements.release_policy.value='installed';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(JSON.parse(f.requests.find(r=>r.action==='wordpress-recovery-analyze').policy).release_policy,'installed');
+    const rows=f.by('versions').querySelectorAll('tr');assert.deepEqual([...rows[0].children].map(td=>td.textContent),['plugin / example','1.0','2.0','Verified release reference']);assert.match(rows[1].textContent,/Unavailable.*Reference unavailable/);assert.equal(f.by('versions').querySelector('img'),null);
+    assert.equal(f.by('version-summary').hidden,false);assert.equal(f.by('apply').disabled,true);f.by('review').click();await settle();assert.equal(f.requests.filter(r=>r.action==='wordpress-recovery-preview').length,1);assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-apply'),false);
   }finally{f.close();}
 });
 test('review then apply bind the server revision and changing selection invalidates review',async()=>{

@@ -232,7 +232,9 @@ selectors. Choose an account and a specific active website before analysis;
 there is no server-wide repair action. Loading/changing accounts clears stale
 website and folder choices. It provides a nonmutating analysis followed
 by a reviewed batch. Select a website and optional installation folder, choose
-the uploads policies and press **Analyze WordPress**. Default PHP/server-script
+the cleanup actions to propose and press **Analyze website**. Analysis and review
+do not change website files or its database; only **Apply selected changes**
+executes the reviewed mutations. Default PHP/server-script
 cleanup and optional all-JavaScript cleanup are separate controls. Their matches
 are recorded as selected cleanup policy, not proof of malware. Ordinary uploads
 are retained; legitimate deny-only `.htaccess` files are not removed simply
@@ -246,24 +248,37 @@ quarantine. Unrecognized root code and configuration changes remain reviewable.
 Unavailable references, unsafe files, limits and scanner failures remain visible
 as coverage gaps. Replacement preparation requires the ClamAV and YARA engines.
 
-Without an explicit version selection, replacement uses the installed version.
-**Versions and trusted vendor ZIPs** accepts a component's website-relative path,
+Recovery defaults to the latest stable core/plugin/theme versions from WordPress.org.
+Release metadata is read afresh through the official core version-check and
+plugin/theme information APIs. Exact releases, verified references and candidate
+bytes are pinned during analysis; preview/apply do not resolve a newer release.
+Installed and recovery versions appear together in the review. Unavailable or
+invalid release metadata leaves components unverified; there is no silent
+fallback to installed versions. **Same as installed** is an explicit alternative.
+**Specific versions and vendor ZIPs (optional)** accepts a component's website-relative path,
 an optional target version, and a premium/custom ZIP. Prefer a private account
 path such as `~/tmp/example.zip`, where `~` means the selected hosting account's
 home, not the administrator's. Other paths are website-relative. ZIP roots,
 release headers, paths, expanded sizes and candidate content are checked.
+Without an explicit version override, a vendor ZIP supplies its own header version.
 Vendor authenticity remains the operator's responsibility and is stated in the
 receipt. Core always uses an official release. Invalid/ambiguous component
 metadata remains unverified. A typo in a component mapping is reported.
 
+The screen follows **1. Analyze website → 2. Review proposed changes →
+3. Apply selected changes**. A new analysis opens automatically. Empty history
+is hidden; retained runs appear under **Previous analyses and recoveries**.
+The analysis result records proposed changes and is not a prerequisite to start.
 Review the selected actions and exact file/database changes before **Apply
-reviewed recovery**. Changing the selection requires another preview. Pause
+selected changes**. Version changes require all replacement files of each chosen
+component; a partial file selection is rejected before review or application.
+Changing the selection requires another preview. Pause
 traffic, cron, deployment and other writers during recovery; this feature does
 not stop shared PHP pools or unrelated account processes. The batch checks all
 selected originals before applying and rechecks each actual mutation. It uses
 per-file journals rather than an atomic switch of an entire application. A
 concurrent change, cancellation or failure can therefore leave completed actions
-retained alongside unapplied actions. **Resume reviewed recovery** inspects
+retained alongside unapplied actions. **Resume selected changes** inspects
 recorded state; **Undo recovery** restores only unchanged destinations and does
 not overwrite subsequent work. Some interrupted repairs require fresh analysis
 after the existing recovery mechanism restores the original.
@@ -539,3 +554,5 @@ supported sources reports missing coverage instead of a successful clean scan.
 Retained findings show an explicit historical-source label, keep their original
 evidence and are excluded from automatic remediation. Clear selected findings
 or Clear all findings can remove those entries from the Review list.
+
+WordPress.org release discovery follows the official [WordPress.org API](https://codex.wordpress.org/WordPress.org_API), [plugin information API](https://developer.wordpress.org/reference/functions/plugins_api/) and [core version check](https://developer.wordpress.org/reference/functions/wp_version_check/).

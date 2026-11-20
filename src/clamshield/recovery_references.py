@@ -1,6 +1,9 @@
-"""Explicit version selections and account-supplied premium archives."""
+"""Pinned recovery releases from WordPress.org or account-supplied archives."""
 import hashlib
+import json
 import pwd
+import re
+from urllib.parse import urlencode
 
 from .errors import Conflict
 from .paths import snapshot
@@ -9,10 +12,11 @@ from .wordpress_sources import References, ReferenceUnavailable, archive_files, 
 
 
 class RecoveryReferences(References):
-    def __init__(self, settings, root, options, *, owner=None):
+    def __init__(self, settings, root, options, *, owner=None, fetch=None):
         super().__init__(settings)
+        if fetch is not None:self.fetch=fetch
         self.root,self.options,self.packages,self.receipts=root,options,{},{}
-        self.manifests,self.archives={},{}
+        self.manifests,self.archives,self.targets={},{},{}
         self.owner=owner
 
     def budget(self):
@@ -20,7 +24,44 @@ class RecoveryReferences(References):
             raise Conflict('Recovery packages exceed the memory limit; select fewer components')
 
     def target(self, component):
-        return component | {'version':self.options['versions'].get(component['path'],component['version'])}
+        path=component['path']
+        if path not in self.targets:
+            if path in self.options['packages']:
+                self.package(component);version=self.receipts[path]['version']
+            elif path in self.options['versions']:version=self.options['versions'][path]
+            elif self.options.get('release_policy','latest')=='installed':version=component['version']
+            else:version=self.latest(component)
+            self.targets[path]=component|dict(version=token(version,'version'))
+        component['recovery_version']=self.targets[path]['version']
+        return self.targets[path]
+
+    def latest(self,component):
+        kind=component['kind']
+        if kind=='core':
+            locale=token(component.get('locale','en_US'),'locale')
+            url='https://api.wordpress.org/core/version-check/1.7/?'+urlencode({'locale':locale})
+        elif kind in ('plugin','theme'):
+            slug=token(component['slug'],'slug')
+            url='https://api.wordpress.org/'+('plugins' if kind=='plugin' else 'themes')+'/info/1.2/?'+urlencode({'action':kind+'_information','request[slug]':slug,'request[fields][sections]':'0','request[fields][versions]':'0'})
+        else:raise ReferenceUnavailable('Unsupported recovery component')
+        # Mutable release metadata is read afresh for each analysis; exact
+        # resolved releases and downloaded candidates stay pinned to that plan.
+        try:
+            value=json.loads(self.fetch(url,1024*1024))
+            if not isinstance(value,dict):raise ValueError()
+            if kind=='core':
+                offers=value['offers']
+                if not isinstance(offers,list):raise ValueError()
+                versions=[offer['current'] for offer in offers if isinstance(offer,dict) and offer.get('response') in ('upgrade','latest') and offer.get('locale')==locale and isinstance(offer.get('current'),str) and re.fullmatch(r'[0-9]+(?:\.[0-9]+)*',offer['current'])]
+                if not versions:raise ValueError()
+                version=max(versions,key=lambda value:tuple(map(int,value.split('.'))))
+            else:
+                if value.get('slug')!=slug:raise ValueError()
+                version=value['version']
+            if not isinstance(version,str) or len(version)>64 or not re.fullmatch(r'[0-9]+(?:\.[0-9]+)*',version):raise ValueError()
+            return version
+        except (ValueError,TypeError,KeyError) as exc:
+            raise ReferenceUnavailable('Latest stable '+kind+' release is unavailable; select a version or trusted vendor ZIP') from exc
 
     def package(self, component):
         path=component['path'];archive=self.options['packages'].get(path)
@@ -39,7 +80,9 @@ class RecoveryReferences(References):
             marker=component['release_path'][len(path)+1:]
             if marker not in files:raise Conflict('Trusted ZIP is missing its component release header')
             version=header(files[marker][:8192].decode('utf-8',errors='replace'),'Version')
-            if version!=self.target(component)['version']:raise Conflict('Trusted ZIP version differs from the selected version')
+            token(version,'version')
+            expected=self.options['versions'].get(path)
+            if expected and version!=expected:raise Conflict('Trusted ZIP version differs from the selected version')
             self.packages[path]=files
             self.budget()
             self.receipts[path]=dict(source=archive,sha256=hashlib.sha256(data).hexdigest(),version=version,
@@ -47,9 +90,10 @@ class RecoveryReferences(References):
         return self.packages[path]
 
     def manifest(self, component):
+        target=self.target(component)
         files=self.package(component)
         if files is None:
-            target=self.target(component);key=(target['kind'],target['path'],target['version'])
+            key=(target['kind'],target['path'],target['version'])
             if key not in self.manifests:self.manifests[key]=super().manifest(target)
             return self.manifests[key]
         return dict(source='Selected vendor ZIP: '+self.receipts[component['path']]['source'],

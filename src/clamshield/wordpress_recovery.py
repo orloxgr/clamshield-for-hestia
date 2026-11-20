@@ -24,9 +24,10 @@ from .recovery_references import RecoveryReferences
 
 
 def options(value):
-    defaults=dict(uploads_php=True,uploads_js=False,additional=True,database=True,versions={},packages={})
+    defaults=dict(uploads_php=True,uploads_js=False,additional=True,database=True,release_policy='latest',versions={},packages={})
     if not isinstance(value,dict) or set(value)-set(defaults):raise Conflict('Invalid recovery options')
     result=defaults|value
+    if result['release_policy'] not in ('latest','installed'):raise Conflict('Choose latest stable or installed recovery releases')
     for key in ('uploads_php','uploads_js','additional','database'):
         if type(result[key]) is not bool:raise Conflict('Invalid recovery toggle')
     for key in ('versions','packages'):
@@ -121,7 +122,9 @@ class WordPressRecovery:
         unused=(plan['options']['versions'].keys()|plan['options']['packages'].keys())-discovered
         for path in sorted(unused):
             plan['report']['errors'].append('Component selection was not found: '+(path or 'WordPress root'));counters['errors']+=1
-        for component in report['components']:component['recovery_version']=plan['options']['versions'].get(component['path'],component.get('version','Unverified'))
+        for component in report['components']:
+            if 'recovery_version' not in component:
+                component['recovery_version']=plan['options']['versions'].get(component['path']) or (component.get('version') if plan['options'].get('release_policy')=='installed' else None)
         if {engine.name for engine in engines}!={'clamav','yara'}:raise Conflict('Recovery analysis requires both ClamAV and YARA')
         with self.store.connection() as db:
             findings=[dict(row)|{'fingerprint':json.loads(row['fingerprint'])} for row in db.execute('SELECT * FROM findings WHERE job_id=? ORDER BY path',(job['id'],))]
@@ -131,6 +134,7 @@ class WordPressRecovery:
             detail=finding['fingerprint'].get('wordpress',{});component=detail.get('component',{})
             action='replace' if detail.get('expected') else 'quarantine'
             item=self.add(plan,finding['path'],'integrity',action,dict(finding_id=finding['id'],reason=finding['signature'],
+                           component={key:component.get(key) for key in ('kind','path','slug','version','recovery_version')},
                            recommended=action=='replace' or (plan['options']['additional'] and component.get('kind')!='core') or
                            (plan['options']['additional'] and detail.get('file','').startswith(('wp-admin/','wp-includes/')))))
             known[finding['path']]=item
@@ -236,6 +240,16 @@ class WordPressRecovery:
         for capability in ({'restore'} if undo else {'repair' if item['action'] in ('replace','database') else 'quarantine' for item in items}):
             permissions.require(context,capability)
 
+    def complete_versions(self,plan,selection):
+        groups={};selected=set(selection)
+        for item in self.items(plan):
+            component=item['detail'].get('component',{})
+            if item['action']=='replace' and component.get('recovery_version') and component.get('version')!=component['recovery_version']:
+                groups.setdefault(component['path'],set()).add(item['id'])
+        for path,required in groups.items():
+            if selected&required and not required<=selected:
+                raise Conflict('Select all replacement files for the version change in '+(path or 'WordPress core')+', or leave that component unselected')
+
     def request(self,context,plan_id,operation,revision,value=None):
         with self.locked():
             plan=self.get(context,plan_id);self.context(plan,actor=context['actor'])
@@ -254,6 +268,7 @@ class WordPressRecovery:
                 items={item['id']:item for item in self.items(plan)}
                 if set(selected)-items.keys():raise AccessDenied('Recovery selection belongs to another plan')
                 chosen=[items[key] for key in selected];self.require(context,chosen)
+                self.complete_versions(plan,selected)
                 # A failed attempt to revise a database edit must never leave
                 # an older approval usable against newly written candidate data.
                 self.save(plan,status='preview-failed',revision=uuid.uuid4().hex,error='Review preparation did not finish')
@@ -271,6 +286,7 @@ class WordPressRecovery:
                 allowed={'apply':('reviewed','interrupted'),'undo':('applied','interrupted','undo-interrupted','undone')}
                 if operation not in allowed or plan['status'] not in allowed[operation]:raise Conflict('Recovery action is not ready')
                 self.require(context,self.selected(plan),undo=operation=='undo')
+                if operation=='apply':self.complete_versions(plan,plan['selection'])
             site=dict(owner=plan['owner'],identity=plan['identity'],domain=plan['domain'],root=plan['root'])
             job=self.store.enqueue(context,site,plan['target'],source='wordpress-recovery-'+operation,generation=generation(self.settings))
             self.save(plan,status={'preview':'preparing','apply':'applying','undo':'undoing'}[operation],work_job=job,error=None)
@@ -428,7 +444,7 @@ class WordPressRecovery:
         pages=[];page_bytes=0
         for item in items[offset:offset+100]:
             detail=item['detail']
-            public={key:detail[key] for key in ('reason','recommended','error','detections','replacement','preview','excerpt','evidence','editable','table','column','installation') if key in detail}
+            public={key:detail[key] for key in ('reason','recommended','component','error','detections','replacement','preview','excerpt','evidence','editable','table','column','installation') if key in detail}
             if detail.get('repair_id'):public['preview']=self.repairs.get(context,detail['repair_id'])['metadata'].get('preview',detail.get('preview',{}))
             entry=dict(id=item['id'],path=item['path'],kind=item['kind'],action=item['action'],status=item['status'],selected=item['id'] in plan['selection'],detail=public)
             amount=len(encode(entry).encode())
