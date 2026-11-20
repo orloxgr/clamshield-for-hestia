@@ -452,10 +452,25 @@ of previous rule data. Email Shield keeps the one-button server protection flow.
 
 Review contains website results, repairs, exceptions, quarantine, stored email
 and delivery decisions, event history, maintenance/action activity and notification
-records. Global **Review → Email** shows bounded current-account records across
-the server; Open review selects an account for its authorized previews, release,
-recovery and full decision history. Quarantine and Exceptions contain their
-website and email sections together. Domain/mailbox selectors stay scoped.
+records. Global **Review → Email** combines stored messages and decisions into
+one row per message and recipient. It shows the subject/sender, classification,
+policy decision and actual delivery status; a decision without delivery evidence
+is never labelled delivered. Repeated evaluations use the latest matching native
+message, content hash and account generation.
+
+Use the account filter instead of an account summary table. Search, date,
+classification, decision and delivery-status filters run before pagination;
+choose 25, 50 or 100 rows. Clear list / Clear selected records remove completed
+entries from this view while retaining operational evidence. Quarantined and
+unresolved messages remain visible. Delete quarantined email / Delete selected
+quarantined email are separate confirmed actions which delete only eligible
+verified private copies. Confirmations state their full account scope, including
+records hidden by filters. Deliver anyway requires a reason and queues only the
+stored recipient; delivery remains unconfirmed until its original proof arrives.
+
+Select an account above for its authorized previews, recovery and full decision
+history. Quarantine and Exceptions contain their website and email sections
+together. Domain/mailbox selectors stay scoped.
 
 Old bookmarks for moved leaf pages redirect to their current group. Source
 notices remain with downloaded data and historical evidence. The panel uses

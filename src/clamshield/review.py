@@ -6,9 +6,11 @@ import re
 from .errors import AccessDenied,ClamShieldError,Conflict
 from .notification_preferences import category
 from .website_availability import WebsiteAvailability
+from .email_review import SOURCE as EMAIL_MESSAGES
 
 # SQL identifiers and expressions are fixed here, never accepted from requests.
 SPECS={
+ 'email-messages':(EMAIL_MESSAGES,'r.*','r.status','r.classification','r.action',"r.owner||' '||r.domain||' '||r.recipient||' '||COALESCE(r.subject,'')||' '||r.sender",()),
  'findings':("findings r LEFT JOIN jobs j ON j.id=r.job_id AND j.owner=r.owner AND j.identity=r.identity","r.*,j.root",'r.status','r.engine','r.provider',"r.domain||' '||r.path||' '||r.signature||' '||r.owner",('fingerprint','detail')),
  'repairs':("repair_plans r JOIN jobs j ON j.id=r.id AND j.owner=r.owner AND j.identity=r.identity","r.*,j.domain,j.root,j.target",'r.status',"COALESCE(json_extract(r.metadata,'$.source.kind'),'wordpress')",None,"j.domain||' '||j.target||' '||r.owner||' '||COALESCE(r.error,'')",('metadata',)),
  'exceptions':('exceptions r','r.*',"CASE r.enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END",'r.kind','r.engine',"r.domain||' '||r.path||' '||r.signature||' '||r.owner||' '||COALESCE(r.note,'')",()),
@@ -98,7 +100,8 @@ class Review:
             last=max(0,((total-1)//limit)*limit);offset=min(offset,last)
             direction='ASC' if filters.get('order')=='oldest' else 'DESC'
             from .review_bulk import eligible
-            rows=db.execute('SELECT '+columns+',CASE WHEN '+eligible(kind)+' THEN 1 ELSE 0 END AS review_selectable FROM '+source+' WHERE '+where+f' ORDER BY r.created {direction},r.id {direction} LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
+            selectable='1=1' if kind=='email-messages' else eligible(kind)
+            rows=db.execute('SELECT '+columns+',CASE WHEN '+selectable+' THEN 1 ELSE 0 END AS review_selectable FROM '+source+' WHERE '+where+f' ORDER BY r.created {direction},r.id {direction} LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
             options={}
             for key,expr in [('status',status),('type',type_expr),('provider',provider)]:
                 options[key]=[row[0] for row in db.execute('SELECT DISTINCT '+expr+' FROM '+source+' WHERE '+base_where+' ORDER BY 1 LIMIT 256',base_args) if row[0] is not None] if expr else []

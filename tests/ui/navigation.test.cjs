@@ -53,7 +53,7 @@ test('scripts initialize during normal document parsing and SpamAssassin control
 test('configuration, update operations and all-account email records stay in their own views',async()=>{
   const f=fixture({hash:'#updates/rules',change:v=>{v.context.view_scope='server';}});
   try{await settle();
-    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-server-quarantine','email-review'],['cs-sa-tasks','history'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
+    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-messages','email-review'],['cs-sa-tasks','history'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
       assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,page,id);
     for(const node of f.document.querySelectorAll('[data-page]'))assert.equal(node.hidden,node.dataset.page!=='rules');
     assert.equal(f.document.querySelector('[data-action=rules-build],[data-action=rules-activate]'),null);
@@ -211,12 +211,14 @@ test('bulk notification read and dynamically loaded individual Mark read both us
   }finally{await f.close();}
 });
 
-test('Review supplies separate scoped controls for all-account email records and operation lists',async()=>{
+test('Global Email uses one paged message list with account and decision filters',async()=>{
   const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='review-list'?reviewResponse(body,{html:'<tr><td>fixture account</td></tr>'}):{ok:false,json:async()=>({ok:false,error:'Fixture summary unavailable'})}});
   try{await settle();
-    assert.deepEqual([...f.document.querySelectorAll('[data-review-list]')].map(form=>form.dataset.reviewList).sort(),['activity','automatic','email-decisions','email-stored','exceptions','findings','history','notices','quarantine','repairs']);
-    for(const kind of ['email-stored','email-decisions'])assert.ok(f.requests.find(r=>r.action==='review-list'&&r.list===kind&&r.scope==='server'));
-    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-mail-activity-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+2);
+    assert.deepEqual([...f.document.querySelectorAll('[data-review-list]')].map(form=>form.dataset.reviewList).sort(),['activity','automatic','email-messages','exceptions','findings','history','notices','quarantine','repairs']);
+    for(const kind of ['email-messages'])assert.ok(f.requests.find(r=>r.action==='review-list'&&r.list===kind&&r.scope==='server'));
+    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-email-messages-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+1);
+    assert.equal(f.document.getElementById('cs-mail-server-accounts'),null);assert.equal(f.document.getElementById('cs-mail-server-decisions'),null);
+    const form=f.document.querySelector('[data-review-list=email-messages]');for(const field of ['account','search','status','type','provider','from','to','rows'])assert.ok(form.elements.namedItem(field));
     assert.equal(f.document.querySelector('[data-review-pager=quarantine] [data-review-command=delete-all]').textContent,'Delete quarantine files');
     assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
@@ -259,11 +261,27 @@ test('account email bulk controls retain the original preview and delivery row a
 test('Global Deliver anyway queues once for the recorded account and original recipient without leaving Global',async()=>{
   let finish;
   const html='<tr data-owner="bob"><td><form class="cs-review-email-deliver" data-delivery="stored-recipient"><input name="note" required><button type="submit">Deliver anyway</button><p class="cs-review-email-status"></p></form></td></tr>';
-  const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='mail-release'?new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,queued:true})});}):body.action==='review-list'?reviewResponse(body,{html:body.list==='email-stored'?html:'<tr><td>Decision</td></tr>'}):{ok:false,json:async()=>({ok:false,error:'Unused fixture API'})}});
+  const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='mail-release'?new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,queued:true})});}):body.action==='review-list'?reviewResponse(body,{html:body.list==='email-messages'?html:'<tr><td>Decision</td></tr>'}):{ok:false,json:async()=>({ok:false,error:'Unused fixture API'})}});
   try{await settle();const form=f.document.querySelector('.cs-review-email-deliver');form.elements.note.value='Reviewed sender and attachment';
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
     const sent=f.requests.filter(r=>r.action==='mail-release');assert.equal(sent.length,1);assert.equal(sent[0].owner,'bob');assert.equal(sent[0].delivery_id,'stored-recipient');assert.equal(sent[0].note,'Reviewed sender and attachment');assert.equal(sent[0].recipient,undefined);
-    finish();await settle();assert.deepEqual(f.visible(),['email-review']);assert.match(f.document.querySelector('[data-review-pager=email-stored]').nextElementSibling.textContent,/queued.*Delivery is not confirmed/);assert.deepEqual(f.errors,[]);
+    finish();await settle();assert.deepEqual(f.visible(),['email-review']);assert.match(f.document.querySelector('[data-review-pager=email-messages]').nextElementSibling.textContent,/queued.*Delivery is not confirmed/);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('Email clear list and physical quarantine deletion use distinct proofs and selected IDs',async()=>{
+  const selected=[{id:'stored:private',allowed:true,delivery_id:'private',can_delete:true},{id:'decision:done',allowed:true,delivery_id:null,can_delete:false},{id:'stored:uncertain',allowed:true,delivery_id:'uncertain',can_delete:false}];
+  const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='review-bulk-preview'?{ok:true,json:async()=>({ok:true,token:'email-proof',count:1,retained:2,scope:'server'})}:body.action==='review-bulk-clear'?{ok:true,json:async()=>({ok:true,changed:1})}:reviewResponse(body,{html:'<tr><td>Quarantined</td></tr><tr><td>Completed</td></tr><tr><td>Unconfirmed</td></tr>',selection:selected})});
+  try{await settle();const bar=f.document.querySelector('[data-review-pager=email-messages]');
+    assert.equal(f.requests.some(row=>row.action==='mail-server-get'||row.action==='mail-server-activity'),false);
+    assert.equal(bar.querySelector('[data-review-command=delete-all]').textContent,'Clear list');
+    assert.equal(bar.querySelector('[data-review-command=purge-all]').textContent,'Delete quarantined email');
+    bar.querySelector('[aria-label="Select this page"]').click();bar.querySelector('[data-review-command=clear-selected]').click();await settle();
+    let sent=f.requests.filter(row=>row.action==='review-bulk-preview').at(-1);assert.equal(sent.list,'email-messages');assert.deepEqual(JSON.parse(sent.selected),selected.map(row=>row.id));
+    const confirmation=f.document.querySelector('[data-review-confirmation=email-messages]');assert.match(confirmation.textContent,/recovery evidence.*retained/);confirmation.querySelectorAll('button')[1].click();
+    bar.querySelector('[data-review-command=purge-selected]').click();await settle();sent=f.requests.filter(row=>row.action==='review-bulk-preview').at(-1);assert.equal(sent.list,'email-stored');assert.deepEqual(JSON.parse(sent.selected),['private']);
+    assert.match(confirmation.textContent,/Permanently deletes.*quarantined email/);confirmation.querySelector('button').click();await settle();
+    sent=f.requests.find(row=>row.action==='review-bulk-clear');assert.equal(sent.list,'email-stored');assert.equal(sent.confirmation,'email-proof');assert.equal(f.requests.at(-1).list,'email-messages');assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 
@@ -387,14 +405,12 @@ test('Global admin view defaults the scan target and progress to the entire serv
 
 const mailDefaults={malware_action:'reject',phishing_action:'quarantine',spam_action:'junk',spam_high_action:'reject',block_action:'quarantine',spam_threshold:5,spam_high_threshold:15,signature_spam_score:5,allow_senders:[],block_senders:[]};
 const mailPermissions={manage_policy:false,manage_exceptions:false,release:false,delete:false};
-test('Global email settings and Review load server settings and all-account activity without reading admin mail domains',async()=>{
-  const f=fixture({hash:'#settings/mail-settings',change:values=>{values.context.view_scope='server';values.accounts.push({owner:'bob'});},api:async body=>({ok:true,json:async()=>({ok:true,...(body.action==='mail-server-activity'?{totals:{domains:2,quarantine:1,decisions:4},accounts:[{owner:'bob',domains:2,quarantine:1,decisions:4}],quarantine:[{owner:'bob',recipient:'inbox@bob.test',created:1,status:'quarantined'}],decisions:[]}:{defaults:mailDefaults,permissions:mailPermissions,revision:'server-revision'})})})});
+test('Global email settings load independently from paged Email review',async()=>{
+  const f=fixture({hash:'#settings/mail-settings',change:values=>{values.context.view_scope='server';values.accounts.push({owner:'bob'});},api:async body=>({ok:true,json:async()=>({ok:true,defaults:mailDefaults,permissions:mailPermissions,revision:'server-revision'})})});
   try{await settle();
-    assert.ok(f.requests.some(row=>row.action==='mail-server-get'));assert.ok(f.requests.some(row=>row.action==='mail-server-activity'));
+    assert.ok(f.requests.some(row=>row.action==='mail-server-get'));assert.equal(f.requests.some(row=>row.action==='mail-server-activity'||row.action==='review-list'),false);
     assert.equal(f.requests.some(row=>row.action==='mail-dashboard'),false);
     assert.equal(f.document.getElementById('cs-mail-domain'),null);
-    assert.match(f.document.getElementById('cs-mail-server-totals').textContent,/2 mail domains/);
-    const link=new URL(f.document.querySelector('#cs-mail-server-accounts a').href);assert.equal(link.searchParams.get('owner'),'bob');assert.equal(link.searchParams.has('scope'),false);
     const form=f.document.getElementById('cs-mail-server-form');assert.equal(form.elements.namedItem('enabled'),null);
     assert.equal(form.elements.manage_policy.checked,false);form.elements.spam_threshold.value='7';
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();

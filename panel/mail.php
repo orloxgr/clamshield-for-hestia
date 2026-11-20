@@ -45,7 +45,7 @@ $cs_mail_global=($data['context']['view_scope']??'account')==='server';
 </details>
 <?php if($data['context']['admin']): ?><details id="cs-mail-permissions"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Hosting user email permissions</summary><p>These permissions apply to the selected hosting account.</p><form id="cs-mail-permission-form"><div id="cs-mail-permission-fields"></div><button class="button" type="submit">Save email permissions</button><button class="button" type="button" id="cs-mail-permission-reset">Use global permissions</button></form></details><?php endif ?>
 <?php else: ?><p>Choose an account above for domain and mailbox overrides.</p><?php endif ?></div></section>
-<section data-page="email-review" hidden><h2>Email review</h2>
+<section data-page="email-review" hidden><h2>Email</h2>
 <?php require __DIR__.'/mail_activity.php'; ?>
 <?php if(!$cs_mail_global): ?>
 <p id="cs-mail-cleanup" role="status" aria-live="polite" hidden></p>

@@ -212,4 +212,79 @@ class ReviewTests(unittest.TestCase):
             result=subprocess.run(['php','-d','display_errors=stderr','-r',code,str(renderer)],input=encode(value),capture_output=True,text=True)
             self.assertEqual(0,result.returncode,result.stderr);self.assertEqual('',result.stderr,kind)
             if kind=='notices':self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)
-            if kind=='email-stored':self.assertIn('Deliver anyway',result.stdout);self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)
+            if kind in ('email-stored','email-messages'):self.assertIn('Deliver anyway',result.stdout);self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)
+
+    def email(self,key='one',owner='alice',status='delivered',stored=True,**changes):
+        with self.store.connection() as db:
+            def insert(table,fields):
+                db.execute('INSERT INTO '+table+' ('+','.join(fields)+') VALUES('+','.join('?' for _ in fields)+')',list(fields.values()))
+            decision=dict(id='decision-'+key,owner=owner,identity=self.ids[owner],domain=owner+'.test',mailbox='inbox',recipient='inbox@'+owner+'.test',exim_id='exim-'+key,sender='sender@remote.test',created=2,sha256='a'*64,action='junk',classification='spam',detail='{}')
+            decision.update(changes);insert('mail_decisions',decision)
+            if stored:
+                insert('mail_transactions',dict(id='transaction-'+key,exim_id='exim-'+key,created=1,updated=1,status='committed',sha256='a'*64,size=7,metadata=encode(dict(summary={'Subject':'Sample '+key},envelope={'sender':'sender@remote.test'}))))
+                insert('mail_recipients',dict(id='recipient-'+key,transaction_id='transaction-'+key,owner=owner,identity=self.ids[owner],domain=owner+'.test',mailbox='inbox',recipient='inbox@'+owner+'.test',action='junk',status=status,created=1,updated=1,detail='{}'))
+        return 'stored:recipient-'+key if stored else 'decision:decision-'+key
+
+    def test_email_merges_repeated_evaluations_with_stored_recipient_before_paging(self):
+        expected=self.email()
+        with self.store.connection() as db:
+            db.execute("INSERT INTO mail_decisions SELECT 'decision-retry',owner,identity,domain,mailbox,recipient,exim_id,sender,3,sha256,'tag','clean',detail FROM mail_decisions")
+        value=self.page('email-messages',self.admin,'server')
+        self.assertEqual(1,value['total']);row=value['records'][0]
+        self.assertEqual(expected,row['id']);self.assertEqual('clean',row['classification']);self.assertEqual('tag',row['action']);self.assertEqual('delivered',row['status']);self.assertEqual('Sample one',row['subject'])
+        self.assertFalse(row['can_deliver']);self.assertFalse(row['can_delete'])
+
+    def test_email_requires_exact_content_envelope_and_native_generation_for_matching(self):
+        for key,changes in [('hash',dict(sha256='b'*64)),('identity',dict(identity='old')),('recipient',dict(recipient='other@alice.test')),('mailbox',dict(mailbox='other')),('domain',dict(domain='other.test')),('exim',dict(exim_id='other-id'))]:
+            self.email(key,**changes)
+        value=self.page('email-messages',self.admin,'server')
+        stored=[row for row in value['records'] if row['delivery_id']]
+        self.assertEqual(6,len(stored));self.assertTrue(all(row['classification'] is None for row in stored))
+        self.ids['alice']='recreated'
+        self.assertEqual(0,self.page('email-messages',self.admin,'server')['total'])
+        with self.assertRaises(AccessDenied):self.page('email-messages',self.alice,'server')
+
+    def test_email_deduplicates_decision_only_rows_without_claiming_delivery(self):
+        self.email(stored=False)
+        with self.store.connection() as db:
+            db.execute("INSERT INTO mail_decisions SELECT 'retry',owner,identity,domain,mailbox,recipient,exim_id,sender,3,sha256,'reject','spam',detail FROM mail_decisions")
+        value=self.page('email-messages');self.assertEqual(1,value['total']);row=value['records'][0]
+        self.assertEqual('rejected',row['status']);self.assertIsNone(row['subject']);self.assertIsNone(row['delivery_id'])
+        with self.store.connection() as db:db.execute("UPDATE mail_decisions SET action='tag' WHERE id='retry'")
+        self.assertEqual('not_retained',self.page('email-messages')['records'][0]['status'])
+
+    def test_email_filters_and_pages_cover_all_rows_with_no_duplicate_message_records(self):
+        for i in range(510):self.email(str(i),created=1700000000+i)
+        self.email('bob',owner='bob')
+        seen=[]
+        for offset in range(0,600,100):
+            value=self.page('email-messages',self.admin,'server',{'account':'alice'},offset=offset,limit=100)
+            self.assertEqual(510,value['total']);seen.extend(row['id'] for row in value['records'])
+        self.assertEqual(510,len(set(seen)));self.assertEqual(510,len(seen))
+        value=self.page('email-messages',self.admin,'server',{'account':'alice','search':'Sample 50','type':'spam','provider':'junk','status':'delivered','from':'2023-11-14','to':'2023-11-14'})
+        self.assertEqual(11,value['total']);self.assertEqual(['spam'],value['options']['type']);self.assertEqual(['junk'],value['options']['provider'])
+        self.assertEqual(1,self.page('email-messages',self.admin,'server',{'account':'bob'})['total'])
+
+    def test_email_clear_preserves_private_quarantine_uncertain_work_and_delivery_evidence(self):
+        for status in ('delivered','quarantined','delivery_uncertain','release_queued','native_failed'):
+            self.email(status,status=status)
+        self.email('rejected',stored=False,action='reject');self.email('other',owner='bob')
+        context=self.hestia.authorize('admin','alice')
+        proof=self.review.bulk(context,'email-messages','account','preview')
+        self.assertEqual(2,proof['count']);self.assertEqual(4,proof['retained'])
+        self.assertEqual(2,self.review.bulk(context,'email-messages','account','clear',proof['token'])['changed'])
+        self.assertEqual(4,self.page('email-messages')['total']);self.assertEqual(1,self.page('email-messages',self.bob)['total'])
+        with self.store.connection() as db:
+            self.assertEqual(7,db.execute('SELECT count(*) FROM mail_decisions').fetchone()[0])
+            self.assertEqual(6,db.execute('SELECT count(*) FROM mail_recipients').fetchone()[0])
+        with self.assertRaises(AccessDenied):self.review.bulk(self.alice,'email-messages','account','preview')
+
+    def test_email_source_acceptance_and_successful_body_cleanup_do_not_mislabel_delivery(self):
+        self.email('accepted',status='quarantined');self.email('pending',status='quarantined');self.email('cleaned')
+        with self.store.connection() as db:
+            db.execute("INSERT INTO mail_acceptance VALUES('transaction-pending','exim-pending',1,1,'uncertain','{}',NULL)")
+            db.execute("UPDATE mail_transactions SET status='purged' WHERE id='transaction-cleaned'")
+        rows={r['id']:r for r in self.page('email-messages')['records']}
+        self.assertTrue(rows['stored:recipient-accepted']['can_deliver']);self.assertTrue(rows['stored:recipient-accepted']['can_delete'])
+        pending=rows['stored:recipient-pending'];self.assertEqual('source_unconfirmed',pending['status']);self.assertFalse(pending['can_deliver']);self.assertFalse(pending['can_delete'])
+        self.assertEqual('delivered',rows['stored:recipient-cleaned']['status'])

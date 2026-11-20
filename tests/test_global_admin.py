@@ -81,7 +81,7 @@ class GlobalAdministration(unittest.TestCase):
 
     def test_tenant_cannot_enter_global_scope_or_control_any_server_service(self):
         requests=[('dashboard',dict(scope='server')),('mail-server-get',{}),('mail-server-save',{}),
-            ('mail-server-activity',{}),('mail-account-save',{}),('mail-account-reset',{}),
+            ('mail-account-save',{}),('mail-account-reset',{}),
             ('mail-protection-enable',{}),('mail-protection-disable',{}),('mail-integration-enable',{}),
             ('mail-integration-disable',{}),('mail-integration-refresh',{}),('mail-adapter-build',{}),
             ('spamassassin-save',{}),('website-engine-start',{}),('website-engine-stop',{}),
@@ -158,16 +158,16 @@ class GlobalAdministration(unittest.TestCase):
         self.server_mail(dict(spam_threshold=8))
         self.assertEqual(8,self.mail.get(self.alice,'alice.test')['effective']['spam_threshold'])
 
-    def test_global_mail_activity_includes_other_accounts_when_admin_has_no_domains(self):
+    def test_global_email_messages_include_other_accounts_when_admin_has_no_domains(self):
         for owner in ('alice','bob'):
             context=self.hestia.authorize(owner);recipient='inbox@'+owner+'.test'
             target=resolve(self.mail.targets(context),recipient)
             self.mail.record(context,target,SimpleNamespace(message_id='fixture-'+owner,sender='remote@sender.test',recipients=(recipient,)),'a'*64,dict(action='deliver',classification='clean'))
-        view=self.request('mail-server-activity')
-        self.assertEqual(dict(domains=2,decisions=2,quarantine=0),view['totals'])
-        self.assertEqual({'alice','bob'},{row['owner'] for row in view['decisions']})
+        view=self.request('review-list',list='email-messages',scope='server',filters={})
+        self.assertEqual(2,view['total'])
+        self.assertEqual({'alice','bob'},{row['owner'] for row in view['records']})
         self.ids['alice']='replacement'
-        self.assertEqual(1,self.request('mail-server-activity')['totals']['decisions'])
+        self.assertEqual(1,self.request('review-list',list='email-messages',scope='server',filters={})['total'])
 
     def test_global_schedule_is_inherited_without_freezing_new_sites(self):
         scheduler=Scheduler(self.settings,self.store,self.hestia)

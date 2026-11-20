@@ -166,6 +166,7 @@ CREATE TABLE IF NOT EXISTS mail_decisions (
  detail TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mail_decision_scope ON mail_decisions(owner,identity,created);
+CREATE INDEX IF NOT EXISTS mail_decision_message ON mail_decisions(owner,identity,exim_id,sha256,domain,mailbox,recipient,created,id);
 CREATE TABLE IF NOT EXISTS mail_transactions (
  id TEXT PRIMARY KEY, exim_id TEXT NOT NULL UNIQUE, created REAL NOT NULL,
  updated REAL NOT NULL, status TEXT NOT NULL, sha256 TEXT NOT NULL,
@@ -179,6 +180,7 @@ CREATE TABLE IF NOT EXISTS mail_recipients (
  detail TEXT NOT NULL, error TEXT
 );
 CREATE INDEX IF NOT EXISTS mail_recipient_scope ON mail_recipients(owner,identity,status,created);
+CREATE INDEX IF NOT EXISTS mail_recipient_message ON mail_recipients(transaction_id,owner,identity,domain,mailbox,recipient);
 CREATE TABLE IF NOT EXISTS mail_delivery_attempts (
  id TEXT PRIMARY KEY, recipient_id TEXT NOT NULL UNIQUE REFERENCES mail_recipients(id),
  created REAL NOT NULL, updated REAL NOT NULL, status TEXT NOT NULL,

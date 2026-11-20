@@ -202,21 +202,6 @@ class Application:
             return MailPolicies(self.store,self.hestia).change_exception(context, request.get('domain'),
                 request.get('mailbox',''), operation, request.get('policy'), entry_id=request.get('exception_id'),
                 revision=request.get('revision'))
-        if action=='mail-server-activity':
-            if not context['admin']:raise AccessDenied('Administrator access required')
-            mail=MailPolicies(self.store,self.hestia);custody=MailCustody(self.settings,self.store,self.hestia)
-            accounts=[];decisions=[];quarantine=[];totals=dict(domains=0,decisions=0,quarantine=0)
-            for account in self.hestia.inventory():
-                live=self.hestia.authorize(context['actor'],account['owner'])
-                inventory=mail.list(live);history=mail.decisions(live);stored=custody.list(live)
-                counts=dict(domains=len(inventory['domains']),decisions=history['total'],quarantine=stored['total'])
-                accounts.append(dict(owner=live['owner'],**counts))
-                for key,value in counts.items():totals[key]+=value
-                decisions.extend(dict(row,owner=live['owner']) for row in history['decisions'])
-                quarantine.extend(dict(row,owner=live['owner']) for row in stored['messages'])
-            return dict(accounts=accounts,totals=totals,
-                        decisions=sorted(decisions,key=lambda row:row['created'],reverse=True)[:100],
-                        quarantine=sorted(quarantine,key=lambda row:row['created'],reverse=True)[:100])
         if action in ('mail-account-get','mail-account-save','mail-account-reset'):
             if not context['admin']:raise AccessDenied('Administrator access required')
             mail=MailPolicies(self.store,self.hestia)

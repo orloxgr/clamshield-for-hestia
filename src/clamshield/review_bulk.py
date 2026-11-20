@@ -13,6 +13,7 @@ from .store import encode
 
 def eligible(kind):
     return {
+        'email-messages':"r.status IN ('delivered','deleted','aborted','rejected','deferred','not_retained')",
         'repairs':"r.status IN ('ready','failed','verified','undone','recheck_failed')",
         'activity':"r.status IN ('completed','failed','cancelled')",
         'automatic':"r.status NOT IN ('queued','preparing','applying','verifying')",

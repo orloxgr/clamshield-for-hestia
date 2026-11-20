@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.3
+
+- Combine Global Email stored messages and decisions into one recipient list,
+  with subject/sender, classification, decision and actual delivery status.
+- Replace account summary tables with account/search/date/status/decision filters
+  and full server pagination. Collapse repeated evaluations of the same message.
+- Add Clear list and selected-record controls separately from confirmed deletion
+  of quarantined email. Preserve uncertain deliveries and private recovery data.
+
 ## 1.11.2
 
 - Merge Review Activity into History, retaining task statuses, filters, paging,

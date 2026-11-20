@@ -115,7 +115,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && $request['action']==='review-list' &&
     if ($renderer===false || !is_readable($renderer)) $respond(503,['ok'=>false,'error'=>'Review templates are unavailable. Rerun the installer.']);
     $escape=static fn($value)=>htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
     $result=$data;
-    $result['selection']=array_map(static fn($row)=>['id'=>(string)$row['id'],'allowed'=>!empty($row['review_selectable'])],$data['records']);
+    $result['selection']=array_map(static fn($row)=>['id'=>(string)$row['id'],'allowed'=>!empty($row['review_selectable'])]+($data['list']==='email-messages'?['delivery_id'=>$row['delivery_id'],'can_delete'=>!empty($row['can_delete'])]:[]),$data['records']);
     ob_start();require $renderer;$html=ob_get_clean();
     unset($result['records'],$result['view_data']);$result['html']=$html;
     $respond(200,$result);
