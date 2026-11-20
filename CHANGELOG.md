@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.2
+
+- Show timestamped installer stages, native command activity and ten-second
+  heartbeats during slow work or lock waits, without adding operation deadlines.
+- Default to a readable, optionally colored final summary with actual PHP/timer
+  counts, scanner startup choice, next setup steps and elapsed time.
+- Keep successful native output out of the summary while preserving captured
+  failure diagnostics, traceback, last stage and nonzero exit status.
+- Add `--json` for automation, keeping a single result on stdout and progress
+  on stderr. Existing panel/worker/maintenance output is unchanged.
+- Keep migration forks free of reporting threads and preserve caller-owned alarms.
+
 ## 1.0.1
 
 - Publish the complete application with clone/pull followed by the same installer

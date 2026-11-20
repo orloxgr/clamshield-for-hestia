@@ -21,6 +21,15 @@ The verified platform is Ubuntu26.04 with Hestia1.10.x and APT ClamAV/YARA.
 Email activation requires the existing native Exim/SpamAssassin stack. The
 application does not provide a replacement control panel or mail server.
 
+The root installer shows ten installation phases, timestamped commands and a
+readable success/failure summary. While a step or operation lock is waiting,
+it reports current activity every ten seconds without imposing a work deadline.
+Use `--json` for a single final JSON document on stdout; progress/diagnostics
+stay on stderr. Native child diagnostics and the last stage are retained on
+failure. Console output does not assert that scanning data or email protection
+is active merely because application installation succeeded: follow the next
+setup steps in the summary and check readiness in Hestia.
+
 ## Initial scanning data and resources
 
 Open **Plugins → ClamShield** as administrator. In **Signature providers**, select

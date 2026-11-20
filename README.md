@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.0.1** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.0.2** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -130,6 +130,26 @@ can be resumed with the same installer. ClamShield publishes an owned immutable
 release and maintains its own recovery state; it does not reapply vendor patches.
 The additive integration was verified through native Hestia1.10.7→1.10.8 upgrades
 in web/cache and active-mail configurations, including Varnish/Dragonfly coexistence.
+
+### Installer output
+
+The default output shows timestamped stages, the current native command, and a
+readable final summary with version, operation, checked PHP templates, enabled
+timers, scanner setup/retained choice, next steps and elapsed time. Slow steps
+report their current activity every ten seconds, including waits for an existing
+ClamShield operation. Reporting does not impose an execution deadline.
+
+Successful native command output is kept out of the console summary. A failure
+prints its captured diagnostics, traceback and last stage and returns a nonzero
+exit status. Terminal success/failure headings use color when supported; redirected
+logs and `NO_COLOR` stay plain. For scripts that need a JSON result:
+
+```sh
+sudo python3 /usr/local/src/clamshield-for-hestia/tools/install.py --json
+```
+
+JSON mode writes one final document to stdout; progress and diagnostics remain
+on stderr. The normal panel, worker and maintenance JSON interfaces are unchanged.
 
 ## Removal
 

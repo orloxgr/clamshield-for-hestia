@@ -2,7 +2,6 @@
 """Install addon-owned resources; Ubuntu engines remain managed by APT."""
 import argparse
 import hashlib
-import json
 import os
 from pathlib import Path
 import shutil
@@ -11,6 +10,10 @@ import sys
 import tempfile
 
 SOURCE = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SOURCE / 'src'))
+from clamshield import __version__
+from clamshield import installer_output as progress
+
 OWNER = 'clamshield'
 PACKAGES = ('clamav', 'clamav-daemon', 'yara', 'python3-plyara', 'gnupg', 'rsync', 'gcc', 'libc6-dev')
 
@@ -56,12 +59,14 @@ def extension_directory(path):
 
 
 def run(*args):
-    subprocess.run(args, check=True, env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8',
-                                        'DEBIAN_FRONTEND': 'noninteractive'})
+    with progress.command(args):
+        return subprocess.run(args, check=True, capture_output=True,
+            env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'DEBIAN_FRONTEND': 'noninteractive'})
 
 
 def ensure_packages():
     """Install missing distro dependencies without upgrading installed engines."""
+    progress.stage('Checking installed Ubuntu dependencies')
     result = subprocess.run(['/usr/bin/dpkg-query', '-W',
         '-f=${binary:Package}\t${db:Status-Status}\n', *PACKAGES],
         capture_output=True, text=True)
@@ -74,56 +79,74 @@ def ensure_packages():
             installed.add(name.split(':', 1)[0])
     missing = [name for name in PACKAGES if name not in installed]
     if missing:
-        print('Installing missing Ubuntu dependencies: ' + ', '.join(missing), file=sys.stderr, flush=True)
+        progress.stage('Installing missing Ubuntu dependencies: ' + ', '.join(missing))
         run('/usr/bin/apt-get', 'update', '-o', 'APT::Update::Error-Mode=any')
         run('/usr/bin/apt-get', 'install', '-y', '--no-install-recommends', '--no-remove', *missing)
+    else:
+        progress.stage('All Ubuntu dependencies are already installed; skipping APT')
     return missing
 
 
-def main():
-    parser = argparse.ArgumentParser()
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--install-packages', action='store_true',
                         help='Compatibility option; missing Ubuntu dependencies are installed automatically')
-    args = parser.parse_args()
+    parser.add_argument('--json', action='store_true',
+                        help='Write the final result as JSON to stdout; progress and diagnostics stay on stderr')
+    args = parser.parse_args(argv)
+    return progress.execute(lambda: perform(args), version=__version__, json_output=args.json)
+
+
+def perform(args):
     if os.geteuid() != 0 or os.environ.get('SUDO_USER') == 'hestiaweb':
-        raise SystemExit('Install from an administrator root shell')
+        raise PermissionError('Install from an administrator root shell')
     sys.path.insert(0,str(SOURCE/'src'))
     from clamshield.installation import Installation
     from clamshield.settings import Settings
     lifecycle=Installation(Settings())
-    with lifecycle.locked(exclusive=True,control=True),lifecycle.locked(exclusive=True):
-        install(args,lifecycle)
+    progress.stage('Waiting for the installation control lock')
+    with lifecycle.locked(exclusive=True,control=True):
+        progress.stage('Waiting for current ClamShield requests to finish')
+        with lifecycle.locked(exclusive=True):
+            progress.stage('Installation locks acquired')
+            return install(args,lifecycle)
 
 
 def install(args,lifecycle):
+    progress.stage('[1/10] Checking Hestia and saved scanner settings')
     hestia = Path('/usr/local/hestia')
     if not (hestia / 'web/inc/main.php').is_file():
-        raise SystemExit('Hestia is required')
+        raise RuntimeError('Hestia is required')
     # Reject unsafe saved startup intent before publishing code or starting timers.
     sys.path.insert(0,str(SOURCE/'src'))
     from clamshield.settings import Settings
     from clamshield.website_policy import website_policy
-    website_policy(Settings())
-    ensure_packages()
+    policy = website_policy(Settings())
+    packages = ensure_packages()
     import importlib.util
     if importlib.util.find_spec('plyara') is None:
-        raise SystemExit('Install Ubuntu python3-plyara first, or use --install-packages')
+        raise RuntimeError('Ubuntu python3-plyara is still unavailable after dependency installation')
     for binary in ('/usr/bin/yara', '/usr/bin/yarac', '/usr/sbin/clamd', '/usr/bin/sigtool'):
         if not Path(binary).is_file():
-            raise SystemExit('Install Ubuntu engine packages first, or use --install-packages')
+            raise RuntimeError('Ubuntu engine binary is unavailable after dependency installation: ' + binary)
     # Validate PHP before publishing a new code generation.
-    for path in (SOURCE / 'panel').glob('*.php'):
+    templates = sorted((SOURCE / 'panel').glob('*.php'))
+    progress.stage('[2/10] Validating ' + str(len(templates)) + ' Hestia PHP templates')
+    for path in templates:
         run(str(hestia / 'php/bin/php'), '-l', str(path))
+    progress.stage('[3/10] Recovering any interrupted scanner configuration')
     lifecycle.recover_configuration()
     lifecycle.begin_install(SOURCE)
+    progress.stage('[4/10] Publishing application code and native Hestia integration')
     extension_directory(hestia / 'web/plugins')
     extension_directory(Path('/etc/systemd/system/exim4.service.d'))
     releases = Path('/opt/clamshield.releases')
     owned_directory(releases)
     target = Path('/opt/clamshield')
+    existing = target.exists() or target.is_symlink()
     if target.exists() or target.is_symlink():
         if not target.is_symlink() or target.resolve().parent != releases:
-            raise SystemExit('Refusing an unmanaged installation')
+            raise RuntimeError('Refusing an unmanaged installation')
     release = Path(tempfile.mkdtemp(prefix='release-', dir=releases))
     release.chmod(0o755)
     for folder in ('src', 'panel', 'config', 'systemd', 'tools', 'docs', 'native'):
@@ -151,6 +174,7 @@ def install(args,lifecycle):
     write_owned(hestia / 'web/js/custom_scripts/clamshield.js', (release / 'panel/menu.js').read_text())
     write_owned(hestia / 'bin/v-clamshield',
                 '#!/bin/sh\n# Managed by clamshield\nexec /usr/bin/python3 -I -B /opt/clamshield/entry.py "$@"\n', 0o755)
+    progress.stage('[5/10] Preserving configuration and loading owned AppArmor profiles')
     config = Path('/etc/clamshield')
     owned_directory(config)
     # Preserve administrator settings across code updates.
@@ -169,6 +193,7 @@ def install(args,lifecycle):
     for folder in ('/var/lib/clamshield-signatures', '/var/lib/clamshield-cache', '/var/lib/clamshield-mail-adapters'):
         owned_directory(Path(folder))
     owned_directory(Path('/opt/clamshield-mail'))
+    progress.stage('[6/10] Installing owned services and retaining resource limits')
     for unit in (release / 'systemd').iterdir():
         write_owned(Path('/etc/systemd/system') / unit.name, unit.read_text())
     for unit in ('clamshield-worker','clamshield-clamd','clamshield-mail','clamshield-mail-clamd','clamshield-mail-spamd','clamshield-maintenance'):
@@ -181,19 +206,35 @@ def install(args,lifecycle):
             path=resources.config_path(key)
             if (path.exists() or path.is_symlink()) and resources.snapshot(path,limits=True)['text']!=render(row):raise RuntimeError('Resource override differs from retained policy')
             write_owned(path,render(row))
+    progress.stage('[7/10] Recording owned integration files and reloading systemd')
     lifecycle.register(release)
     run('/usr/bin/systemctl', 'daemon-reload')
+    progress.stage('[8/10] Checking scanning-data compatibility and archive coverage')
     lifecycle.migrate_signatures()
     lifecycle.migrate_website_coverage()
+    progress.stage('[9/10] Enabling the four ClamShield background timers')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-worker.timer')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-monitor.timer')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-maintenance.timer')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-recovery.timer')
-    lifecycle.restore_website()
+    progress.stage('[10/10] Restoring the saved website-engine choice and finalizing')
+    startup = lifecycle.restore_website()
     lifecycle.finish_install()
-    print(json.dumps({'installed': True, 'route': '/plugins/clamshield/',
-                      'code_generation': release.name, 'vendor_files_modified': False}))
+    ready = startup.get('verified', False)
+    website = ('Ready; saved Start choice verified' if ready else
+               'Saved Stop choice retained' if policy is not None and not policy['enabled'] else
+               'Configure scanning data and start from the panel')
+    return {'installed': True, 'mode': 'Update / reinstall' if existing else 'New installation',
+            'route': '/plugins/clamshield/', 'code_generation': release.name,
+            'vendor_files_modified': False, 'dependencies_installed': packages,
+            'php_templates_checked': len(templates), 'timers_enabled': 4,
+            'website_engine': website,
+            'next_steps': ([] if ready or (policy is not None and not policy['enabled']) else
+                ['Open Hestia > Plugins > ClamShield.',
+                 'Select and update Signature providers; stage and activate YARA rules.',
+                 'Review Resources, then choose Start website ClamAV.',
+                 'Configure and enable Mail integration separately if required.'])}
 
 
 if __name__ == '__main__':
-    main()
+    raise SystemExit(main())
