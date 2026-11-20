@@ -71,12 +71,22 @@ class RuleInstallation(unittest.TestCase):
         status=self.store.rule_install_status(self.context)
         self.assertFalse(status['pending']); self.assertTrue(status['latest']['activated'])
 
-    def worker(self, install):
+    def worker(self, install, automatic=None):
         resources=Mock(); resources.journal.exists.return_value=False; resources.website_journal.exists.return_value=False
         integration=Mock(); integration.journal.exists.return_value=False
         manager=Mock(); manager.install.side_effect=install
+        manager.automatic_update.return_value=automatic
         with patch('clamshield.resources.Resources',return_value=resources), patch('clamshield.mail_integration.MailIntegration',return_value=integration), patch('clamshield.rule_manager.RuleManager',return_value=manager):
             Maintenance(self.settings,self.store,self.hestia).once()
+
+    def test_queued_automatic_work_passes_its_revision_to_the_installer_after_revalidation(self):
+        payload={'profile':'extended','release':None,'automatic':True,'revision':'current'}
+        self.store.enqueue_task(self.context,'rules-install',payload)
+        def install(profile,release,progress,automatic):
+            self.assertEqual('extended',profile);self.assertEqual(payload,automatic)
+            return {'generation':'generation-installed','activated':True}
+        self.worker(install,automatic=payload)
+        self.assertTrue(self.store.rule_install_status(self.context)['latest']['activated'])
 
     def test_worker_reports_completion_only_after_install_and_activation_return(self):
         self.store.enqueue_task(self.context,'rules-install',{'profile':'extended','release':None})

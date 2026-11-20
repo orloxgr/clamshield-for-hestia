@@ -83,15 +83,27 @@ class RuleUpdateTiming(unittest.TestCase):
         self.assertEqual(1,self.updates.status()['last_success']);self.assertGreater(previous,1)
 
     def test_github_retry_after_and_rate_limit_reset_take_precedence_without_exposing_response(self):
+        self.updates.save({'interval_minutes':60})
         headers=Message();headers['Retry-After']='7200';deadline=time.time()+10800
         headers['X-RateLimit-Reset']=str(deadline)
         error=HTTPError('https://example.test/private',429,'private response',headers,None)
+        self.addCleanup(error.close)
         with self.assertRaisesRegex(ClamShieldError,'server cooldown'):
             self.updates.run('core',Mock(side_effect=error))
         status=self.updates.status();self.assertEqual(deadline,status['next_allowed'])
         self.assertNotIn('private',json.dumps(status))
         self.updates.save({'interval_minutes':60})
         with self.assertRaises(ClamShieldError):self.updates.check_due()
+
+    def test_http_date_cooldown_and_invalid_rate_limit_headers(self):
+        from email.utils import formatdate
+        deadline=int(time.time())+172800
+        headers=Message();headers['Retry-After']=formatdate(deadline,usegmt=True);headers['X-RateLimit-Reset']='nan'
+        error=HTTPError('https://example.test/rules',403,'forbidden',headers,None)
+        self.addCleanup(error.close)
+        self.assertEqual(deadline,RuleUpdates.http_deadline(error))
+        headers.replace_header('Retry-After','invalid');headers.replace_header('X-RateLimit-Reset','inf')
+        self.assertIsNone(RuleUpdates.http_deadline(error))
 
     def test_invalid_persisted_interval_and_symlink_fail_closed(self):
         self.settings.prepare();self.updates.policy_path.write_text('{"interval_minutes":1}')

@@ -10,7 +10,7 @@ $cs_rule_pending=(bool)array_filter($data['maintenance']??[],static fn($task)=>s
 <?php $cs_rule_schedule=$data['rule_manager']['updates']??['automatic'=>true,'interval_minutes'=>1440,'next_allowed'=>0]; ?>
 <article class="card" id="cs-yara-update-schedule">
 <h3>Automatic rule updates</h3>
-<form id="cs-yara-schedule" class="row">
+<form id="cs-yara-schedule" class="row cs-controls-row">
 <label><input type="checkbox" name="automatic" <?=!empty($cs_rule_schedule['automatic'])?'checked':''?>> Automatically update the installed profile</label>
 <label>Check every (minutes) <input class="form-control" type="number" name="interval_minutes" min="60" max="525600" step="1" required value="<?=$escape($cs_rule_schedule['interval_minutes'])?>"></label>
 <button class="button" type="submit">Save update schedule</button>
