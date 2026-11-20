@@ -21,7 +21,7 @@
     const start=state.row.querySelector('.cs-integrity-start');start.disabled=!allowed||working;
     start.textContent=state.busy?'Starting check…':pending(state)?(job.status==='queued'?'Queued…':'Checking…'):job?'Check again':'Discover and verify';
     state.row.querySelector('input[name="path"]').disabled=!allowed||working;
-    state.row.querySelector('.cs-integrity-progress').hidden=!job;
+    state.row.querySelector('.cs-integrity-progress').hidden=!pending(state);
     state.row.querySelector('.cs-integrity-show-report').hidden=!job||pending(state)||!job.report_ready;
     if(state.busy){text(state,'.cs-integrity-status','Submitting the integrity check…');return;}
     if(!job)return;
@@ -34,8 +34,9 @@
     else if(job.status==='completed')label=(c.modified||c.missing||c.additional)?'Completed — differences need review.':job.discovery_complete?'Completed — checked files match their references.':'Completed — see retained coverage below.';
     else label={partial:'Incomplete — some files or references could not be verified.',failed:'Check failed — review the error before retrying.',cancelled:'Check cancelled — coverage is incomplete.'}[job.status]||job.status;
     text(state,'.cs-integrity-status',label);
-    text(state,'.cs-integrity-counts',(job.target?'Folder: '+job.target+' · ':'')+(c.seen??0)+' entries inspected · '+(c.installations??0)+' WordPress installations · '+(c.scanned??0)+' files checked'+
-      (pending(state)?'':' · '+(c.modified??0)+' modified · '+(c.missing??0)+' missing · '+(c.additional??0)+' additional · '+(c.unverified??0)+' unverified components · '+(c.errors??0)+' errors · '+(c.skipped??0)+' skipped')+
+    const issues=Object.entries({modified:'modified',missing:'missing',additional:'additional',unverified:'unverified components',errors:'errors',skipped:'skipped'}).filter(([key])=>c[key]>0).map(([key,label])=>c[key]+' '+label);
+    text(state,'.cs-integrity-counts',(job.target?'Folder: '+job.target+' · ':'')+(c.seen??0)+' entries inspected · '+(c.installations??0)+' WordPress '+(c.installations===1?'installation':'installations')+' · '+(c.scanned??0)+' files checked'+
+      (pending(state)||!issues.length?'':' · '+issues.join(' · '))+
       (c.history_expired?' · Detailed report expired':''));
     text(state,'.cs-integrity-error',job.error||'');
   }

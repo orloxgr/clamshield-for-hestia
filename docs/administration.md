@@ -117,8 +117,8 @@ when user controls are restricted. Policy changes still fence queued actions.
 
 **On-demand Scan → WordPress integrity** shows a website table with its last
 check, current status, coverage counters and actions. **Discover and verify**
-searches the whole website, including nested installations. **Check a specific
-folder** contains the optional relative folder path and its explanation.
+searches the whole website, including nested installations. **Folder (optional)**
+contains the relative folder path and its explanation.
 The row immediately shows submission, queue and running states; active checks
 refresh while the page is visible and resume after reopening. Repeated clicks
 or concurrent identical requests reuse the pending check. **Check again** becomes

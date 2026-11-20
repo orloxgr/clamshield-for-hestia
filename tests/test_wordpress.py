@@ -163,7 +163,10 @@ class WordPressIntegrity(unittest.TestCase):
         final=self.wp.status(self.context,job_id)['job']
         self.assertEqual('completed',final['status']);self.assertTrue(final['report_ready'])
         self.assertTrue(final['discovery_complete']);self.assertEqual(1,final['counters']['installations'])
-        self.store.progress(job_id,final['counters']|{'history_expired':True})
+        # Retention updates terminal jobs directly; worker progress is running-only.
+        with self.store.connection(True) as db:
+            db.execute('UPDATE jobs SET counters=? WHERE id=?',
+                       (json.dumps(final['counters']|{'history_expired':True}),job_id))
         self.assertFalse(self.wp.status(self.context,job_id)['job']['report_ready'])
 
     def test_ambiguous_release_assignments_are_not_evaluated_or_guessed(self):
