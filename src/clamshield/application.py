@@ -50,6 +50,13 @@ class Application:
 
     def _dispatch(self,request,context):
         action=request.get('action','dashboard')
+        if action in ('wordpress-recovery-analyze','wordpress-recovery-status','wordpress-recovery-list','wordpress-recovery-preview','wordpress-recovery-apply','wordpress-recovery-undo'):
+            from .wordpress_recovery import WordPressRecovery
+            recovery=WordPressRecovery(self.settings,self.store,self.hestia)
+            if action=='wordpress-recovery-analyze':return recovery.analyze(context,request.get('domain'),request.get('path',''),request.get('policy',{}))
+            if action=='wordpress-recovery-list':return {'plans':recovery.list(context)}
+            if action=='wordpress-recovery-status':return recovery.status(context,request.get('plan_id'),request.get('offset',0))
+            return recovery.request(context,request.get('plan_id'),action.removeprefix('wordpress-recovery-'),request.get('revision'),request.get('policy'))
         if action=='scan-targets':
             return {'sites':[{'domain':site['domain'],'suspended':site['suspended']}
                              for site in self.hestia.sites(context['owner'])]}

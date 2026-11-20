@@ -21,6 +21,7 @@ ACTIONS={'scan':'scan','wordpress-scan':'scan','policy-save':'schedule','quarant
     'restore':'restore','repair-preview':'repair','repair-backup-preview':'repair','repair-hestia-preview':'repair',
     'cleanup-preview':'cleanup','repair-undo':'restore','exception-add':'exceptions','exception-remove':'exceptions',
     'rules-trial':'rule_trials','remediation-policy-save':'automatic','repair-apply':None}
+ACTIONS['wordpress-recovery-analyze']='scan'
 MODE_REQUIREMENTS={'report':(), 'quarantine':('automatic','quarantine'),
     'cleanup':('automatic','cleanup'),'cleanup-or-quarantine':('automatic','cleanup','quarantine')}
 

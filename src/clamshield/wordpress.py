@@ -96,7 +96,7 @@ class WordPress:
                         yield dict(kind='plugin', path=path, slug=path[len(prefix):],
                                    error='Standalone plugin requires a trusted reference mapping')
 
-    def run(self, job):
+    def run(self, job, *, finish=True):
         counters = dict(seen=0, scanned=0, infected=0, detections=0, skipped=0, errors=0,
                         bytes=0, installations=0, modified=0, missing=0, additional=0, unverified=0)
         report = {'installations': [], 'components': [], 'discovery_complete': False}
@@ -144,15 +144,18 @@ class WordPress:
                     counters['errors'] += 1
             self.save_report(job, report)
             status = 'partial' if any(counters[k] for k in ('errors', 'skipped', 'unverified')) else 'completed'
-            self.store.finish(job, status, counters)
+            if finish:self.store.finish(job, status, counters)
         except Cancelled:
             self.save_report(job, report)
-            self.store.finish(job, 'cancelled', counters)
+            status='cancelled'
+            if finish:self.store.finish(job, status, counters)
         except (OSError, ClamShieldError) as exc:
             counters['errors'] += 1
             report['error'] = str(exc) if isinstance(exc, ClamShieldError) else 'WordPress inventory could not be read'
             self.save_report(job, report)
-            self.store.finish(job, 'failed', counters, report['error'])
+            status='failed'
+            if finish:self.store.finish(job, status, counters, report['error'])
+        return {'status':status,'counters':counters,'report':report}
 
     def check_cancel(self, job):
         if self.store.cancelled(job['id']):

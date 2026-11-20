@@ -77,6 +77,7 @@
 <section data-page="history" hidden><h2>History</h2><?php require __DIR__.'/history.php'; require __DIR__.'/server_history.php'; ?><div class="scroll"><table><thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Details</th></tr></thead><tbody>
 <?php foreach($data['history'] as $event): ?><tr><td><?=$escape(gmdate('Y-m-d H:i:s',$event['created']))?> UTC</td><td><?=$escape($event['actor'])?></td><td><?=$escape($event['action'])?></td><td><?=$escape(json_encode($event['detail']))?></td></tr><?php endforeach ?>
 </tbody></table></div></section>
+<?php require __DIR__.'/wordpress_recovery.php'; ?>
 <?php require __DIR__.'/rules.php'; ?>
 <?php if($data['context']['admin']): $providers=$data['providers']; ?>
 <section data-page="providers" hidden><h2>Signature providers</h2>

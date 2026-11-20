@@ -15,7 +15,7 @@ from clamshield import __version__
 from clamshield import installer_output as progress
 
 OWNER = 'clamshield'
-PACKAGES = ('clamav', 'clamav-daemon', 'yara', 'python3-plyara', 'gnupg', 'rsync', 'gcc', 'libc6-dev')
+PACKAGES = ('clamav', 'clamav-daemon', 'yara', 'python3-plyara', 'python3-pymysql', 'gnupg', 'rsync', 'gcc', 'libc6-dev')
 
 
 def owned_directory(path, mode=0o755):

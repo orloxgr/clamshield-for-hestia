@@ -39,6 +39,7 @@ class Worker:
         if not site or site['root'] != job['root'] or site['suspended']:
             raise Conflict('Site configuration changed after this scan was queued')
         capability={'manual':'scan','wordpress-integrity':'scan','yara-trial':'rule_trials'}.get(job['source'])
+        if job['source']=='wordpress-recovery':capability='scan'
         if job['source']=='repair-preview':
             from .repairs import Repairs
             plan=Repairs(self.settings,self.store,self.hestia).get(context,job['id'])
@@ -130,6 +131,10 @@ class Worker:
                     'skipped': 0, 'errors': preflight_errors, 'bytes': 0, 'suppressed': 0}
         try:
             self.validate(job)
+            if job['source'] in ('wordpress-recovery','wordpress-recovery-preview','wordpress-recovery-apply','wordpress-recovery-undo'):
+                from .wordpress_recovery import WordPressRecovery
+                WordPressRecovery(self.settings,self.store,self.hestia).work(job,engines)
+                return
             if job['source'] == 'repair-absence-recheck':
                 from .missing_files import MissingFiles
                 from .repairs import Repairs

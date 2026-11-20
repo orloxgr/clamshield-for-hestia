@@ -72,11 +72,14 @@ class Repairs:
                                       {'plan_id': plan['id'], 'path': plan['target'], 'error': error}, plan['id'] + ':' + status, db)
         plan.update(status=status, error=error)
 
-    def queue(self, context, finding_id, *, backup_path=None, backup_name=None, cleanup=False):
+    def queue(self, context, finding_id, *, backup_path=None, backup_name=None, cleanup=False, recovery=None):
         finding = self.store.finding(context, finding_id)
         self.quarantine.validate_site(context, finding)
         reference = finding['fingerprint'].get('wordpress', {})
         source = {'kind': 'wordpress'}
+        if recovery is not None:
+            from .wordpress_recovery import WordPressRecovery
+            source=WordPressRecovery(self.settings,self.store,self.hestia).repair_source(context,finding,recovery)
         if cleanup:
             if backup_path is not None or backup_name is not None:raise Conflict('Choose one remediation action')
             from .cleanup import eligible,revision
@@ -186,6 +189,9 @@ class Repairs:
                 eligible(finding)
                 if {engine.name for engine in engines}!={'clamav','yara'}:raise Conflict('Targeted cleaning requires both ClamAV and YARA validation')
                 content,provenance=transform(before,finding['path'],source['catalog_revision'])
+            elif source['kind']=='recovery-package':
+                from .wordpress_recovery import WordPressRecovery
+                content,provenance=WordPressRecovery(self.settings,self.store,self.hestia).replacement(context,finding,source)
             elif source['kind']=='hestia-backup':
                 from .native_backups import NativeBackups
                 content,provenance=NativeBackups(self.settings,self.store,self.hestia).replacement(context,finding,source)

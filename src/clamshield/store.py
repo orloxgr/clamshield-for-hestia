@@ -40,6 +40,19 @@ CREATE TABLE IF NOT EXISTS wordpress_reports (
  job_id TEXT PRIMARY KEY REFERENCES jobs(id), owner TEXT NOT NULL,
  identity TEXT NOT NULL, domain TEXT NOT NULL, report TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS wordpress_recovery (
+ id TEXT PRIMARY KEY REFERENCES jobs(id), owner TEXT NOT NULL, identity TEXT NOT NULL,
+ actor TEXT NOT NULL, domain TEXT NOT NULL, root TEXT NOT NULL, target TEXT NOT NULL,
+ created REAL NOT NULL, status TEXT NOT NULL, revision TEXT NOT NULL,
+ options TEXT NOT NULL, report TEXT NOT NULL DEFAULT '{}', selection TEXT NOT NULL DEFAULT '[]',
+ work_job TEXT, error TEXT
+);
+CREATE TABLE IF NOT EXISTS wordpress_recovery_items (
+ id TEXT PRIMARY KEY, plan_id TEXT NOT NULL REFERENCES wordpress_recovery(id),
+ path TEXT NOT NULL, kind TEXT NOT NULL, action TEXT NOT NULL,
+ status TEXT NOT NULL DEFAULT 'proposed', detail TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS recovery_items_plan ON wordpress_recovery_items(plan_id,id);
 CREATE TABLE IF NOT EXISTS repair_plans (
  id TEXT PRIMARY KEY REFERENCES jobs(id), finding_id TEXT NOT NULL REFERENCES findings(id),
  owner TEXT NOT NULL, identity TEXT NOT NULL, actor TEXT NOT NULL,
