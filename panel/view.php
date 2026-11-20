@@ -40,6 +40,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs #cs-scans-list td{white-space:pre-line}
 .cs #cs-scans-list td:nth-child(2){min-width:9em}
 .cs #cs-integrity-sites{table-layout:fixed}
+.cs #cs-history-events{table-layout:fixed}.cs .cs-history-summary{margin-bottom:12px}
 @media(max-width:750px){.cs .cs-dashboard-panels{grid-template-columns:1fr}.cs .cs-engine-info{grid-template-columns:1fr}.cs .cs-engine-info dd{margin-bottom:12px}}
 @media(max-width:450px){.cs .cs-activity-row{align-items:flex-start}.cs .cs-activity dd{flex-direction:column;align-items:flex-end;gap:4px}.cs .cs-activity dd a{min-width:0}}
 </style>
@@ -83,9 +84,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <?php if($repair['site_availability']['available'] && $repair['status']==='ready'): ?><button disabled data-capability="<?=$is_cleanup?'cleanup':'repair'?>" class="button cs-repair-apply" data-action="repair-apply" data-plan_id="<?=$escape($repair['id'])?>"><?=$is_cleanup?'Apply reviewed cleaning':'Apply reviewed replacement'?></button><?php endif ?>
 <?php if($repair['site_availability']['available'] && in_array($repair['status'],['repaired','verified','recheck_failed'])): ?><button class="button" data-action="repair-undo" data-plan_id="<?=$escape($repair['id'])?>"><?=$is_cleanup?'Undo cleaning':'Undo repair'?></button><?php endif ?>
 <?php if($repair['site_availability']['available'] && $repair['status']==='recovery_required'): ?><button class="button" data-action="repair-recover" data-plan_id="<?=$escape($repair['id'])?>">Recover interrupted operation</button><?php endif ?></article><?php endforeach ?></section>
-<section data-page="history" hidden><h2>History</h2><?php require __DIR__.'/history.php'; require __DIR__.'/server_history.php'; ?><div class="scroll"><table><thead><tr><th>Time</th><th>Actor</th><th>Event</th><th>Details</th></tr></thead><tbody>
-<?php foreach($data['history'] as $event): ?><tr><td><?=$escape(gmdate('Y-m-d H:i:s',$event['created']))?> UTC</td><td><?=$escape(($cs_global?($event['owner']??'Server').' / ':'').$event['actor'])?></td><td><?=$escape($event['action'])?></td><td><?=$escape(json_encode($event['detail']))?></td></tr><?php endforeach ?>
-</tbody></table></div></section>
+<section data-page="history" hidden><h2>History</h2><?php require __DIR__.'/history.php'; require __DIR__.'/server_history.php'; require __DIR__.'/history_events.php'; ?></section>
 <?php require __DIR__.'/wordpress_recovery.php'; ?>
 <?php require __DIR__.'/rules.php'; ?>
 <?php if($data['context']['admin']): $providers=$data['providers']; ?>

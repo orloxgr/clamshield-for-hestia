@@ -305,6 +305,11 @@ repeated detections. **History** retains policy, update, exception, remediation
 and mail outcomes. A queued task is not an applied setting: wait for its terminal
 result and refresh the relevant page.
 
+History shows readable event names, website/scope information and coverage
+counts. **Technical details** starts closed and contains the original event,
+actor, references and recorded fields for troubleshooting. The presentation does
+not change stored audit evidence or turn partial scans into successful checks.
+
 Installer and component journals preserve interrupted operations. Repeat the
 same root installer to resume an incomplete installation; use the matching UI
 recovery controls for scanner/resource/mail transitions. Changed foreign files

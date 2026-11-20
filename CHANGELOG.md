@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.4
+
+- Present History events with readable operation names, website/scope context,
+  coverage counts and update-interruption explanations instead of raw JSON.
+  Keep original references and evidence in closed Technical details disclosures.
+
 ## 1.6.3
 
 - Keep individual website accordions closed by default in Scheduled Scanner.

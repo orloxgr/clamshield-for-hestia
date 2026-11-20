@@ -37,6 +37,54 @@ function fixture(options={}){
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
+const auditEvent=(action,detail={},extra={})=>({created:1,actor:'admin',owner:'alice',identity:'current',action,subject:'a'.repeat(32),detail,...extra});
+
+test('history shows readable operations, website scope and counters with references closed by default',async()=>{
+  const f=fixture({hash:'#history',change:values=>{values.context.view_scope='server';values.history=[
+    auditEvent('scan.queued',{domain:'site.test',target:'',replaces:'b'.repeat(32)}),
+    auditEvent('maintenance.completed',{action:'signatures-update',error:null}),
+    auditEvent('scan.partial',{counters:{scanned:1450,errors:2,infected:0}}),
+  ];}});
+  try{const rows=[...f.document.querySelectorAll('#cs-history-events tbody tr')];
+    assert.equal(rows[0].children[2].textContent,'Scan queued');
+    assert.match(rows[0].querySelector('.cs-history-summary').textContent,/Website: site.testScope: Whole websiteFull replacement scan queued/);
+    assert.match(rows[1].querySelector('.cs-history-summary').textContent,/Operation: Update antivirus signatures/);
+    assert.equal(rows[2].children[2].textContent,'Scan incomplete');assert.match(rows[2].querySelector('.cs-history-summary').textContent,/Files checked: 1450Errors: 2/);
+    for(const row of rows){assert.equal(row.querySelector('details').open,false);assert.doesNotMatch(row.querySelector('.cs-history-summary').textContent,/[a-f0-9]{32}|\{"/);}
+    rows[0].querySelector('details').open=true;assert.match(rows[0].querySelector('pre').textContent,new RegExp('b'.repeat(32)));
+  }finally{await f.close();}
+});
+
+test('history explains interrupted updates and retains escaped original evidence without showing opaque IDs in summaries',async()=>{
+  const original='Interrupted for update; replacement '+ 'b'.repeat(32)+' <img src=x onerror=alert(1)>';
+  const f=fixture({hash:'#history',change:values=>values.history=[
+    auditEvent('installation.scan_interrupted',{domain:'site.test',job_id:'a'.repeat(32),replacement_job:'b'.repeat(32),error:original,counters:{scanned:17,unverified:2}}),
+    auditEvent('repair.failed',{path:'<script>alert(1)</script>.php',error:'Cannot read reference '+'c'.repeat(64)}),
+    auditEvent('custom.new_event',{enabled:false,policy:{spam_threshold:7},revision:'d'.repeat(64)}),
+    auditEvent('mail.policy_saved',{overrides:{spam_threshold:6}},{subject:'site.test/inbox'}),
+  ]});
+  try{const rows=[...f.document.querySelectorAll('#cs-history-events tbody tr')];
+    assert.match(rows[0].querySelector('.cs-history-summary').textContent,/coverage is incomplete.*new full scan was queued automatically/);
+    assert.match(rows[0].querySelector('pre').textContent,/onerror=alert/);assert.equal(rows[0].querySelector('img'),null);
+    assert.equal(rows[1].querySelector('script'),null);assert.match(rows[1].querySelector('.cs-history-summary').textContent,/File: <script>/);
+    assert.doesNotMatch(rows[1].querySelector('.cs-history-summary').textContent,/c{64}/);
+    assert.equal(rows[2].children[2].textContent,'Custom new event');assert.match(rows[2].querySelector('.cs-history-summary').textContent,/Enabled: NoPolicy \/ Spam threshold: 7/);
+    assert.doesNotMatch(rows[2].querySelector('.cs-history-summary').textContent,/Revision|d{64}/);
+    assert.match(rows[3].querySelector('.cs-history-summary').textContent,/Applies to: site.test\/inbox.*Spam threshold: 6/);
+  }finally{await f.close();}
+});
+
+test('history resolves retained scan context only within the same account generation',async()=>{
+  const f=fixture({hash:'#history',change:values=>{values.context.view_scope='server';values.jobs=[
+    {...integrityJob('completed'),id:'a'.repeat(32),owner:'alice',identity:'current',domain:'right.test',target:'blog'},
+    {...integrityJob('completed'),id:'a'.repeat(32),owner:'bob',identity:'current',domain:'foreign.test'},
+    {...integrityJob('completed'),id:'a'.repeat(32),owner:'alice',identity:'old',domain:'old.test'},
+  ];values.history=[auditEvent('scan.completed',{counters:{scanned:20}}),auditEvent('scan.completed',{}, {identity:'recreated'})];}});
+  try{const summary=f.document.querySelector('#cs-history-events .cs-history-summary').textContent;
+    assert.match(summary,/Website: right.testScope: blog/);assert.doesNotMatch(summary,/foreign.test|old.test/);
+    assert.doesNotMatch(f.document.querySelectorAll('#cs-history-events .cs-history-summary')[1].textContent,/right.test|foreign.test|old.test/);
+  }finally{await f.close();}
+});
 const queuedScans=async body=>({ok:true,json:async()=>body.action==='scan-targets'?{ok:true,sites:[{domain:'bob.test',suspended:false},{domain:'suspended.test',suspended:true}]}:{ok:true,jobs:['scan-one','scan-two']}});
 
 test('Global admin view defaults the scan target and progress to the entire server',async()=>{
