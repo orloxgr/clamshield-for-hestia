@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.6.5
+
+- Align scan target and scan search controls along their bottom edge. Add a
+  visible search label and 12px spacing between automatic-action selectors and
+  save buttons, including when controls wrap onto another line.
+
 ## 1.6.4
 
 - Present History events with readable operation names, website/scope context,

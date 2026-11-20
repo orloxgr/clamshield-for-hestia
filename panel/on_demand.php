@@ -6,7 +6,7 @@ $cs_scan_available=(bool)array_filter($data['sites'],static fn($site)=>!$site['s
 <section data-page="sites" hidden id="cs-on-demand">
 <h2>On-demand website scan</h2>
 <form id="cs-scan-target" data-actor-owner="<?=$escape($data['context']['owner'])?>" data-capability="scan" data-allowed="<?=$data['website_permissions']['effective']['scan']?'true':'false'?>" data-admin="<?=$data['context']['admin']?'true':'false'?>" data-token="<?=$escape($_SESSION['token']??'')?>">
-<div class="row">
+<div class="row cs-controls-row">
 <label>Scan account <select class="form-select" name="owner" <?=$data['context']['admin']?'':'disabled'?>>
 <?php if($data['context']['admin']): ?><option value="" <?=$cs_global?'selected':''?>>Global / All accounts</option><?php foreach($data['accounts'] as $account): ?><option value="<?=$escape($account['owner'])?>" <?=!$cs_global && $account['owner']===$data['context']['owner']?'selected':''?> <?=!empty($account['suspended'])?'disabled':''?>><?=$escape($account['owner'])?><?=!empty($account['suspended'])?' (suspended)':''?></option><?php endforeach; else: ?><option value="<?=$escape($data['context']['owner'])?>"><?=$escape($data['context']['owner'])?></option><?php endif ?>
 </select></label>

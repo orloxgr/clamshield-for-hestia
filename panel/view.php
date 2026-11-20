@@ -28,6 +28,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs #cs-main-navigation .button[aria-current="page"],.cs nav[data-subnav] .button[aria-current="page"]{border-bottom-color:var(--color-text-link-hover)}
 .cs table{width:100%;border-collapse:collapse}.cs td,.cs th{text-align:left;padding:10px;overflow-wrap:anywhere}
 .cs .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.cs [hidden]{display:none}
+.cs .cs-controls-row{align-items:flex-end}
 .cs .notice{display:block;margin:14px 0}.cs .path{font-family:monospace;overflow-wrap:anywhere}.cs .scroll{overflow:auto}
 .cs .form-control,.cs .form-select{max-width:100%;width:auto}.cs textarea.form-control{width:100%}
 .cs .cs-native-backups{display:flex;flex-direction:column;align-items:flex-start;gap:12px;max-width:20rem}
