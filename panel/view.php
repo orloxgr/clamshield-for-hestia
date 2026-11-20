@@ -2,7 +2,7 @@
 $cs_compact_notices=static function($value) use (&$cs_compact_notices){
     if(!is_array($value))return $value;
     foreach($value as $key=>$item){
-        if(in_array($key,['license','licenses','upstream_notice'],true)&&is_string($item)&&strlen($item)>200)$value[$key]='Upstream notice retained with installed data. See Settings / Support Us.';
+        if(in_array($key,['license','licenses','upstream_notice'],true)&&(is_array($item)||(is_string($item)&&strlen($item)>200)))$value[$key]='Upstream notice retained with installed data. See Settings / Support Us.';
         else $value[$key]=$cs_compact_notices($item);
     }
     return $value;

@@ -21,7 +21,7 @@ $cs_yara_sources=[];foreach($data['rule_manager']['sources'] as $source)$cs_yara
 <?php require __DIR__.'/yara_update_preferences.php'; ?>
 <details id="cs-rules-advanced"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Custom sources and individual rules</summary>
 <?php foreach($data['rule_manager']['sources'] as $source): if(in_array($source['kind'],['php-hosting','web-hosting','forge'],true))continue; ?>
-<article class="card"><h4><?=$escape($source['name'])?></h4><p><?=$escape($source['version'])?> · <?=$source['enabled']?'Selected':'Disabled'?></p><button class="button" data-action="rules-source-toggle" data-source_id="<?=$escape($source['id'])?>" data-enabled="<?=$source['enabled']?'false':'true'?>" data-apply="true"><?=$source['enabled']?'Disable source':'Enable source'?></button><?php if($source['kind']==='remote'): ?><button class="button" data-action="rules-source-fetch" data-source_id="<?=$escape($source['id'])?>" data-apply="true">Update source</button><?php endif ?></article>
+<article class="card"><h4><?=$escape($source['name'])?></h4><p><?=$escape($source['version'])?> · <?=$source['enabled']?'Selected':'Disabled'?></p><button class="button" data-action="rules-source-toggle" data-source_id="<?=$escape($source['id'])?>" data-enabled="<?=$source['enabled']?'false':'true'?>" data-apply="true"><?=$source['enabled']?'Disable source':'Enable source'?></button></article>
 <?php endforeach ?>
 <?php require __DIR__.'/yara_advanced_sources.php'; ?>
 </details>

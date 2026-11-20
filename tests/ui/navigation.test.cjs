@@ -65,13 +65,21 @@ test('Support Us retains the supplied links and full source notices never appear
   const full='FULL_UPSTREAM_LICENSE_MARKER '.repeat(100);
   const f=fixture({hash:'#settings/support',change:v=>{
     v.rule_manager.sources=[{id:'php_hosting',name:'PHP fixture',kind:'php-hosting',enabled:true,review_only:true,version:'fixture',source_url:'https://github.com/example/rules',license_url:'https://github.com/example/rules/LICENSE',license:full}];
-    v.notifications=[{id:'notice',event:'maintenance.completed',owner:'alice',created:1,read_at:null,subject:'fixture',detail:{license:full}}];
+    v.notifications=[{id:'notice',event:'maintenance.completed',owner:'alice',created:1,read_at:null,subject:'fixture',detail:{license:full,licenses:[full]}}];
   }});
   try{assert.doesNotMatch(f.document.body.textContent,/FULL_UPSTREAM_LICENSE_MARKER/);
     const support=f.document.querySelector('[data-page=support]');
     for(const code of ['LDBFB3RRB3E9J','G5RNTC3UF58VU','4NP9RNUYRFRFA'])assert.ok(support.querySelector('a[href="https://www.paypal.com/ncp/payment/'+code+'"]'));
     assert.ok(support.querySelector('a[href="https://sanesecurity.com/donate/"]'));
     for(const link of support.querySelectorAll('a')){assert.equal(link.target,'_blank');assert.match(link.rel,/noopener/);}
+  }finally{await f.close();}
+});
+
+test('configured remote source updates live in Updates while source choices remain in Settings',async()=>{
+  const f=fixture({hash:'#updates/rules',change:v=>v.rule_manager.sources=[{id:'extra',name:'Additional source',kind:'remote',enabled:true,version:'fixture'}]});
+  try{const update=f.document.querySelector('[data-action=rules-source-fetch]');
+    assert.equal(update.closest('[data-page]').dataset.page,'rules');assert.equal(update.dataset.source_id,'extra');assert.equal(update.dataset.apply,'true');
+    assert.equal(f.document.querySelector('[data-action=rules-source-toggle]').closest('[data-page]').dataset.page,'yara-settings');
   }finally{await f.close();}
 });
 test('YARA scanning settings send real booleans/numbers once and follow maintenance without a page reload',async()=>{
