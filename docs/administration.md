@@ -117,6 +117,79 @@ file and support undo. Targeted cleaning handles its recognized definitions;
 other infections remain reviewable or repairable from a verified clean source.
 Quarantine, deletion, cleaning and replacement remain distinct actions.
 
+### WordPress recovery
+
+**On-demand Scan → WordPress recovery** provides a nonmutating analysis followed
+by a reviewed batch. Select a website and optional installation folder, choose
+the uploads policies and press **Analyze WordPress**. Default PHP/server-script
+cleanup and optional all-JavaScript cleanup are separate controls. Their matches
+are recorded as selected cleanup policy, not proof of malware. Ordinary uploads
+are retained; legitimate deny-only `.htaccess` files are not removed simply
+because of their filename. Configuration directives and scanner findings have
+separate review evidence.
+
+Analysis discovers core/plugins/themes and compares installed files with
+trusted references. Modified/missing files receive validated replacement
+candidates; additional files in known component directories can be selected for
+quarantine. Unrecognized root code and configuration changes remain reviewable.
+Unavailable references, unsafe files, limits and scanner failures remain visible
+as coverage gaps. Replacement preparation requires the ClamAV and YARA engines.
+
+Without an explicit version selection, replacement uses the installed version.
+**Versions and trusted vendor ZIPs** accepts a component's website-relative path,
+an optional target version, and a premium/custom ZIP. Prefer a private account
+path such as `~/tmp/example.zip`, where `~` means the selected hosting account's
+home, not the administrator's. Other paths are website-relative. ZIP roots,
+release headers, paths, expanded sizes and candidate content are checked.
+Vendor authenticity remains the operator's responsibility and is stated in the
+receipt. Core always uses an official release. Invalid/ambiguous component
+metadata remains unverified. A typo in a component mapping is reported.
+
+Review the selected actions and exact file/database changes before **Apply
+reviewed recovery**. Changing the selection requires another preview. Pause
+traffic, cron, deployment and other writers during recovery; this feature does
+not stop shared PHP pools or unrelated account processes. The batch checks all
+selected originals before applying and rechecks each actual mutation. It uses
+per-file journals rather than an atomic switch of an entire application. A
+concurrent change, cancellation or failure can therefore leave completed actions
+retained alongside unapplied actions. **Resume reviewed recovery** inspects
+recorded state; **Undo recovery** restores only unchanged destinations and does
+not overwrite subsequent work. Some interrupted repairs require fresh analysis
+after the existing recovery mechanism restores the original.
+
+File originals and database before/after values are private retained evidence.
+They are not removed by ordinary scan-history expiry or uninstall. Undo is
+content guarded; do not manually remove private recovery artifacts while a plan
+is needed. Successful file operations enqueue a full malware scan and WordPress
+integrity recheck. Applied is not a declaration that every file/database is clean.
+Updates may still require trusted application/database migration, functional
+testing, credential/session rotation and remediation of the original entry point.
+
+Database inspection uses Ubuntu `python3-pymysql`, installed by the root
+installer. It parses literal `wp-config.php` settings without loading PHP and
+requires the database and database user from the selected native Hestia account.
+Computed configuration, external hosts or unavailable credentials are reported
+as unavailable, never clean. Tables use the installation's prefix. String/script
+matches and administrator capabilities are review candidates, not automatic
+malware verdicts. Choose an exact find/replacement for each selected database
+value; there is no blanket SQL search-and-delete.
+
+Changes require a stable primary key/table definition and InnoDB. Exact original
+bytes, native configuration and row locks guard updates; trigger rewrites or
+changed content are refused/rolled back. PHP serialized string lengths are
+recalculated without instantiating PHP objects; serialized objects/references
+require manual review. Valid JSON structure is preserved. Full row originals are
+retained for exact undo; this does not replace a complete database backup.
+
+Investigation shows up to 100 recent files and a bounded open-file/cwd process
+snapshot scoped to the website. Timestamps and open descriptors are clues, not
+proof of malicious writes. No processes are killed and no blanket chmod is
+performed. Analysis is bounded to 200,000 filesystem entries, 50 installations,
+500 components, 10,000 recovery actions, and bounded paginated report sizes.
+Database inspection bounds each value to 1 MiB, candidate evidence to 16 MiB,
+table count to 500, row/column checks to 100,000 and time to 120 seconds per
+installation. Hitting a limit remains incomplete coverage.
+
 **Settings → Automatic actions** supports account defaults and site policies, with explicit
 eligibility, current content/generation checks, audit and interrupted-operation
 recovery. Review these policies together with delegated tenant permissions.

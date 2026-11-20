@@ -137,6 +137,10 @@ class WordPressDatabase:
         if live['identity'] != self.context['identity']: raise AccessDenied('Database account was replaced')
         rows = self.hestia.call('v-list-databases', self.context['owner'], 'json')
         if values['NAME'] not in rows: raise AccessDenied('WordPress database is not owned by the selected hosting account')
+        if rows[values['NAME']].get('SUSPENDED')=='yes' or rows[values['NAME']].get('TYPE','mysql') not in ('mysql','mariadb'):
+            raise AccessDenied('Native WordPress database is unavailable')
+        if rows[values['NAME']].get('HOST','localhost') not in ('localhost','127.0.0.1'):
+            raise Conflict('Database inspection requires the native local database host')
         native_user=rows[values['NAME']].get('USER',rows[values['NAME']].get('DBUSER'))
         if (not isinstance(native_user,str) or native_user!=values['USER'] or
                 not values['USER'].startswith(self.context['owner']+'_')):

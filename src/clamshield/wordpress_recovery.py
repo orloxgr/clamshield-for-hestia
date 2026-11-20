@@ -109,13 +109,19 @@ class WordPressRecovery:
 
     def inspect(self,job,engines):
         plan=self.get(job,job['id']);context=self.context(plan)
-        refs=self.references or RecoveryReferences(self.settings,plan['root'],plan['options'])
+        refs=self.references or RecoveryReferences(self.settings,plan['root'],plan['options'],owner=context['owner'])
         result=WordPress(self.settings,self.store,self.hestia,refs).run(job,finish=False)
         report=result['report'];counters=result['counters'];counters.setdefault('suppressed',0)
         if result['status'] in ('failed','cancelled'):raise Conflict(report.get('error','WordPress analysis was not completed'))
         if not report['installations']:raise Conflict('No WordPress installation was discovered in the selected folder')
+        if len(report['installations'])>50 or len(report['components'])>500:raise Conflict('Select a smaller WordPress folder; the recovery inventory exceeds its limit')
         plan['report']=dict(installations=report['installations'],components=report['components'],coverage=counters,
                             database=[],errors=[],investigation=[],packages={},warning='Integrity differences and cleanup-policy matches are not malware verdicts. Pause website writes before applying recovery. Updates may require application/database migration and compatibility checks.')
+        discovered={component['path'] for component in report['components']}
+        unused=(plan['options']['versions'].keys()|plan['options']['packages'].keys())-discovered
+        for path in sorted(unused):
+            plan['report']['errors'].append('Component selection was not found: '+(path or 'WordPress root'));counters['errors']+=1
+        for component in report['components']:component['recovery_version']=plan['options']['versions'].get(component['path'],component.get('version','Unverified'))
         if {engine.name for engine in engines}!={'clamav','yara'}:raise Conflict('Recovery analysis requires both ClamAV and YARA')
         with self.store.connection() as db:
             findings=[dict(row)|{'fingerprint':json.loads(row['fingerprint'])} for row in db.execute('SELECT * FROM findings WHERE job_id=? ORDER BY path',(job['id'],))]
@@ -188,6 +194,7 @@ class WordPressRecovery:
                 plan['report']['database'].append(dict(installation=installation['path'],**outcome))
         plan['report']['packages']=getattr(refs,'receipts',{})
         plan['report']['processes']=self.processes(plan['root'])
+        if len(encode(plan['report']).encode())>1024**2:raise Conflict('Recovery report exceeds its limit; select a smaller folder')
         self.save(plan,status='ready',report=plan['report'],work_job=None,error=None,revision=uuid.uuid4().hex)
         self.store.finish(job,'partial' if counters.get('errors') or counters.get('skipped') or counters.get('unverified') else 'completed',counters)
 
@@ -247,6 +254,9 @@ class WordPressRecovery:
                 items={item['id']:item for item in self.items(plan)}
                 if set(selected)-items.keys():raise AccessDenied('Recovery selection belongs to another plan')
                 chosen=[items[key] for key in selected];self.require(context,chosen)
+                # A failed attempt to revise a database edit must never leave
+                # an older approval usable against newly written candidate data.
+                self.save(plan,status='preview-failed',revision=uuid.uuid4().hex,error='Review preparation did not finish')
                 for item in chosen:
                     if item['status']=='blocked':raise Conflict('A selected action has no validated replacement')
                     if item['action']=='database':
@@ -293,7 +303,10 @@ class WordPressRecovery:
             if child['worker']!=job['worker']:raise Conflict('Replacement preview belongs to another worker')
             self.repairs.prepare(child,engines);repair=self.repairs.get(context,repair_id)
         if repair['status']!='ready':raise Conflict(repair['error'] or 'Replacement preview is not ready')
-        self.save_item(item,status='prepared',detail=item['detail']|dict(preview=repair['metadata']['preview']))
+        # The repair already retains its full diff. Avoid duplicating every
+        # large diff in the batch inventory loaded for mutation/recovery.
+        summary={key:value for key,value in repair['metadata']['preview'].items() if key!='diff'}
+        self.save_item(item,status='prepared',detail=item['detail']|dict(preview=summary))
 
     def preflight(self,plan,context,items,*,allow_applied=False):
         for item in items:
@@ -398,11 +411,15 @@ class WordPressRecovery:
             interrupted={'analyzing':'analysis-failed','preparing':'preview-failed','applying':'interrupted','undoing':'undo-interrupted'}
             # Expose interrupted worker state without changing evidence in a read.
             plan=plan|dict(status=interrupted.get(plan['status'],plan['status']),error=work.get('error') or 'Recovery worker stopped; review or resume retained work')
-        pages=[]
+        pages=[];page_bytes=0
         for item in items[offset:offset+100]:
             detail=item['detail']
             public={key:detail[key] for key in ('reason','recommended','error','detections','replacement','preview','excerpt','evidence','editable','table','column','installation') if key in detail}
-            pages.append(dict(id=item['id'],path=item['path'],kind=item['kind'],action=item['action'],status=item['status'],selected=item['id'] in plan['selection'],detail=public))
+            if detail.get('repair_id'):public['preview']=self.repairs.get(context,detail['repair_id'])['metadata'].get('preview',detail.get('preview',{}))
+            entry=dict(id=item['id'],path=item['path'],kind=item['kind'],action=item['action'],status=item['status'],selected=item['id'] in plan['selection'],detail=public)
+            amount=len(encode(entry).encode())
+            if pages and page_bytes+amount>2*1024**2:break
+            pages.append(entry);page_bytes+=amount
         checks=[self.store.job(context,key) for key in plan['report'].get('recheck_jobs',[])]
         return dict(plan={key:plan[key] for key in ('id','domain','target','created','status','revision','options','report','error')},items=pages,total=len(items),
                     recommended=[item['id'] for item in items if item['detail'].get('recommended') and item['status']!='blocked'],selection=plan['selection'],

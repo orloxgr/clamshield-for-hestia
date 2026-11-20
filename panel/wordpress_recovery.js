@@ -3,7 +3,7 @@
   'use strict';
   const root=document.getElementById('cs-wp-recovery');if(!root)return;
   const by=id=>document.getElementById('cs-wp-'+id),form=by('analyze'),output=by('status'),plans=by('plans');
-  let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null,epoch=0,refreshWanted=false;
+  let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null,epoch=0,refreshWanted=false,workId=null;
   const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const text=(tag,value)=>{const node=document.createElement(tag);node.textContent=value;return node;};
@@ -31,7 +31,7 @@
     if(item.detail.error)evidence.append(text('p',item.detail.error));
     if(item.detail.replacement)evidence.append(text('p','Source: '+item.detail.replacement.source+' · SHA-256: '+item.detail.replacement.sha256));
     if(item.detail.detections?.length)evidence.append(text('pre',JSON.stringify(item.detail.detections,null,2)));
-    if(item.detail.preview){const review=detail('Review exact changes');review.append(text('pre',item.detail.preview.diff+(item.detail.preview.truncated?'\n[Preview truncated]':'')));evidence.append(review);}
+    if(item.detail.preview?.diff!==undefined){const review=detail('Review exact changes');review.append(text('pre',item.detail.preview.diff+(item.detail.preview.truncated?'\n[Preview truncated]':'')));evidence.append(review);}
     if(item.kind==='database'){
       const database=detail('Database evidence and exact change');database.append(text('pre',item.detail.excerpt||''));
       database.append(text('p',(item.detail.evidence||[]).map(value=>value.kind+': '+value.match).join('\n')));
@@ -53,6 +53,7 @@
     if(first){initialized=plan.id;selected=new Set(value.selection?.length?value.selection:recommended);edits={};rows.clear();dirty=false;}
     if(plan.status==='reviewed'&&!dirty)selected=new Set(value.selection||[]);
     by('report').hidden=false;output.textContent='Recovery '+plan.status+(value.work?' · '+value.work.status+' · '+(value.work.counters.scanned||0)+' actions/files checked':'');
+    workId=value.work&&['queued','running'].includes(value.work.status)?value.work.id:null;by('cancel').hidden=!workId;
     by('summary').textContent=plan.domain+' · '+(plan.target||'Whole website')+' · '+value.total+' proposed actions';
     const coverage=plan.report.coverage||{};by('coverage').textContent='Coverage: '+(coverage.scanned||0)+' checks · '+(coverage.errors||0)+' errors · '+(coverage.skipped||0)+' skipped · '+(coverage.unverified||0)+' unverified components. Recovery state does not certify the entire site clean.';
     by('error').textContent=plan.error||'';by('database').textContent=JSON.stringify(plan.report.database||[],null,2);
@@ -95,6 +96,7 @@
   by('clear').addEventListener('click',()=>{selected.clear();draw([...rows.values()]);change();});
   by('review').addEventListener('click',()=>{const changes=Object.fromEntries(Object.entries(edits).filter(([id])=>selected.has(id)));request('preview',{items:[...selected],edits:changes});});
   by('apply').addEventListener('click',()=>request('apply'));by('undo').addEventListener('click',()=>request('undo'));
+  by('cancel').addEventListener('click',async()=>{if(!workId)return;by('cancel').disabled=true;try{await api('cancel',{job_id:workId});output.textContent='Cancellation requested. Completed changes remain available for undo.';}catch(error){output.textContent=error.message;}finally{by('cancel').disabled=false;}});
   function visibility(){stop();if(visible())refresh();}
   document.addEventListener('clamshield-tab-change',visibility);document.addEventListener('visibilitychange',visibility);
   window.addEventListener('pagehide',()=>{closed=true;stop();});window.addEventListener('pageshow',event=>{if(event.persisted){closed=false;visibility();}});

@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.5.0
+
+- Add WordPress recovery with queued Analyze → Review → Apply/Undo batches,
+  cancellation, progress and scoped retained plans. Use verified release
+  replacements and existing journaled quarantine/repair mechanisms.
+- Add independent uploads policies for PHP/other server scripts and all
+  JavaScript. Policy matches are labeled separately from malware detections;
+  removed content is quarantined outside the public root.
+- Support explicit target versions and account-supplied premium/vendor ZIPs,
+  including private account-home paths. Retain package provenance and refuse
+  ambiguous headers, invalid archives and flagged replacements.
+- Inspect local native-account WordPress databases without executing site PHP;
+  require exact reviewed edits, native database-user ownership, stable primary
+  keys/schema, InnoDB row/content guards and post-write verification. Preserve
+  serialized string lengths and valid JSON; retain exact originals for undo.
+- Add review of configuration directives, recent file changes and scoped open
+  process files. Keep coverage gaps visible and bound report/database resources.
+
 ## 1.4.0
 
 - Add one Enable mail protection action for the server: prepare missing signature

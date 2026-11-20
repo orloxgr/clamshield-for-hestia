@@ -133,6 +133,13 @@ class NativeWordPressDatabase(unittest.TestCase):
             item=next(item for item in status['items'] if item['kind']=='database')
             recovery.request(self.context,key,'preview',status['plan']['revision'],dict(items=[item['id']],edits={item['id']:dict(find='<script>bad()</script>',replace='')}));worker.once()
             status=recovery.status(self.context,key);self.assertEqual('reviewed',status['plan']['status'],status)
+            old_revision=status['plan']['revision']
+            with self.assertRaises(Conflict):
+                recovery.request(self.context,key,'preview',old_revision,dict(items=[item['id']],edits={item['id']:dict(find='not-present',replace='')}))
+            with self.assertRaises(Conflict):recovery.request(self.context,key,'apply',old_revision)
+            status=recovery.status(self.context,key);self.assertEqual('preview-failed',status['plan']['status'])
+            recovery.request(self.context,key,'preview',status['plan']['revision'],dict(items=[item['id']],edits={item['id']:dict(find='<script>bad()</script>',replace='')}));worker.once()
+            status=recovery.status(self.context,key);self.assertEqual('reviewed',status['plan']['status'])
             recovery.request(self.context,key,'apply',status['plan']['revision']);worker.once()
             status=recovery.status(self.context,key);self.assertEqual('applied',status['plan']['status'],status)
             with self.admin.cursor() as cursor:

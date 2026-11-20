@@ -7,6 +7,7 @@ import pwd
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from types import SimpleNamespace
 import zipfile
 
 from clamshield.application import Application
@@ -180,6 +181,13 @@ class RecoveryBatchTests(unittest.TestCase):
         self.assertEqual(b'a:1:{s:1:"x";s:1:"y";}',replacement(value,'x','y'))
         with self.assertRaises(Conflict):replacement(b'{"code":"hello"}','"hello"','broken')
 
+    def test_large_previews_are_paginated_within_panel_response_limits(self):
+        key=self.analyze();plan=self.recovery.get(self.context,key)
+        for number in range(12):self.recovery.add(plan,'file-'+str(number),'configuration','quarantine',dict(reason='review',recommended=False,preview={'diff':'x'*(256*1024)}))
+        first=self.status(key);self.assertLess(len(first['items']),12);self.assertIsNotNone(first['next_offset'])
+        seen=[item['id'] for item in first['items']];second=self.recovery.status(self.context,key,first['next_offset']);seen.extend(item['id'] for item in second['items'])
+        self.assertEqual(12,len(set(seen)));self.assertLess(len(json.dumps(first).encode()),4*1024**2)
+
 
 class VendorReferencesTests(unittest.TestCase):
     def test_vendor_zip_version_and_archive_paths_are_checked(self):
@@ -194,3 +202,15 @@ class VendorReferencesTests(unittest.TestCase):
             self.assertIn(b'2.0',content);self.assertEqual('user-supplied',proof['authenticity'])
             refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'}}))
             with self.assertRaises(Conflict):refs.manifest(component)
+
+    def test_private_vendor_path_uses_selected_account_home(self):
+        with tempfile.TemporaryDirectory() as temp:
+            base=Path(temp);web=base/'web';web.mkdir();home=base/'home';home.mkdir()
+            settings=Settings(state=base/'state');settings.prepare();data=io.BytesIO()
+            with zipfile.ZipFile(data,'w') as archive:archive.writestr('premium/premium.php','<?php\n/* Plugin Name: Premium\nVersion: 1.0\n*/')
+            (home/'premium.zip').write_bytes(data.getvalue())
+            component=dict(kind='plugin',slug='premium',path='wp-content/plugins/premium',release_path='wp-content/plugins/premium/premium.php',version='1.0')
+            refs=RecoveryReferences(settings,str(web),options({'packages':{component['path']:'~/premium.zip'}}),owner='alice')
+            with patch('clamshield.recovery_references.pwd.getpwnam',return_value=SimpleNamespace(pw_dir=str(home))) as native:
+                manifest=refs.manifest(component)
+            native.assert_called_once_with('alice');self.assertIn('premium.php',manifest['files'])
