@@ -1,11 +1,13 @@
 <?php require __DIR__.'/notification_format.php'; ?>
-<section data-page="notifications" hidden id="cs-notification-settings"><h2>Notification settings</h2><article class="card"><h3>My notification preferences</h3><p id="cs-notification-scope">Preferences belong to your signed-in account, including when you view another hosting account.</p>
-<form id="cs-notification-preferences"><fieldset id="cs-notification-choices" disabled><legend>Notify me about</legend><div id="cs-notification-categories" class="cs-notification-categories"></div>
-<p><label><input type="checkbox" name="bell"> Also notify me on Bell</label></p>
-<p>Bell uses Hestia's native notification menu. Changes apply to new Bell notifications; old events are not resent. ClamShield and Hestia keep their own read status.</p>
+<section data-page="notifications" hidden id="cs-notification-settings"><h2>Notification settings</h2><p id="cs-notification-scope">Preferences belong to your signed-in account, including when you view another hosting account.</p>
+<form id="cs-notification-preferences"><fieldset id="cs-notification-choices" disabled><legend>My notification preferences</legend>
+<article class="card"><h3>ClamShield notifications</h3><p>Choose the types shown by default in Review → Notifications. All recorded types remain available in its filter.</p><div id="cs-notification-categories" class="cs-notification-categories"></div></article>
+<article class="card"><h3>HestiaCP notifications</h3><p><label><input type="checkbox" name="bell"> Enable HestiaCP notifications</label></p>
+<p>Choose types independently for HestiaCP's notification menu. Changes apply to new events.</p><div id="cs-hestia-notification-categories" class="cs-notification-categories"></div>
+<p>Clearing notifications in Review also removes matching notifications from your HestiaCP account shortly afterwards. Reading remains separate.</p></article>
 <div class="row"><button class="button" type="submit">Save notification preferences</button></div></fieldset></form>
 <div class="row"><button class="button" type="button" id="cs-notification-refresh">Refresh preferences</button><p id="cs-notification-preference-status" role="status" aria-live="polite">Open Notifications to load your preferences.</p></div>
-</article></section>
+</section>
 <section data-page="notices" hidden id="cs-notifications" data-owner="<?=$escape($data['context']['owner'])?>" data-token="<?=$escape($_SESSION['token']??'')?>">
 <h2>Notifications</h2>
 

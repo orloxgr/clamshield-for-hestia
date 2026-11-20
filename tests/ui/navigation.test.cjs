@@ -258,7 +258,7 @@ test('recommended provider defaults are an explicit unsaved draft and preserve i
   }finally{await f.close();}
 });
 const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',other:'Other notifications'};
-const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
+const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),bell_categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
 const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});
 const reviewResponse=(body,extra={})=>({ok:true,json:async()=>({ok:true,list:body.list,html:'<tr><td>Current page</td></tr>',total:560,offset:Number(body.offset||0),limit:Number(body.limit||50),next_offset:50,options:{status:['open'],type:['clamav'],provider:['official']},accounts:['alice','bob'],can_clear:true,...extra})});
 
@@ -413,14 +413,27 @@ test('Email clear list and physical quarantine deletion use distinct proofs and 
 test('notification preferences save selected types and Bell without reload while filters retain access to recorded events',async()=>{
   const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found'),notice('scan.partial','notice-two'),notice('wordpress.integrity_issues','notice-three')],api:async body=>({ok:true,json:async()=>({ok:true,...notificationSettings(body.action==='notification-settings-save'?JSON.parse(body.policy):{})})})});
   try{await settle();const form=f.document.getElementById('cs-notification-preferences');assert.equal(form.elements.bell.checked,false);
-    for(const input of form.querySelectorAll('[name=category]'))input.checked=input.value==='detections';form.elements.bell.checked=true;
+    assert.match(form.textContent,/ClamShield notifications/);assert.match(form.textContent,/HestiaCP notifications/);assert.doesNotMatch(form.textContent,/Also notify me on Bell/);
+    for(const input of form.querySelectorAll('[name=category]'))input.checked=input.value==='detections';
+    for(const input of form.querySelectorAll('[name=bell_category]'))input.checked=input.value==='health';form.elements.bell.checked=true;
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
-    const saved=f.requests.find(body=>body.action==='notification-settings-save');assert.deepEqual(JSON.parse(saved.policy),{bell:true,categories:['detections']});assert.equal(saved.revision,'preferences-one');
+    const saved=f.requests.find(body=>body.action==='notification-settings-save');assert.deepEqual(JSON.parse(saved.policy),{bell:true,categories:['detections'],bell_categories:['health']});assert.equal(saved.revision,'preferences-one');
     const rows=[...f.document.querySelectorAll('#cs-notification-list tr')];assert.deepEqual(rows.map(r=>r.hidden),[false,true,true]);
     assert.match(f.document.getElementById('cs-notification-preference-status').textContent,/saved/);
     const type=f.document.getElementById('cs-notification-type');type.value='integrity';type.dispatchEvent(new f.w.Event('change'));assert.deepEqual(rows.map(r=>r.hidden),[true,true,false]);
     type.value='all';type.dispatchEvent(new f.w.Event('change'));assert.equal(rows.filter(r=>!r.hidden).length,3);
     assert.equal(f.document.querySelector('[data-main-tab=settings]').getAttribute('aria-current'),'page');
+  }finally{await f.close();}
+});
+
+test('native Bell cleanup errors are visible as text in Review without retrying deletion',async()=>{
+  const error='<b>Native deletion failed</b>. No automatic retry.';
+  const f=fixture({hash:'#review/notices',api:async body=>body.action==='review-list'?reviewResponse(body,{bell_cleanup_error:error,total:0}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  try{await settle();const status=f.document.querySelector('[data-review-pager=notices]').nextElementSibling;
+    assert.match(status.textContent,/Native deletion failed.*No automatic retry/);assert.equal(status.querySelector('b'),null);
+    const before=f.requests.filter(body=>body.action==='review-bulk-clear').length;
+    f.document.querySelector('[data-review-list=notices]').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.filter(body=>body.action==='review-bulk-clear').length,before);assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 

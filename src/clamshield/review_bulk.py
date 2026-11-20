@@ -81,11 +81,15 @@ class ReviewBulk:
                     selected_where=condition+' AND ('+eligible(kind)+')'+match
                     if kind=='exceptions':
                         db.execute('UPDATE exceptions SET enabled=0 WHERE id IN (SELECT r.id FROM '+source+' WHERE '+selected_where+')',(*args,token))
-                    if kind=='notices':db.execute('UPDATE notifications AS r SET read_at=COALESCE(read_at,?) WHERE '+selected_where,(now,*args,token))
+                    bell_pending=0
+                    if kind=='notices':
+                        from .notification_clear import BellClear
+                        bell_pending=BellClear.enqueue(db,own,db.execute('SELECT r.* FROM '+source+' WHERE '+selected_where,(*args,token)))
+                        db.execute('UPDATE notifications AS r SET read_at=COALESCE(read_at,?) WHERE '+selected_where,(now,*args,token))
                     count=db.execute('INSERT OR IGNORE INTO review_deleted SELECT ?,CAST(r.id AS TEXT),r.owner,r.identity FROM '+source+' WHERE '+selected_where,(kind,*args,token)).rowcount
                     db.execute('DELETE FROM review_confirmations WHERE token=?',(token,))
                     if kind not in ('history','notices'):self.store.audit(live,'review.cleared',kind,dict(records=count,scope=scope,selected=value['selected']),db)
-                    return dict(changed=count,pending=False)
+                    return dict(changed=count,pending=False,**({'bell_pending':bell_pending} if kind=='notices' else {}))
                 items=[dict(r) for r in db.execute("SELECT * FROM review_confirmation_items WHERE token=? AND state='pending' ORDER BY record_id LIMIT 5",(token,))]
             for item in items:
                 try:

@@ -11,6 +11,7 @@ from clamshield.hestia import Hestia
 from clamshield.notification_preferences import CATEGORIES, NotificationPreferences, category
 from clamshield.settings import Settings
 from clamshield.store import Store
+from clamshield.review import Review
 
 
 class PersonalBell(unittest.TestCase):
@@ -23,6 +24,13 @@ class PersonalBell(unittest.TestCase):
         self.native={name:{} for name in self.accounts};self.sent=[]
         self.hestia.call.side_effect=lambda command,owner,format:dict(self.native[owner])
         self.hestia.add_notification.side_effect=self.append
+        self.hestia.sites.return_value=[]
+        self.hestia.inventory.side_effect=lambda:[dict(value,sites=[]) for value in self.accounts.values()]
+        self.removed=[]
+        def remove(owner,nid,topic,body):
+            self.assertEqual(topic,self.native[owner][nid]['TOPIC']);self.assertEqual(body,self.native[owner][nid]['NOTICE'])
+            self.removed.append((owner,nid));del self.native[owner][nid]
+        self.hestia.delete_notification.side_effect=remove
         self.preferences=NotificationPreferences(self.settings,self.store,self.hestia)
 
     def authorize(self,actor,owner=None):
@@ -43,6 +51,95 @@ class PersonalBell(unittest.TestCase):
 
     def retry_now(self):
         with self.store.connection() as db:db.execute('UPDATE notification_bell_deliveries SET attempted=0')
+
+    def clear(self,actor='alice',scope='account',selected=None):
+        review=Review(self.settings,self.store,self.hestia);context=self.accounts[actor]
+        proof=review.bulk(context,'notices',scope,'preview',selected=selected)
+        return review.bulk(context,'notices',scope,'clear',proof['token'])
+
+    def test_channels_choose_different_categories_and_clamshield_changes_do_not_reset_bell_window(self):
+        self.preferences.save(self.accounts['alice'],dict(bell=True,categories=['integrity'],bell_categories=['detections']),'default')
+        with self.store.connection() as db:before=db.execute('SELECT starts_after FROM notification_preferences').fetchone()[0]
+        self.notify();self.notify(event='wordpress.integrity_issues');current=self.preferences.get(self.accounts['alice'])
+        self.preferences.save(self.accounts['alice'],dict(bell=True,categories=[],bell_categories=['detections']),current['settings']['revision'])
+        with self.store.connection() as db:self.assertEqual(before,db.execute('SELECT starts_after FROM notification_preferences').fetchone()[0])
+        self.assertEqual(1,self.preferences.once()['bell_sent'])
+        self.assertIn('Website malware detections',self.sent[0][1])
+        value=self.preferences.get(self.accounts['alice'])['settings']
+        self.assertEqual([],value['categories']);self.assertEqual(['detections'],value['bell_categories'])
+
+    def test_legacy_channel_selection_is_preserved_and_new_bell_categories_are_validated(self):
+        self.save(categories=['mail'])
+        with self.store.connection() as db:db.execute('UPDATE notification_preferences SET bell_categories=NULL')
+        self.assertEqual(['mail'],self.preferences.get(self.accounts['alice'])['settings']['bell_categories'])
+        for bad in ('mail',['unknown'],['mail','mail'],[True]):
+            with self.subTest(value=bad),self.assertRaises(ClamShieldError):
+                self.preferences.save(self.accounts['alice'],dict(bell=True,categories=[],bell_categories=bad),'default')
+
+    def test_clear_selected_removes_only_own_matching_native_notice_and_preserves_other_notifications(self):
+        self.save();self.save('admin');self.notify();self.preferences.once()
+        first=self.store.notifications(self.accounts['alice'])[0]['id']
+        self.native['alice']['900']={'TOPIC':'Backups','NOTICE':'Unrelated Hestia notice'}
+        self.notify(event='health.problem');self.preferences.once()
+        before_admin=dict(self.native['admin']);before=len(self.native['alice'])
+        result=self.clear(selected=[first]);self.assertEqual(1,result['bell_pending'])
+        self.preferences.once();self.assertEqual(before-1,len(self.native['alice']))
+        self.assertEqual(before_admin,self.native['admin']);self.assertIn('900',self.native['alice'])
+        self.assertEqual(['alice'],[owner for owner,_id in self.removed])
+        self.preferences.once();self.assertEqual(1,len(self.removed))
+
+    def test_clear_global_reconciles_current_admin_copy_without_removing_customer_copy(self):
+        self.save('admin');self.save();self.notify();self.notify('bob');self.notify('@admin','health.problem')
+        self.preferences.once();customer=dict(self.native['alice'])
+        self.assertEqual(3,self.clear('admin','server')['changed'])
+        self.preferences.once();self.assertEqual({},self.native['admin']);self.assertEqual(customer,self.native['alice'])
+        self.assertTrue(all(owner=='admin' for owner,_id in self.removed))
+
+    def test_clear_failure_is_attempted_once_and_visible_even_when_bell_is_disabled(self):
+        self.save();self.notify();self.preferences.once();self.clear();self.save(bell=False)
+        self.hestia.delete_notification.side_effect=ClamShieldError('Native validation failed')
+        self.assertEqual(1,self.preferences.once()['bell_clear_failed']);self.assertTrue(self.native['alice'])
+        self.assertEqual(0,self.preferences.once()['bell_clear_failed'])
+        with self.store.connection() as db:db.execute('UPDATE notification_bell_clears SET attempted=0')
+        self.assertEqual(0,self.preferences.once()['bell_cleared'])
+        self.assertEqual(1,self.hestia.delete_notification.call_count)
+        error=self.preferences.get(self.accounts['alice'])['settings']['error']
+        self.assertIn('Native validation failed',error);self.assertIn('No automatic retry',error)
+        review=Review(self.settings,self.store,self.hestia)
+        self.assertEqual(error,review.query(self.accounts['alice'],'notices',filters={})['bell_cleanup_error'])
+        self.assertIsNone(self.preferences.get(self.accounts['bob'])['settings']['error'])
+
+    def test_interrupted_native_deletion_is_not_repeated(self):
+        self.save();self.notify();self.preferences.once();self.clear()
+        self.hestia.delete_notification.side_effect=KeyboardInterrupt()
+        with self.assertRaises(KeyboardInterrupt):self.preferences.once()
+        self.assertEqual(0,self.preferences.once()['bell_cleared'])
+        self.assertEqual(1,self.hestia.delete_notification.call_count)
+        error=self.preferences.get(self.accounts['alice'])['settings']['error']
+        self.assertIn('interrupted',error);self.assertIn('No automatic retry',error)
+
+    def test_clear_during_native_append_is_reconciled_after_delivery_finishes(self):
+        self.save();self.notify()
+        def concurrent_clear(*args):self.append(*args);self.clear()
+        self.hestia.add_notification.side_effect=concurrent_clear
+        result=self.preferences.once()
+        self.assertEqual(1,result['bell_sent']);self.assertEqual(1,result['bell_cleared']);self.assertEqual({},self.native['alice'])
+        self.preferences.once();self.assertEqual(1,len(self.sent))
+
+    def test_recreated_recipient_and_forged_prefix_match_are_not_deleted(self):
+        self.save();self.notify();self.preferences.once();self.clear()
+        self.native['alice']['1']['NOTICE']+=' unrelated suffix'
+        self.preferences.once();self.assertTrue(self.native['alice']);self.assertEqual([],self.removed)
+        self.notify();self.preferences.once();self.clear();self.accounts['alice']['identity']='recreated'
+        self.preferences.once();self.assertEqual([],self.removed)
+
+    def test_cleanup_survives_source_retention_and_does_not_remove_read_only_records(self):
+        self.save();self.notify();self.preferences.once();notice=self.store.notifications(self.accounts['alice'])[0]
+        self.store.read_notification(self.accounts['alice'],notice['id']);self.preferences.once()
+        self.assertTrue(self.native['alice']);self.assertEqual([],self.removed)
+        self.clear()
+        with self.store.connection() as db:db.execute('DELETE FROM notifications')
+        self.preferences.once();self.assertEqual({},self.native['alice'])
 
     def test_default_off_and_personal_preferences_do_not_follow_selected_customer(self):
         selected=self.authorize('admin','bob')
@@ -145,6 +242,20 @@ class PersonalBell(unittest.TestCase):
 
 
 class NativeBellCommand(unittest.TestCase):
+    def test_native_deletion_rechecks_exact_content_and_never_accepts_all_or_foreign_ids(self):
+        hestia=Hestia(Path('/fixture/hestia'));topic='ClamShield: Event';body='<a href="/plugins/clamshield/?notice=abc">Open</a>'
+        hestia.call=Mock(side_effect=[{'1':dict(TOPIC=topic,NOTICE=body.replace('"',"'"))},{}])
+        with patch('clamshield.hestia.subprocess.run',return_value=subprocess.CompletedProcess([],0,'','')) as run:
+            hestia.delete_notification('alice','1',topic,body)
+            self.assertEqual(['/fixture/hestia/bin/v-delete-user-notification','alice','1'],run.call_args.args[0])
+            self.assertNotIn('shell',run.call_args.kwargs)
+        for nid in ('all','1;id','-1','../1','0'):
+            with self.assertRaises(AccessDenied):hestia.delete_notification('alice',nid,topic,body)
+        hestia.call=Mock(return_value={'1':dict(TOPIC='Other product',NOTICE=body)})
+        with patch('clamshield.hestia.subprocess.run') as run:
+            with self.assertRaises(Conflict):hestia.delete_notification('alice','1',topic,body)
+            run.assert_not_called()
+
     def test_only_fixed_native_command_and_safe_argument_vector_are_used(self):
         hestia=Hestia(Path('/fixture/hestia'))
         with patch('clamshield.hestia.subprocess.run',return_value=subprocess.CompletedProcess([],0,'','')) as run:

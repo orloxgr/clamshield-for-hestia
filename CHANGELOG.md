@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.13.0
+
+- Split personal preferences into ClamShield notifications and HestiaCP
+  notifications, with independent category selections for each channel.
+- Clearing Review notifications also removes matching Bell copies for the
+  signed-in native account, preserving other recipients and unrelated notices.
+- Attempt native notification deletion once. Failed or interrupted attempts
+  stop without automatic retries and expose the error in Review and preferences.
+
 ## 1.12.3
 
 - Rename the read-only SpamAssassin catalog action to Show installed rule scores

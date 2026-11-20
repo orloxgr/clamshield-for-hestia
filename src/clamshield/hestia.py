@@ -1,5 +1,6 @@
 """Native inventory only; command allowlist prevents arbitrary root commands."""
 import hashlib
+import html
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ import stat
 import subprocess
 import time
 
-from .errors import AccessDenied, ClamShieldError
+from .errors import AccessDenied, ClamShieldError, Conflict
 
 COMMANDS = frozenset(('v-list-user', 'v-list-users', 'v-list-web-domain',
                       'v-list-web-domains', 'v-list-mail-domains', 'v-list-mail-accounts', 'v-list-user-backups',
@@ -19,6 +20,13 @@ def account_name(value):
     if not isinstance(value, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_-]{0,63}', value):
         raise AccessDenied('Invalid account')
     return value
+
+
+def same_notification(value,topic,notice):
+    # Native JSON replaces HTML attribute double quotes with single quotes.
+    normalize=lambda text:html.unescape(text).replace('"',"'")
+    return (isinstance(value,dict) and value.get('TOPIC')==topic and
+            isinstance(value.get('NOTICE'),str) and normalize(value['NOTICE'])==normalize(notice))
 
 
 class Hestia:
@@ -65,6 +73,27 @@ class Hestia:
         if not isinstance(data, dict):
             raise ClamShieldError('Native Hestia returned an invalid inventory')
         return data
+
+    def delete_notification(self,owner,native_id,topic,notice):
+        """Delete one freshly verified owned message; never native 'all'."""
+        owner=account_name(owner)
+        if (not isinstance(native_id,str) or not re.fullmatch(r'[1-9][0-9]{0,19}',native_id)
+                or not isinstance(topic,str) or not topic.startswith('ClamShield: ')
+                or not isinstance(notice,str) or len(topic)>200 or len(notice)>6000):
+            raise AccessDenied('Invalid ClamShield Bell deletion')
+        current=self.call('v-list-user-notifications',owner,'json').get(native_id)
+        if current is None:return
+        if not same_notification(current,topic,notice):
+            raise Conflict('Native notification changed; left unchanged')
+        try:
+            result=subprocess.run([str(self.root/'bin/v-delete-user-notification'),owner,native_id],
+                capture_output=True,text=True,timeout=self.remaining(10),
+                env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HESTIA':str(self.root),'LANG':'C.UTF-8'})
+        except (OSError,subprocess.SubprocessError) as exc:
+            raise ClamShieldError('Native Bell deletion is unavailable or timed out') from exc
+        if result.returncode:raise ClamShieldError('Native Bell deletion failed')
+        if same_notification(self.call('v-list-user-notifications',owner,'json').get(native_id),topic,notice):
+            raise ClamShieldError('Native Bell deletion could not be confirmed')
 
     def birth(self, fd):
         result = subprocess.run(['/usr/bin/stat', '--dereference', '--format=%W\n%w', '--', '/proc/self/fd/'+str(fd)],

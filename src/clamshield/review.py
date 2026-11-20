@@ -125,7 +125,12 @@ class Review:
                 condition,values=self.condition(scopes,'j')
                 with self.store.connection() as db:jobs=db.execute('SELECT j.* FROM jobs j WHERE '+condition+' AND j.id IN ('+','.join('?' for _ in subjects)+')',(*values,*subjects)).fetchall()
                 view['jobs']=[dict(row) for row in jobs]
-        return dict(list=kind,records=records,total=total,offset=offset,limit=limit,next_offset=offset+len(records) if offset+len(records)<total else None,options=options,accounts=[owner for owner,_identity in all_scopes],can_clear=bool(live['admin'] or kind=='notices' or (kind=='history' and self.history_allowed(live))),view_data=view)
+        result=dict(list=kind,records=records,total=total,offset=offset,limit=limit,next_offset=offset+len(records) if offset+len(records)<total else None,options=options,accounts=[owner for owner,_identity in all_scopes],can_clear=bool(live['admin'] or kind=='notices' or (kind=='history' and self.history_allowed(live))),view_data=view)
+
+        if kind=='notices':
+            from .notification_clear import BellClear
+            result['bell_cleanup_error']=BellClear(self.settings,self.store,self.hestia).error(self.hestia.authorize(context['actor'],context['actor']))
+        return result
 
     def history_allowed(self,context):
         with self.store.connection() as db:row=db.execute('SELECT allowed FROM history_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()

@@ -141,12 +141,18 @@ CREATE TABLE IF NOT EXISTS review_deleted (
 CREATE TABLE IF NOT EXISTS notification_preferences (
  actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
  categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,
- updated REAL NOT NULL, last_sent REAL, error TEXT, last_checked REAL NOT NULL DEFAULT 0,
+ updated REAL NOT NULL, last_sent REAL, error TEXT, last_checked REAL NOT NULL DEFAULT 0, bell_categories TEXT,
  PRIMARY KEY(actor,identity)
 );
 CREATE TABLE IF NOT EXISTS notification_bell_deliveries (
  actor TEXT NOT NULL, identity TEXT NOT NULL, notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
  status TEXT NOT NULL, attempted REAL NOT NULL, native_id TEXT, error TEXT,
+ PRIMARY KEY(actor,identity,notification_id)
+);
+CREATE TABLE IF NOT EXISTS notification_bell_clears (
+ actor TEXT NOT NULL,identity TEXT NOT NULL,notification_id TEXT NOT NULL,
+ topic TEXT NOT NULL,notice TEXT NOT NULL,created REAL NOT NULL,
+ attempted REAL NOT NULL DEFAULT 0,status TEXT NOT NULL DEFAULT 'pending',error TEXT,
  PRIMARY KEY(actor,identity,notification_id)
 );
 CREATE TABLE IF NOT EXISTS mail_policies (
@@ -245,6 +251,8 @@ class Store:
                 db.execute('ALTER TABLE jobs ADD COLUMN dedup_key TEXT')
             if 'detail' not in {r['name'] for r in db.execute('PRAGMA table_info(findings)')}:
                 db.execute("ALTER TABLE findings ADD COLUMN detail TEXT NOT NULL DEFAULT '{}'")
+            if 'bell_categories' not in {r['name'] for r in db.execute('PRAGMA table_info(notification_preferences)')}:
+                db.execute('ALTER TABLE notification_preferences ADD COLUMN bell_categories TEXT')
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS job_dedup ON jobs(owner,identity,domain,source,target,dedup_key)')
             retired=db.execute("""UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?,heartbeat=?,
               error='Trial scans were removed; this comparison will not run'

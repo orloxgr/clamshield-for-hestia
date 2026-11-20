@@ -47,20 +47,29 @@ class NotificationPreferences:
         with self.store.connection() as db:
             row = db.execute('SELECT * FROM notification_preferences WHERE actor=? AND identity=?',
                              (live['actor'], live['identity'])).fetchone()
-        settings = dict(bell=False, categories=list(CATEGORIES), revision='default', last_sent=None, error=None)
+        settings = dict(bell=False, categories=list(CATEGORIES), bell_categories=list(CATEGORIES), revision='default', last_sent=None, error=None)
         if row:
             settings.update(bell=bool(row['bell']), categories=[key for key in json.loads(row['categories']) if key in CATEGORIES],
+                            bell_categories=[key for key in self.bell_categories(dict(row)) if key in CATEGORIES],
                             revision=row['revision'], last_sent=row['last_sent'], error=row['error'])
+        from .notification_clear import BellClear
+        cleanup_error=BellClear(self.settings,self.store,self.hestia).error(live)
+        if cleanup_error:settings['error']=cleanup_error
         return dict(settings=settings, categories=CATEGORIES, account=live['actor'], server=live['admin'])
 
     def save(self, context, policy, revision):
-        if (not isinstance(policy, dict) or set(policy) != {'bell', 'categories'} or
+        if (not isinstance(policy, dict) or set(policy) not in ({'bell', 'categories'},{'bell','categories','bell_categories'}) or
             type(policy['bell']) is not bool or not isinstance(policy['categories'], list) or
             any(not isinstance(v, str) or v not in CATEGORIES for v in policy['categories']) or
             len(set(policy['categories'])) != len(policy['categories'])):
             raise ClamShieldError('Choose valid notification types and a Bell preference')
+        bell_categories=policy.get('bell_categories',policy['categories'])
+        if (not isinstance(bell_categories,list) or any(not isinstance(v,str) or v not in CATEGORIES for v in bell_categories)
+                or len(set(bell_categories))!=len(bell_categories)):
+            raise ClamShieldError('Choose valid HestiaCP notification types')
         live = self.personal(context)
         selected = [key for key in CATEGORIES if key in policy['categories']]
+        bell_selected = [key for key in CATEGORIES if key in bell_categories]
         with self.store.connection(True) as db:
             row = db.execute('SELECT * FROM notification_preferences WHERE actor=? AND identity=?',
                              (live['actor'], live['identity'])).fetchone()
@@ -68,14 +77,18 @@ class NotificationPreferences:
                 raise Conflict('Notification preferences changed. Refresh preferences and try again.')
             confirmed = self.personal(context)
             if confirmed['identity'] != live['identity']: raise AccessDenied('Hosting account changed')
-            changed = not row or bool(row['bell']) != policy['bell'] or json.loads(row['categories']) != selected
+            changed = not row or bool(row['bell']) != policy['bell'] or self.bell_categories(dict(row)) != bell_selected
             start = time.time() if changed else row['starts_after']
-            db.execute('''INSERT INTO notification_preferences(actor,identity,bell,categories,starts_after,revision,updated)
-              VALUES(?,?,?,?,?,?,?) ON CONFLICT(actor,identity) DO UPDATE SET bell=excluded.bell,
+            db.execute('''INSERT INTO notification_preferences(actor,identity,bell,categories,starts_after,revision,updated,bell_categories)
+              VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(actor,identity) DO UPDATE SET bell=excluded.bell,
               categories=excluded.categories,starts_after=excluded.starts_after,revision=excluded.revision,
-              updated=excluded.updated,error=NULL''',
-              (live['actor'], live['identity'], int(policy['bell']), json.dumps(selected), start, uuid.uuid4().hex, time.time()))
+              updated=excluded.updated,bell_categories=excluded.bell_categories,error=NULL''',
+              (live['actor'], live['identity'], int(policy['bell']), json.dumps(selected), start, uuid.uuid4().hex, time.time(),json.dumps(bell_selected)))
         return self.get(context)
+
+    @staticmethod
+    def bell_categories(pref):
+        return json.loads(pref.get('bell_categories') or pref['categories'])
 
     def authorized(self, pref, notification):
         live = self.hestia.authorize(pref['actor'], pref['actor'])
@@ -131,7 +144,9 @@ class NotificationPreferences:
                 raise AccessDenied('Notification delivery lock is not private')
             try: fcntl.flock(fd, fcntl.LOCK_EX|fcntl.LOCK_NB)
             except BlockingIOError: return {'bell_busy': True}
-            return self.deliver()
+            result=self.deliver()
+            from .notification_clear import BellClear
+            return result | BellClear(self.settings,self.store,self.hestia).once()
         finally: os.close(fd)
 
     def deliver(self):
@@ -163,7 +178,7 @@ class NotificationPreferences:
                                          (pref['actor'], pref['identity'])).fetchone()
                     fresh = db.execute('SELECT read_at FROM notifications WHERE id=?', (notice['id'],)).fetchone()
                 if not current or not current['bell'] or current['revision'] != pref['revision']: break
-                if not fresh or fresh['read_at'] is not None or category(notice['event']) not in json.loads(pref['categories']):
+                if not fresh or fresh['read_at'] is not None or category(notice['event']) not in self.bell_categories(pref):
                     self.receipt(pref, notice, 'skipped'); result['bell_skipped'] += 1; continue
                 try:
                     if not self.authorized(pref, notice):

@@ -3,7 +3,7 @@
   'use strict';
   const root=document.getElementById('cs-notifications');if(!root)return;
   const form=document.getElementById('cs-notification-preferences'),choices=document.getElementById('cs-notification-choices');
-  const categories=document.getElementById('cs-notification-categories'),status=document.getElementById('cs-notification-preference-status');
+  const categories=document.getElementById('cs-notification-categories'),hestiaCategories=document.getElementById('cs-hestia-notification-categories'),status=document.getElementById('cs-notification-preference-status');
   const refresh=document.getElementById('cs-notification-refresh'),type=document.getElementById('cs-notification-type'),state=document.getElementById('cs-notification-state');
   const rows=()=>[...document.querySelectorAll('#cs-notification-list tr')];
   let preferences=null,loading=false,saving=false;
@@ -32,16 +32,18 @@
     const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Notification request failed');return result;
   }
   function show(value){
-    preferences=value.settings;categories.replaceChildren();
+    preferences=value.settings;categories.replaceChildren();hestiaCategories.replaceChildren();
     const selected=type.value;while(type.options.length>2)type.remove(2);
     for(const [key,title] of Object.entries(value.categories)){
       const label=document.createElement('label'),input=document.createElement('input');input.type='checkbox';input.name='category';input.value=key;input.checked=preferences.categories.includes(key);
       label.append(input,document.createTextNode(' '+title));categories.append(label);
+      const bellLabel=document.createElement('label'),bellInput=document.createElement('input');bellInput.type='checkbox';bellInput.name='bell_category';bellInput.value=key;bellInput.checked=(preferences.bell_categories||preferences.categories).includes(key);
+      bellLabel.append(bellInput,document.createTextNode(' '+title));hestiaCategories.append(bellLabel);
       const option=document.createElement('option');option.value=key;option.textContent=title;type.append(option);
     }
     if([...type.options].some(option=>option.value===selected))type.value=selected;
     form.elements.bell.checked=preferences.bell;choices.disabled=false;
-    document.getElementById('cs-notification-scope').textContent='Personal preferences for '+value.account+'. '+(value.server?'Bell covers selected events across all server accounts.':'Bell covers only your own hosting account.');
+    document.getElementById('cs-notification-scope').textContent='Personal preferences for '+value.account+'. '+(value.server?'HestiaCP notifications cover selected events across all server accounts.':'HestiaCP notifications cover only your own hosting account.');
     root.dataset.categories=JSON.stringify(preferences.categories);
     filter();document.dispatchEvent(new CustomEvent('clamshield-notification-preferences'));
   }
@@ -53,9 +55,9 @@
   }
   form.addEventListener('submit',async event=>{
     event.preventDefault();if(!preferences||loading||saving)return;
-    const policy={bell:form.elements.bell.checked,categories:[...categories.querySelectorAll('input:checked')].map(input=>input.value)};
+    const policy={bell:form.elements.bell.checked,categories:[...categories.querySelectorAll('input:checked')].map(input=>input.value),bell_categories:[...hestiaCategories.querySelectorAll('input:checked')].map(input=>input.value)};
     saving=true;choices.disabled=true;refresh.disabled=true;status.textContent='Saving notification preferences…';
-    try{show(await api('notification-settings-save',{revision:preferences.revision,policy:JSON.stringify(policy)}));status.textContent='Notification preferences saved.';}
+    try{show(await api('notification-settings-save',{revision:preferences.revision,policy:JSON.stringify(policy)}));status.textContent='Notification preferences saved.'+(preferences.error?' '+preferences.error:'');}
     catch(error){status.textContent=error.message;}
     finally{saving=false;choices.disabled=false;refresh.disabled=false;}
   });
