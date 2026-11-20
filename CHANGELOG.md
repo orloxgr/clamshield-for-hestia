@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.6
+
+- Add Check now to website readiness, with direct links to the required scanner,
+  signature, YARA or active-work controls. Persist real checks without refreshing
+  old verification times when a scan/update is busy.
+
 ## 1.10.5
 
 - Remove the Global preview-limit banner from the panel.

@@ -184,7 +184,7 @@ class ResourceControlsTests(unittest.TestCase):
         context=dict(actor='alice',owner='alice',identity='generation',admin=False)
         hestia=Mock();hestia.authorize.return_value=context;site=dict(owner='alice',identity='generation',domain='site.test',root=str(self.root),suspended=False)
         app=Application(self.settings,self.store,hestia)
-        for action in ('resources-status','resources-save','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
+        for action in ('resources-status','resources-save','website-readiness-check','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
             with self.assertRaises(AccessDenied):app.dispatch(dict(actor='alice',action=action,policy=self.policy))
         job_id=self.store.enqueue(context,site);write_json(self.controls.journal,{'pending':True})
         self.assertFalse(Worker(self.settings,self.store,hestia,[]).once());self.assertEqual('queued',self.store.job(context,job_id)['status'])
@@ -213,3 +213,15 @@ class ResourceControlsTests(unittest.TestCase):
             result=app.dispatch(dict(actor='alice',owner='selected',action='website-engine-status'))
         self.assertFalse(result['pending']);self.assertEqual('completed',result['latest']['status'])
         self.assertEqual('ClamAV fixture',result['engine']['version'])
+
+    def test_admin_readiness_check_returns_fresh_probe_and_action_destinations(self):
+        context=dict(actor='alice',owner='alice',identity='generation',admin=True)
+        hestia=Mock();hestia.authorize.return_value=context
+        app=Application(self.settings,self.store,hestia)
+        value={'state':'incomplete','message':'Needs attention','checked':100,'clamav':{'state':'unavailable'},'yara':{'state':'missing'}}
+        with patch('clamshield.application.Health.website_check',return_value=(value,False)) as check,patch.object(app,'engine_status',return_value={'clamav':{'available':False}}),patch('clamshield.application.time.time',return_value=100):
+            result=app.dispatch(dict(actor='alice',action='website-readiness-check',path='/etc/shadow'))
+        check.assert_called_once_with();self.assertFalse(result['busy'])
+        self.assertEqual(['enable','rules'],result['actions']);self.assertEqual(100,result['coverage']['checked'])
+        self.assertFalse(result['engine']['available'])
+        self.assertEqual([],self.store.list_tasks(context))

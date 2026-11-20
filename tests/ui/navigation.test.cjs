@@ -608,3 +608,40 @@ test('dashboard pending startup checks pause outside Dashboard and resume when o
     f.click('[data-main-tab=settings]');assert.equal(f.timers.size,0);
   }finally{await f.close();}
 });
+
+
+test('fresh readiness check runs once, shows the required destinations and keeps unrelated tabs closed',async()=>{
+  let resolveCheck;
+  const f=fixture({change:v=>v.website_readiness={state:'unknown',message:'Website readiness needs a fresh check.',checked:1},api:async body=>{
+    assert.equal(body.action,'website-readiness-check');return new Promise(resolve=>{resolveCheck=()=>resolve({ok:true,json:async()=>({ok:true,coverage:{state:'incomplete',message:'Signatures and rules need attention.',checked:100},busy:false,engine:{available:true,version:'ClamAV fixture'},actions:['signatures','rules']})});});
+  }});
+  try{const button=f.document.getElementById('cs-readiness-check');for(let i=0;i<50;i++)button.click();assert.equal(f.requests.length,1);assert.equal(button.disabled,true);
+    assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'alice',action:'website-readiness-check'});
+    resolveCheck();await settle();assert.equal(button.disabled,false);assert.match(f.document.getElementById('cs-readiness-message').textContent,/need attention/);
+    assert.match(f.document.getElementById('cs-readiness-time').textContent,/1970-01-01 00:01:40 UTC/);
+    assert.deepEqual([...f.document.querySelectorAll('[data-readiness-action]')].filter(link=>!link.hidden).map(link=>link.dataset.readinessAction),['signatures','rules']);
+    f.click('[data-readiness-action=rules]');assert.deepEqual(f.visible(),['rules']);
+  }finally{await f.close();}
+});
+
+test('unavailable ClamAV readiness action opens and focuses the real Enable button',async()=>{
+  const f=fixture({change:v=>{v.engines.clamav={available:false};v.website_readiness={state:'incomplete',message:'Needs attention.',checked:1};v.readiness_actions=['enable'];}});
+  try{const link=f.document.querySelector('[data-readiness-action=enable]');assert.equal(link.hidden,false);link.click();
+    assert.deepEqual(f.visible(),['dashboard']);assert.equal(f.document.activeElement.id,'cs-dashboard-clamav-enable');assert.equal(f.requests.some(r=>r.action==='website-engine-start'),false);
+    assert.equal(f.document.querySelector('[data-readiness-action=signatures]').hidden,true);
+  }finally{await f.close();}
+});
+
+test('busy readiness check routes to work in progress without claiming a fresh verification',async()=>{
+  const f=fixture({api:async()=>({ok:true,json:async()=>({ok:true,coverage:{state:'unknown',message:'Needs a fresh check.',checked:1},busy:true,engine:{available:true,version:'ClamAV fixture'},actions:['progress','activity']})})});
+  try{f.click('#cs-readiness-check');await settle();assert.match(f.document.getElementById('cs-readiness-message').textContent,/waits for an active scan or update/);
+    assert.match(f.document.getElementById('cs-readiness-time').textContent,/00:00:01/);f.click('[data-readiness-action=progress]');assert.deepEqual(f.visible(),['jobs']);
+  }finally{await f.close();}
+});
+
+test('readiness failures remain plain text and retryable while tenant views have no server check',async()=>{
+  const f=fixture({api:async()=>({ok:false,json:async()=>({ok:false,error:'<b>Check failed</b>'})})}),tenant=fixture({admin:false});
+  try{f.click('#cs-readiness-check');await settle();const output=f.document.getElementById('cs-readiness-message');assert.match(output.textContent,/<b>Check failed/);assert.equal(output.children.length,0);assert.equal(f.document.getElementById('cs-readiness-check').disabled,false);
+    assert.equal(tenant.document.getElementById('cs-readiness-check'),null);
+  }finally{await f.close();await tenant.close();}
+});

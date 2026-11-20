@@ -113,8 +113,13 @@ class Application:
                 from .history_retention import validate
                 validate(request.get('policy'))
             return history.get(context,request.get('policy') if action=='history-retention-preview' else None)
-        if action in ('resources-status','resources-save','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
+        if action in ('resources-status','resources-save','website-readiness-check','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
             if not context['admin']:raise AccessDenied('Administrator access required')
+            if action=='website-readiness-check':
+                from .readiness import public_status,next_actions
+                value,busy=Health(self.settings,self.store).website_check()
+                coverage=public_status(value,time.time());engine=self.engine_status()['clamav']
+                return dict(coverage=coverage,busy=busy,engine=engine,actions=next_actions(coverage,engine['available'],busy=busy))
             from .resources import Resources,validate as validate_resources
             if action=='resources-status':return Resources(self.settings).status()
             if action=='website-engine-status':
@@ -463,8 +468,9 @@ class Application:
         yara_policy=YaraSettings(self.settings).read()
         data['yara_enabled']=yara_policy['enabled']
         data.update(version=__version__,context=context,engines=self.engine_status(),rules=Rules(self.settings).status())
-        from .readiness import public_status
+        from .readiness import public_status,next_actions
         data['website_readiness']=public_status(Health(self.settings,self.store).status().get('website-coverage'),time.time())
+        data['readiness_actions']=next_actions(data['website_readiness'],data['engines']['clamav']['available'])
         data['rule_candidate']=RuleManager(self.settings).candidate()
         data['schedule_defaults']=Scheduler(self.settings,self.store,self.hestia).defaults(context,server=server)
         if context['admin']:

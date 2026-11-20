@@ -14,11 +14,11 @@ class Health:
     def __init__(self, settings, store):
         self.settings, self.store = settings, store
 
-    def observe(self, components, deferred=()):
+    def observe(self, components, deferred=(), *, partial=False):
         path = self.settings.state / 'health.json'
         before = json.loads(path.read_text()) if path.exists() else {}
         now = time.time()
-        result = {}
+        result = dict(before) if partial else {}
         for name, state in components.items():
             old = before.get(name)
             changed = old is None or old.get('state') != state['state']
@@ -34,6 +34,13 @@ class Health:
                                 verification_deferred=True)
         write_json(path, result)
         return result
+
+    def website_check(self):
+        from .readiness import WebsiteReadiness
+        value = WebsiteReadiness(self.settings).check()
+        result = self.observe({'website-coverage': value} if value is not None else {},
+                              ('website-coverage',) if value is None else (), partial=True)
+        return result['website-coverage'], value is None
 
     def check(self, extra=None):
         components = dict(extra or {})

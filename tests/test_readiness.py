@@ -11,7 +11,7 @@ from clamshield.errors import EngineError, EncryptedContent
 from clamshield.website_coverage import PROBE
 from clamshield.health import Health
 from clamshield.providers import Providers
-from clamshield.readiness import WebsiteReadiness, public_status
+from clamshield.readiness import WebsiteReadiness, public_status, next_actions
 from clamshield.rules import Rules
 from clamshield.settings import Settings
 from clamshield.signatures import Signatures
@@ -172,3 +172,27 @@ class CachedReadinessTests(unittest.TestCase):
                 self.assertEqual('unknown', result['state'])
                 self.assertIn('checked', result)
         self.assertEqual('healthy', public_status({'state': 'healthy', 'checked': 10}, 100)['state'])
+
+
+    def test_manual_check_persists_only_website_state_and_retains_other_observations(self):
+        with patch('clamshield.health.time.time',return_value=100):
+            before=self.health.observe({'clamav':{'state':'healthy','version':'fixture'},'website-coverage':{'state':'incomplete'}})
+        with patch.object(WebsiteReadiness,'check',return_value={'state':'healthy','message':'Verified'}),patch('clamshield.health.time.time',return_value=150):
+            value,busy=self.health.website_check()
+        self.assertFalse(busy);self.assertEqual('healthy',value['state']);self.assertEqual(150,value['checked'])
+        self.assertEqual(before['clamav'],self.health.status()['clamav'])
+        self.assertEqual(value,self.health.status()['website-coverage'])
+        with patch.object(WebsiteReadiness,'check',return_value=None),patch('clamshield.health.time.time',return_value=200):
+            deferred,busy=self.health.website_check()
+        self.assertTrue(busy);self.assertEqual(150,deferred['checked']);self.assertTrue(deferred['verification_deferred'])
+        self.assertEqual(before['clamav'],self.health.status()['clamav'])
+
+    def test_readiness_destinations_follow_structured_probe_results(self):
+        self.assertEqual([],next_actions({'state':'unknown'},False))
+        self.assertEqual([],next_actions({'state':'healthy'},True))
+        self.assertEqual(['progress','activity'],next_actions({'state':'unknown'},True,busy=True))
+        broken={'state':'incomplete','clamav':{'state':'unavailable'},'yara':{'state':'missing'}}
+        self.assertEqual(['enable','rules'],next_actions(broken,False))
+        self.assertEqual(['signatures','rules'],next_actions(broken,True))
+        self.assertEqual(['resources'],next_actions({'state':'incomplete'},True))
+        self.assertEqual(['signatures'],next_actions({'state':'incomplete','clamav':{'state':'pending'},'yara':{'state':'disabled'}},True))

@@ -31,6 +31,7 @@
     finally{submitting=false;controls();if(pending)refresh();}
   });
   function visibility(){stop();if(visible()&&pending)refresh();}
+  document.addEventListener('clamshield-engine-observed',event=>{available=event.detail.available;version.textContent=available?event.detail.version:'ClamAV is unavailable';controls();});
   document.addEventListener('clamshield-tab-change',visibility);document.addEventListener('visibilitychange',visibility);
   window.addEventListener('pagehide',()=>{closed=true;stop();});
   window.addEventListener('pageshow',event=>{if(event.persisted){closed=false;visibility();}});

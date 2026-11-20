@@ -139,3 +139,15 @@ def public_status(value, now):
     elif result.get('verification_deferred'):
         result.update(state='checking', message='Readiness verification waits for an active scan or update.')
     return result
+
+
+def next_actions(value, clamav_available, *, busy=False):
+    """Known UI destinations, never inferred from diagnostic text or browser paths."""
+    if busy or value.get('state') == 'checking':return ['progress', 'activity']
+    if value.get('state') in ('healthy','unknown'):return []
+    actions=[]
+    if value.get('clamav',{}).get('state') not in (None,'ready'):
+        actions.append('signatures' if clamav_available else 'enable')
+    if value.get('yara',{}).get('state') not in (None,'ready','disabled'):
+        actions.append('rules')
+    return actions or ['resources']
