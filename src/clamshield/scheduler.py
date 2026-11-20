@@ -191,11 +191,13 @@ class Scheduler:
                            (slot, *self.store.scope(context), site['domain']))
             return [job_id]
         if last and policy['rescan_updates'] and last['generation'] != generation:
-            return [self.store.enqueue(context, site, source='signature-update', generation=generation)]
+            job_id=self.store.enqueue(context, site, source='signature-update', generation=generation)
+            if job_id:return [job_id]
         if not policy['watch']:
             return []
         if not observations and not pending:
-            return [self.store.enqueue(context, site, source='watch-initial', generation=generation)]
+            job_id=self.store.enqueue(context, site, source='watch-initial', generation=generation)
+            return [job_id] if job_id else []
         queued = []
         for relative, state, detail in walk(site['root']):
             if state != 'regular':

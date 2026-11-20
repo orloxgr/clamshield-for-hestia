@@ -13,6 +13,7 @@ from .store import encode
 
 def eligible(kind):
     return {
+        'scans':"r.status IN ('completed','partial','failed','cancelled')",
         'email-messages':"r.status IN ('delivered','deleted','aborted','rejected','deferred','not_retained')",
         'repairs':"r.status IN ('ready','failed','verified','undone','recheck_failed')",
         'activity':"r.status IN ('completed','failed','cancelled')",
@@ -40,7 +41,7 @@ class ReviewBulk:
 
     def run(self,context,kind,scope,operation,token=None,selected=None):
         from .review import SPECS,visible
-        if not isinstance(kind,str) or kind not in SPECS or operation not in ('preview','clear','read'):raise AccessDenied('Unsupported bulk operation')
+        if not isinstance(kind,str) or kind not in (*SPECS,'scans') or operation not in ('preview','clear','read'):raise AccessDenied('Unsupported bulk operation')
         if operation=='read' and kind!='notices':raise AccessDenied('Only notifications can be marked read')
         live,scopes,_sites=self.review.scopes(context,scope)
         own=self.hestia.authorize(context['actor'],context['actor'])
@@ -49,7 +50,7 @@ class ReviewBulk:
         if selected is not None and (not isinstance(selected,list) or not 1<=len(selected)<=100 or any(not isinstance(v,str) or not 1<=len(v)<=64 for v in selected) or len(set(selected))!=len(selected)):raise ClamShieldError('Select 1 to 100 distinct records from this page')
         condition,args=self.review.condition(scopes);condition+=' AND '+visible(kind)
         if kind=='email-stored':condition+=" AND r.status NOT IN ('deleted','aborted')"
-        source=SPECS[kind][0];now=time.time()
+        source='jobs r' if kind=='scans' else SPECS[kind][0];now=time.time()
         if operation=='read':
             with self.store.connection(True) as db:
                 count=db.execute('UPDATE notifications AS r SET read_at=? WHERE '+condition+' AND read_at IS NULL',(now,*args)).rowcount

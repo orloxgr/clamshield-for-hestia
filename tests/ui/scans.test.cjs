@@ -17,13 +17,23 @@ async function fixture(options={}){
       if(options.cancelError)return {ok:false,json:async()=>({ok:false,error:options.cancelError})};
       cancelled=true;return {ok:true,json:async()=>({ok:true,cancel_requested:true})};
     }
+    if(body.action==='review-bulk-preview'){
+      if(options.previewWait)await options.previewWait;
+      return {ok:true,json:async()=>({ok:true,count:3,retained:2,token:'proof-token',scope:body.scope})};
+    }
+    if(body.action==='review-bulk-clear'){
+      if(options.clearWait)await options.clearWait;
+      if(options.clearError)return {ok:false,json:async()=>({ok:false,error:options.clearError})};
+      return {ok:true,json:async()=>({ok:true,changed:3})};
+    }
     const index=snapshot++;concurrent++;maxConcurrent=Math.max(maxConcurrent,concurrent);
     if(index===0&&options.wait)await options.wait;
     concurrent--;
     if(index===1&&options.refreshError)throw new Error(options.refreshError);
     const job={id:'a'.repeat(32),owner:'alice',domain:options.domain||'alice.test',target:'',source:options.source||'manual',status:cancelled?'running':options.jobStatus||'running',
       queue:options.queue,cancel_requested:cancelled?1:0,created:1,heartbeat:2,counters:{seen:10,scanned:7+index,errors:1,skipped:2,...options.counters},error:null,can_cancel:!cancelled};
-    return {ok:true,json:async()=>({ok:true,jobs:[job],scope:body.scope,total:1,summary:{recorded:1,queued:job.status==='queued'?1:0,running:job.status==='running'?1:0},account_active:1,checked:3+index,next_offset:options.nextOffset??null})};
+    const total=options.total??1,offset=Number(body.offset),limit=Number(body.limit);
+    return {ok:true,json:async()=>({ok:true,jobs:[job],scope:body.scope,total,offset,limit,summary:{recorded:total,queued:job.status==='queued'?1:0,running:job.status==='running'?1:0},account_active:1,checked:3+index,next_offset:offset+limit<total?offset+limit:null})};
   };
   const section=w.document.getElementById('cs-scans');section.hidden=false;w.sessionStorage.setItem('clamshield-tab','jobs');w.eval(source);
   if(!options.wait)await until(()=>section.querySelector('tbody tr'));
@@ -134,5 +144,52 @@ test('browser history restoration resumes polling after a frozen page',async()=>
     assert.equal(f.timers.size,0);assert.equal(f.byId('list').children.length,0);assert.equal(f.byId('checked').textContent,'');
     f.w.dispatchEvent(new f.w.PageTransitionEvent('pageshow',{persisted:true}));
     await until(()=>f.requests.length>count&&f.byId('list').children.length===1);assert.equal(f.maxConcurrent(),1);
+  }finally{f.close();}
+});
+
+test('scans page sizes, page counts and filter changes use server pagination',async()=>{
+  const f=await fixture({total:126});try{
+    const form=f.byId('filter');assert.equal(f.requests[0].limit,'50');assert.match(f.byId('page').textContent,/Showing 1–50 of 126.*Page 1 \/ 3/);
+    f.byId('next').click();await until(()=>f.byId('page').textContent.includes('51–100'));
+    assert.equal(f.requests.at(-1).offset,'50');f.byId('prev').click();await until(()=>f.byId('page').textContent.includes('1–50'));
+    for(const size of ['25','100']){
+      form.elements.rows.value=size;form.elements.rows.dispatchEvent(new f.w.Event('change'));
+      await until(()=>f.requests.at(-1).limit===size&&!f.byId('refresh').disabled);
+      assert.equal(f.requests.at(-1).offset,'0');assert.match(f.byId('page').textContent,new RegExp('1–'+size+' of 126'));
+    }
+    f.byId('next').click();await until(()=>f.byId('page').textContent.includes('101–126'));
+    assert.equal(f.byId('next').disabled,true);assert.equal(f.byId('prev').disabled,false);
+  }finally{f.close();}
+});
+
+test('clear non-active scans confirms an exact scope and refreshes without reloading',async()=>{
+  let release;const clearWait=new Promise(resolve=>release=resolve),f=await fixture({admin:true,query:'?scan_scope=server',total:126,clearWait});try{
+    f.byId('next').click();await until(()=>f.byId('page').textContent.includes('51–100'));
+    f.byId('clear').click();f.byId('clear').click();await until(()=>f.byId('clear-confirmation').querySelector('button'));
+    assert.equal(f.requests.filter(r=>r.action==='review-bulk-preview').length,1);
+    assert.equal(f.requests.filter(r=>r.action==='review-bulk-clear').length,0);
+    const card=f.byId('clear-confirmation');assert.match(card.textContent,/3 non-active scans from all current server accounts/);assert.match(card.textContent,/Queued and running scans are kept/);
+    const apply=card.querySelector('button');apply.click();apply.click();await until(()=>f.requests.some(r=>r.action==='review-bulk-clear'));
+    assert.equal(f.requests.filter(r=>r.action==='review-bulk-clear').length,1);assert.equal(f.byId('list').children.length,1);
+    const request=f.requests.find(r=>r.action==='review-bulk-clear');assert.equal(request.list,'scans');assert.equal(request.scope,'server');assert.equal(request.confirmation,'proof-token');
+    release();await until(()=>card.textContent.includes('3 non-active scans cleared')&&!f.byId('clear').disabled&&!f.byId('refresh').disabled);
+    assert.equal(f.requests.at(-1).offset,'0');assert.equal(f.w.location.pathname,'/plugins/clamshield/');
+  }finally{release();f.close();}
+});
+
+test('changing scope invalidates an in-flight clear preview and tenants have no clear action',async()=>{
+  let release;const previewWait=new Promise(resolve=>release=resolve),f=await fixture({admin:true,previewWait});try{
+    f.byId('clear').click();const form=f.byId('filter');form.elements.scope.value='server';form.elements.scope.dispatchEvent(new f.w.Event('change'));
+    release();await until(()=>!f.byId('clear').disabled);assert.equal(f.byId('clear-confirmation').hidden,true);
+    assert.equal(f.byId('clear-confirmation').querySelector('button'),null);assert.equal(f.requests.some(r=>r.action==='review-bulk-clear'),false);
+  }finally{release();f.close();}
+  const tenant=await fixture();try{assert.equal(tenant.byId('clear'),null);assert.equal(tenant.requests.some(r=>r.action.startsWith('review-bulk')),false);}finally{tenant.close();}
+});
+
+test('clear errors stay readable and retryable with existing scan rows retained',async()=>{
+  const f=await fixture({admin:true,clearError:'Failed <img src=x>'});try{
+    f.byId('clear').click();await until(()=>f.byId('clear-confirmation').querySelector('button'));
+    const apply=f.byId('clear-confirmation').querySelector('button');apply.click();await until(()=>f.byId('clear-confirmation').textContent.includes('Failed'));
+    assert.equal(f.byId('clear-confirmation').querySelector('img'),null);assert.equal(apply.disabled,false);assert.equal(f.byId('list').children.length,1);
   }finally{f.close();}
 });

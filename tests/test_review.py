@@ -119,6 +119,47 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(1,len(self.store.list_findings(self.alice)));self.assertEqual(job,self.store.job(self.alice,job)['id'])
         with self.store.connection() as db:self.assertGreater(db.execute('SELECT count(*) FROM audit').fetchone()[0],0)
 
+    def test_scan_clear_keeps_active_jobs_new_arrivals_findings_and_cancel_intent(self):
+        from clamshield.scan_status import ScanStatus
+        from clamshield.scheduler import Scheduler
+        from datetime import datetime,timezone
+        baseline=self.findings(1);claimed=self.store.job(self.alice,baseline)
+        self.store.finish(claimed,'completed',{})
+        site=dict(owner='alice',identity=self.alice['identity'],domain='alice.test',root=str(self.base/'alice'))
+        cancelled=self.store.enqueue(self.alice,site,source='signature-update',generation='new-rules')
+        self.store.cancel(self.alice,cancelled)
+        running=self.store.enqueue(self.alice,site);self.store.claim('test')
+        queued=self.store.enqueue(self.alice,site)
+        proof=self.review.bulk(self.admin,'scans','server','preview')
+        self.assertEqual((2,2),(proof['count'],proof['retained']))
+        late=self.store.enqueue(self.alice,site)
+        with self.store.connection() as db:db.execute("UPDATE jobs SET status='failed',finished=1 WHERE id=?",(late,))
+        self.assertEqual(2,self.review.bulk(self.admin,'scans','server','clear',proof['token'])['changed'])
+        status=ScanStatus(self.store,self.hestia,self.settings)
+        self.assertEqual({running,queued,late},{row['id'] for row in status.list(self.admin,'server')['jobs']})
+        self.assertEqual(1,len(self.store.list_findings(self.alice)))
+        self.assertTrue(self.store.job(self.alice,cancelled)['cancel_requested'])
+        data={'jobs':self.store.list_jobs(self.alice)};self.review.hide_deleted_previews(data)
+        self.assertEqual(5,len(data['jobs']));self.assertEqual({running,queued,late},{row['id'] for row in data['scan_jobs']})
+        self.store.cancel(self.alice,queued);self.store.cancel(self.alice,running)
+        self.store.finish(self.store.job(self.alice,running),'cancelled',{})
+        self.assertEqual([],Scheduler(self.settings,self.store,self.hestia).site(self.alice,site,'new-rules',datetime.now(timezone.utc)))
+
+    def test_scan_clear_rechecks_terminal_state_and_enforces_scope_and_identity(self):
+        from clamshield.scan_status import ScanStatus
+        job=self.findings(1);self.store.finish(self.store.job(self.alice,job),'completed',{})
+        selected=self.hestia.authorize('admin','alice')
+        with self.assertRaises(AccessDenied):self.review.bulk(self.alice,'scans','account','preview')
+        proof=self.review.bulk(selected,'scans','account','preview');self.assertEqual(1,proof['count'])
+        with self.assertRaises(Conflict):self.review.bulk(selected,'scans','server','clear',proof['token'])
+        with self.store.connection() as db:db.execute("UPDATE jobs SET status='running' WHERE id=?",(job,))
+        self.assertEqual(0,self.review.bulk(selected,'scans','account','clear',proof['token'])['changed'])
+        with self.store.connection() as db:db.execute("UPDATE jobs SET status='partial' WHERE id=?",(job,))
+        proof=self.review.bulk(self.admin,'scans','server','preview');self.ids['alice']='recreated'
+        with self.assertRaises(Conflict):self.review.bulk(self.admin,'scans','server','clear',proof['token'])
+        proof=self.review.bulk(self.admin,'scans','server','preview');self.assertEqual(0,proof['count'])
+        self.assertEqual(1,ScanStatus(self.store,self.hestia,self.settings).list(self.admin,'server')['total'])
+
     def test_confirmation_is_bound_to_actor_kind_scope_native_identities_and_expiry(self):
         self.notice(self.alice);proof=self.review.bulk(self.admin,'notices','server','preview')
         with self.assertRaises(Conflict):self.review.bulk(self.bob,'notices','account','clear',proof['token'])

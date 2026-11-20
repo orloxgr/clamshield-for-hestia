@@ -303,6 +303,16 @@ class Store:
             raise AccessDenied('Site does not belong to this account generation')
         job_id = uuid.uuid4().hex
         with self.connection(True) as db:
+            if source in ('signature-update','watch-initial') and not target:
+                # Serialize admission with Cancel. The original cancellation is
+                # durable evidence even after its row is cleared from the UI.
+                scope=(*self.scope(context),site['domain'],site['root'],generation)
+                stopped=db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
+                  AND generation=? AND target='' AND source IN ('signature-update','watch-initial')
+                  AND cancel_requested=1 LIMIT 1""",scope).fetchone()
+                active=db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
+                  AND target='' AND status IN ('queued','running') AND source NOT IN ('wordpress-integrity','repair-preview','yara-trial') LIMIT 1""",scope[:-1]).fetchone()
+                if stopped or active:return None
             if reuse_active:
                 existing=db.execute('''SELECT id FROM jobs WHERE owner=? AND identity=? AND domain=?
                   AND root=? AND source=? AND target=? AND status IN ('queued','running')
@@ -350,10 +360,17 @@ class Store:
 
     def cancel(self, context, job_id):
         with self.connection(True) as db:
-            row = db.execute('SELECT status FROM jobs WHERE id=? AND owner=? AND identity=?',
+            row = db.execute('SELECT * FROM jobs WHERE id=? AND owner=? AND identity=?',
                              (job_id, *self.scope(context))).fetchone()
             if not row:
                 raise AccessDenied('Scan unavailable')
+            automatic=row['source'] in ('signature-update','watch-initial') and not row['target']
+            cancelled_generation=row['generation']
+            if automatic and cancelled_generation=='unknown':
+                from .generations import current
+                from .settings import Settings
+                cancelled_generation=current(Settings(state=self.path.parent))
+                db.execute('UPDATE jobs SET generation=? WHERE id=?',(cancelled_generation,job_id))
             if row['status'] == 'queued':
                 db.execute("UPDATE jobs SET status='cancelled',cancel_requested=1,finished=? WHERE id=?",
                            (time.time(), job_id))
@@ -361,6 +378,11 @@ class Store:
                 db.execute('UPDATE jobs SET cancel_requested=1 WHERE id=?', (job_id,))
             else:
                 raise Conflict('Scan has already finished')
+            if automatic:
+                db.execute("""UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?
+                  WHERE owner=? AND identity=? AND domain=? AND root=? AND generation IN (?,?) AND target=''
+                  AND source IN ('signature-update','watch-initial') AND status='queued'""",
+                  (time.time(),*self.scope(context),row['domain'],row['root'],row['generation'],cancelled_generation))
             self.audit(context, 'scan.cancel_requested', job_id, {}, db)
 
     def claim(self, worker):

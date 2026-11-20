@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.6
+
+- Keep cancelled automatic full rechecks cancelled for the same active signature/
+  rule generation, including initial-monitoring fallbacks and queued duplicates.
+- Preserve independent manual scans, future schedules and changed-file monitoring.
+- Add confirmed Clear non-active scans for administrators with native account/
+  server scope, retaining active jobs, findings, recovery and cancellation evidence.
+- Add 25/50/100-row scan pagination with matching counts and page indicators.
+
 ## 1.11.5
 
 - Restrict rule building to supported source types and rebuild active unsupported

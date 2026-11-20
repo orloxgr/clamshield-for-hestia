@@ -89,9 +89,23 @@ class ScanStatusTests(unittest.TestCase):
     def test_invalid_filters_and_terminal_cancel_are_nonmutating(self):
         job=self.queue();self.scans().cancel(self.alice,job)
         with self.assertRaises(Conflict):self.scans().cancel(self.alice,job)
-        for values in (dict(scope='foreign'),dict(search='x'*301),dict(offset=True),dict(offset=-1),dict(kind='unknown')):
+        for values in (dict(scope='foreign'),dict(search='x'*301),dict(offset=True),dict(offset=-1),dict(kind='unknown'),dict(limit=True),dict(limit=0),dict(limit=500),dict(limit='25')):
             with self.assertRaises(ClamShieldError):self.scans().list(self.alice,**values)
         with self.assertRaises(AccessDenied):self.scans().cancel(self.alice,'../../foreign')
+
+    def test_selectable_page_sizes_stable_boundaries_and_filtered_totals(self):
+        for _ in range(61):self.queue()
+        for limit in (25,50,100):
+            with self.subTest(limit=limit):
+                ids=[];offset=0
+                while offset is not None:
+                    result=self.scans().list(self.alice,offset=offset,limit=limit)
+                    self.assertEqual((61,offset,limit),(result['total'],result['offset'],result['limit']))
+                    self.assertLessEqual(len(result['jobs']),limit);ids.extend(row['id'] for row in result['jobs']);offset=result['next_offset']
+                self.assertEqual(61,len(set(ids)));self.assertEqual(61,len(ids))
+        self.assertEqual(50,self.scans().list(self.alice,offset=500,limit=25)['offset'])
+        target=ids[0];result=self.scans().list(self.alice,search=target,offset=500,limit=25)
+        self.assertEqual((1,0,None),(result['total'],result['offset'],result['next_offset']))
 
     def test_snapshot_does_not_probe_engines_or_build_native_site_inventory(self):
         self.queue();app=Application(self.settings,self.store,self.native)

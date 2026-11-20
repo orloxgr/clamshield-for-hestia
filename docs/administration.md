@@ -50,7 +50,13 @@ inherit the previous generation's records or explicit grants.
 
 Global lists are bounded recent previews (up to 500 website records per list and
 100 mail records per list); dashboard totals are independent of preview lengths.
-Scans has its own server-wide search and pagination. Account views provide their
+Scans has its own server-wide search, active-job filter and 25/50/100-row
+pagination with matching totals and page numbers. Administrators can Clear
+non-active scans after confirming the count for the selected account or server.
+This clears completed, partial, failed and cancelled rows from that list, keeping
+queued/running jobs and original findings, recovery and cancellation evidence.
+Newly arriving records are excluded from the confirmed selection.
+Account views provide their
 scoped history; account-specific history-retention controls appear there, while
 server history controls remain available globally.
 
@@ -508,6 +514,11 @@ signature download first. Provider/YARA automatic updates follow their saved
 schedules. The separate Full recheck after signature/rule updates choice queues
 a file scan when the active generation changes; the scan is labelled Recheck
 after signature updates. Its internal job source remains signature-update.
+Cancel prevents the same automatic full recheck or initial-monitoring fallback
+from returning for that account identity, website root and active generation.
+A newly activated generation can queue another recheck; manual scans and future
+scheduled scans remain available. Changed-file monitoring continues from its
+existing observations. Clearing cancelled rows retains this cancellation intent.
 
 Only Forge, community web hosting, local and remote source types are supported.
 Install/update rebuilds a mixed active ruleset from its supported installed source

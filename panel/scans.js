@@ -5,8 +5,9 @@
   const body=document.getElementById('cs-scans-list'),status=document.getElementById('cs-scans-status');
   const checked=document.getElementById('cs-scans-checked'),refresh=document.getElementById('cs-scans-refresh');
   const prev=document.getElementById('cs-scans-prev'),next=document.getElementById('cs-scans-next');
+  const clear=document.getElementById('cs-scans-clear'),confirmation=document.getElementById('cs-scans-clear-confirmation');
   if((root.dataset.viewScope==='server'||new URL(location.href).searchParams.get('scan_scope')==='server')&&form.querySelector('option[value="server"]'))form.elements.scope.value='server';
-  let offset=0,nextOffset=null,version=0,inFlight=false,dirty=false,timer=null,failures=0;
+  let offset=0,nextOffset=null,version=0,inFlight=false,dirty=false,timer=null,failures=0,clearing=false,proofVersion=0;
   const active=()=>!root.hidden&&document.visibilityState==='visible';
   function stop(){if(timer!==null)clearTimeout(timer);timer=null;}
   async function api(action,values={}){
@@ -59,6 +60,9 @@
     for(const row of existing.values())row.remove();
     text(status,(value.scope==='server'?'All accounts':root.dataset.owner)+': '+value.summary.queued+' queued, '+value.summary.running+' running. '+value.total+' matching scans.');
     text(checked,'Last updated: '+new Date(value.checked*1000).toISOString());
+    offset=value.offset??offset;
+    const limit=value.limit??Number(form.elements.rows.value),first=value.total?offset+1:0,last=Math.min(offset+limit,value.total);
+    text(document.getElementById('cs-scans-page'),'Showing '+first+'–'+last+' of '+value.total+' · Page '+(Math.floor(offset/limit)+1)+' / '+Math.max(1,Math.ceil(value.total/limit)));
     const card=document.getElementById('cs-active-scans');if(card)text(card,value.account_active);
     nextOffset=value.next_offset;prev.disabled=offset===0;next.disabled=nextOffset===null;
   }
@@ -68,7 +72,7 @@
     const selected=version;inFlight=true;dirty=false;refresh.disabled=true;
     let delay=15000;
     try{
-      const value=await api('scans-status',{scope:form.elements.scope.value,kind:form.elements.kind.value,search:form.elements.search.value,offset:String(offset)});
+      const value=await api('scans-status',{scope:form.elements.scope.value,kind:form.elements.kind.value,search:form.elements.search.value,offset:String(offset),limit:form.elements.rows.value});
       if(selected!==version||!active())return;
       failures=0;render(value);delay=value.summary.queued+value.summary.running>0?5000:15000;
     }catch(error){if(selected===version&&active()){failures++;text(status,error.message+(body.children.length?' Showing the last received scan state; refresh will retry.':' No scan state could be loaded; refresh will retry.'));delay=Math.min(30000,5000*2**Math.min(failures,3));}}
@@ -77,12 +81,31 @@
       if(active()){if(dirty)queueMicrotask(load);else timer=setTimeout(load,delay);}
     }
   }
-  function change(){version++;offset=0;nextOffset=null;for(const button of body.querySelectorAll('button'))button.disabled=true;load();}
+  function change(){proofVersion++;confirmation.hidden=true;version++;offset=0;nextOffset=null;for(const button of body.querySelectorAll('button'))button.disabled=true;load();}
   form.addEventListener('submit',event=>{event.preventDefault();change();});
   form.elements.scope.addEventListener('change',change);form.elements.kind.addEventListener('change',change);
+  form.elements.rows.addEventListener('change',change);
   refresh.addEventListener('click',()=>{version++;load();});
-  prev.addEventListener('click',()=>{offset=Math.max(0,offset-100);version++;load();});
+  prev.addEventListener('click',()=>{offset=Math.max(0,offset-Number(form.elements.rows.value));version++;load();});
   next.addEventListener('click',()=>{if(nextOffset!==null){offset=nextOffset;version++;load();}});
+  clear?.addEventListener('click',async()=>{
+    if(clearing)return;clearing=true;clear.disabled=true;const selected=++proofVersion,scope=form.elements.scope.value;
+    confirmation.replaceChildren();confirmation.hidden=false;confirmation.textContent='Counting non-active scans…';
+    try{
+      const value=await api('review-bulk-preview',{list:'scans',scope});if(selected!==proofVersion)return;
+      confirmation.replaceChildren();const note=document.createElement('p');
+      note.textContent='Clear '+value.count+' non-active scans from '+(scope==='server'?'all current server accounts':'this hosting account')+', including records hidden by filters? Queued and running scans are kept. Findings, cancellation decisions and recovery evidence are retained.';
+      const apply=document.createElement('button'),cancel=document.createElement('button');apply.type=cancel.type='button';apply.className=cancel.className='button';apply.textContent='Confirm clear non-active scans';apply.disabled=!value.count;cancel.textContent='Cancel';confirmation.append(note,apply,cancel);
+      cancel.addEventListener('click',()=>{proofVersion++;confirmation.hidden=true;});
+      apply.addEventListener('click',async()=>{
+        if(clearing||selected!==proofVersion)return;clearing=true;clear.disabled=apply.disabled=cancel.disabled=true;
+        try{const result=await api('review-bulk-clear',{list:'scans',scope,confirmation:value.token});confirmation.replaceChildren();confirmation.textContent=result.changed+' non-active scans cleared. Queued and running scans are kept.';offset=0;version++;load();}
+        catch(error){note.textContent=error.message;apply.disabled=cancel.disabled=false;}
+        finally{clearing=false;clear.disabled=false;}
+      });
+    }catch(error){if(selected===proofVersion)confirmation.textContent=error.message;}
+    finally{clearing=false;clear.disabled=false;}
+  });
   function visibility(){version++;stop();if(active())load();}
   document.addEventListener('visibilitychange',visibility);document.addEventListener('clamshield-tab-change',visibility);
   for(const row of body.children)wireRow(row);

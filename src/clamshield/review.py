@@ -25,7 +25,7 @@ SPECS={
 
 
 def visible(kind,alias='r'):
-    if kind not in SPECS:return '1=1'
+    if kind not in SPECS and kind!='scans':return '1=1'
     deleted=f"NOT EXISTS(SELECT 1 FROM review_deleted d WHERE d.kind='{kind}' AND d.record_id=CAST({alias}.id AS TEXT) AND d.owner={alias}.owner AND d.identity={alias}.identity)"
     if kind not in ('history','notices'):return deleted
     ident='CAST(c.before_id AS INTEGER)' if kind=='history' else 'c.before_id'
@@ -137,7 +137,8 @@ class Review:
 
     def hide_deleted_previews(self,data):
         # Presentation only: workers and recovery continue to use original evidence.
-        mapping={'findings':'findings','repairs':'repairs','exceptions':'exceptions','quarantine':'quarantine','history':'history','notices':'notifications','activity':'maintenance','automatic':'remediation_history'}
+        data['scan_jobs']=list(data.get('jobs',[]))
+        mapping={'scans':'scan_jobs','findings':'findings','repairs':'repairs','exceptions':'exceptions','quarantine':'quarantine','history':'history','notices':'notifications','activity':'maintenance','automatic':'remediation_history'}
         with self.store.connection() as db:
             for kind,key in mapping.items():
                 rows=data.get(key,[])

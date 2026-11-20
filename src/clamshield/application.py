@@ -91,7 +91,7 @@ class Application:
             from .scan_status import ScanStatus
             scans=ScanStatus(self.store,self.hestia,self.settings)
             if action=='scan-cancel':return scans.cancel(context,request.get('job_id'),request.get('scope','account'))
-            return scans.list(context,request.get('scope','account'),request.get('search',''),request.get('kind','all'),request.get('offset',0))
+            return scans.list(context,request.get('scope','account'),request.get('search',''),request.get('kind','all'),request.get('offset',0),request.get('limit',100))
         if action in ('server-history-get','server-history-preview','server-history-save','server-history-reset'):
             if not context['admin']:raise AccessDenied('Administrator access required')
             from .server_history import ServerHistory,validate as validate_server_history

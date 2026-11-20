@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.11.5** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.11.6** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -247,3 +247,11 @@ Remove exceptions disables the selected suppression rules. Quarantine deletion
 permanently removes verified private copies, while uncertain or active recovery
 work is retained. Email Deliver anyway queues the existing recipient-bound release
 flow; uncertain delivery states continue to use recovery checks.
+
+Scans supports search, active-job filtering and 25/50/100-row pagination.
+Administrators can Clear non-active scans for the selected account or server
+view after confirming its count. This removes terminal jobs from the scan list;
+queued/running jobs, findings and recovery evidence remain. Cancelling an
+automatic full recheck prevents it from returning for the same active signature/
+rule generation. New generations, manual scans and future scheduled scans remain
+available. Clearing the list retains the cancellation decision.

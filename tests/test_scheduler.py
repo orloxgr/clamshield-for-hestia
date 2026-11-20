@@ -106,6 +106,71 @@ class Monitoring(unittest.TestCase):
             self.scheduler.tick(instant)
             with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
 
+    def baseline(self):
+        self.store.enqueue(self.context,self.site,generation='old-rules')
+        job=self.store.claim('test');self.store.finish(job,'completed',{})
+        return job
+
+    def tick_site(self,generation='new-rules'):
+        return self.scheduler.site(self.context,self.site,generation,datetime.now(timezone.utc))
+
+    def test_cancelled_recheck_stays_cancelled_and_watch_initial_cannot_replace_it(self):
+        self.baseline();self.scheduler.save(self.context,self.site,{'watch':True})
+        job=self.tick_site()[0];self.store.cancel(self.context,job)
+        for _ in range(3):self.assertEqual([],self.tick_site())
+        self.assertEqual('cancelled',self.store.job(self.context,job)['status'])
+        with self.store.connection() as db:self.assertEqual('old-rules',db.execute("SELECT generation FROM jobs WHERE status='completed'").fetchone()[0])
+        newer=self.tick_site('newer-rules');self.assertEqual(1,len(newer))
+        self.store.cancel(self.context,newer[0])
+        manual=self.store.enqueue(self.context,self.site,generation='new-rules')
+        self.assertEqual('queued',self.store.job(self.context,manual)['status'])
+
+    def test_running_cancel_remains_effective_after_worker_finishes(self):
+        self.baseline();job_id=self.tick_site()[0];job=self.store.claim('test')
+        self.store.cancel(self.context,job_id);self.assertEqual([],self.tick_site())
+        self.store.finish(job,'cancelled',{'seen':3,'scanned':2})
+        self.assertEqual([],self.tick_site())
+        self.assertEqual(2,self.store.job(self.context,job_id)['counters']['scanned'])
+
+    def test_cancelled_initial_watch_stays_cancelled_for_same_generation(self):
+        self.scheduler.save(self.context,self.site,{'watch':True})
+        job=self.tick_site()[0];self.assertEqual('watch-initial',self.store.job(self.context,job)['source'])
+        self.store.cancel(self.context,job);self.assertEqual([],self.tick_site())
+        self.assertEqual(1,len(self.tick_site('newer-rules')))
+
+    def test_cancelled_full_recheck_keeps_individual_changed_file_monitoring(self):
+        path=self.root/'changed.php';path.write_text('before')
+        job=self.baseline();self.store.observed(job,path.name,attributes(path.stat())|{'sha256':'fixture'})
+        self.scheduler.save(self.context,self.site,{'watch':True})
+        full=self.tick_site()[0];self.store.cancel(self.context,full);self.assertEqual([],self.tick_site())
+        path.write_text('changed contents')
+        queued=self.tick_site();self.assertEqual(1,len(queued))
+        changed=self.store.job(self.context,queued[0]);self.assertEqual(('watch','changed.php'),(changed['source'],changed['target']))
+
+    def test_cancel_intent_is_bound_to_native_identity_root_and_generation(self):
+        job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
+        self.store.cancel(self.context,job)
+        self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules'))
+        for context,site in [(self.context,self.site|{'root':str(self.root/'replacement')}),(self.context|{'identity':'replacement'},self.site|{'identity':'replacement'})]:
+            self.assertIsNotNone(self.store.enqueue(context,site,source='signature-update',generation='rules'))
+
+    def test_auto_admission_is_atomic_and_cancelling_legacy_twins_keeps_manual_work(self):
+        job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
+        self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules'))
+        twin=self.store.enqueue(self.context,self.site,source='manual',generation='rules')
+        manual=self.store.enqueue(self.context,self.site,source='manual',generation='rules')
+        with self.store.connection(True) as db:db.execute("UPDATE jobs SET source='watch-initial' WHERE id=?",(twin,))
+        self.store.cancel(self.context,job)
+        self.assertEqual('cancelled',self.store.job(self.context,twin)['status'])
+        self.assertEqual('queued',self.store.job(self.context,manual)['status'])
+
+    def test_cancelled_update_replacement_binds_the_current_generation(self):
+        from clamshield.generations import current
+        job=self.store.enqueue(self.context,self.site,source='signature-update')
+        self.store.cancel(self.context,job)
+        self.assertEqual(current(self.settings),self.store.job(self.context,job)['generation'])
+        self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation=current(self.settings)))
+
     def test_yara_timer_uses_saved_interval_cooldown_installed_profile_and_deduplicates_work(self):
         from clamshield.rule_updates import RuleUpdates
         Providers(self.settings).save({'automatic':False})
