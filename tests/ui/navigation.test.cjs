@@ -417,6 +417,8 @@ test('Email Shield offers protection while configuration and records live in the
     for(const selector of ['[data-action="mail-adapter-build"]','[data-action="mail-integration-enable"]','#cs-mail-policy'])assert.equal(f.document.querySelector(selector).closest('[data-page]').dataset.page,'mail-settings');
     assert.equal(f.document.getElementById('cs-mail-history-form').closest('[data-page]').dataset.page,'email-review');
     assert.equal(f.document.getElementById('cs-mail-quarantine-form').closest('[data-page]').dataset.page,'quarantine');
+    const manage=[...f.document.querySelectorAll('a')].find(link=>link.textContent==='Manage quarantined email');
+    assert.equal(manage.getAttribute('href'),'#review/email-review');manage.click();assert.deepEqual(f.visible(),['email-review']);assert.equal(f.w.location.hash,'#review/email-review');
     f.click('[data-tab=mail-settings]');assert.deepEqual(f.visible(),['mail-settings']);
   }finally{await f.close();}
 });

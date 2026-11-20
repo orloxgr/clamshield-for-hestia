@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.8
+
+- Route Manage quarantined email to Review / Email instead of the Quarantine tab.
+
 ## 1.10.7
 
 - Give website ClamAV service controls priority over queued maintenance and new
