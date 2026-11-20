@@ -33,7 +33,6 @@ $sa = $data['spamassassin']; ?>
 <p><a href="#review/activity" data-tab="activity">View configuration history</a></p></section>
 <script>
 (() => {'use strict';
- document.getElementById('cs-sa-refresh-tasks').addEventListener('click',()=>location.reload());
  const form=document.getElementById('cs-spamassassin');if(!form)return;
  const token=<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  const owner=<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;

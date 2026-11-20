@@ -456,6 +456,9 @@ class Application:
             data['remediation_policy']=Remediation(self.settings,self.store,self.hestia).policy(context,server=True)
         else:data=self.account_dashboard(context)
         context=dict(context,view_scope='server' if server else 'account')
+        from .yara_settings import YaraSettings
+        yara_policy=YaraSettings(self.settings).read()
+        data['yara_enabled']=yara_policy['enabled']
         data.update(version=__version__,context=context,engines=self.engine_status(),rules=Rules(self.settings).status())
         from .readiness import public_status
         data['website_readiness']=public_status(Health(self.settings,self.store).status().get('website-coverage'),time.time())
@@ -472,8 +475,7 @@ class Application:
                         mail_adapter=MailAdapter(self.settings).status(),mail_integration=MailIntegration(self.settings,self.store,self.hestia).status(),
                         maintenance=self.store.list_tasks(self.hestia.authorize(context['actor'],context['actor'])),
                         accounts=[dict(owner=a['owner'],role=a['role'],suspended=a['suspended'],sites=len(a['sites'])) for a in inventory])
-            from .yara_settings import YaraSettings
-            data['yara_settings']=YaraSettings(self.settings).read()
+            data['yara_settings']=yara_policy
         return data
 
     def generation(self):

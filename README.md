@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.8.0** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.10.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -57,7 +57,8 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
    managing its overrides or reviewing its complete records. Hosting users
    remain limited to their own account.
 
-   As administrator, select and update your **Updates → Signature providers**, install the required
+   As administrator, configure **Settings → Signature providers**, update their data in
+   **Updates → Signature providers**, install the required
    **Updates → YARA rules** with one click, then choose **Start website ClamAV** in
    **Settings → Resources**. Confirm readiness in the dashboard before starting a scan.
    Set the independent service limits to fit the server and selected data.
@@ -69,10 +70,12 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
    accounts; customer email changes require explicit administrator permission.
    Review **Settings → Automatic actions** and **Settings → Website permissions** for tenant access.
    For native Exim/SpamAssassin email, click **Enable mail protection** under
-   **Email Shield → Email policies**. Preparation, verification and activation
+   **Email Shield**. Preparation, verification and activation
    run automatically with progress. This enables inherited protection across
    server accounts; existing domain/mailbox overrides remain in effect.
-   Advanced settings contain per-domain policies, quarantine and recovery tools.
+   **Settings → Email** contains server defaults and per-domain policies.
+   **Review → Email** contains delivery decisions and recovery; retained messages
+   are available in **Review → Quarantine**.
 
 This repository is public; cloning does not require GitHub credentials.
 See the [administration guide](docs/administration.md) for daily operation,
@@ -80,8 +83,14 @@ resources, recovery, update and removal.
 
 ## Panel navigation
 
-Dashboard | Email Shield | On-demand Scan | Scheduled Scanner | Results |
-Exceptions | Quarantine | Updates | History | Settings
+Dashboard | Email Shield | On-demand Scan | Scheduled Scanner | Review |
+Updates | Settings
+
+Settings holds configuration; Updates holds data installation and update
+operations. Review brings together results, repairs, exceptions, quarantine,
+email activity, history and notifications. Settings → Support Us contains
+donation links and short upstream acknowledgements; complete third-party notices
+remain with the installed source data.
 
 The main menu stays visible; secondary links organize each section. Dashboard
 Manage links open the matching controls. Dashboard engine versions, rule counts,
@@ -120,7 +129,10 @@ establish active scanning coverage or access to a public blocklist.
   available, retained provenance and previous-data rollback.
 - YARA Forge Core, Extended and Full; managed PHP/web hosting sources and local
   or additional sources, with license/version/dependency receipts.
-- Duplicate handling, source/rule toggles and advanced activation/rollback controls.
+- Configure website YARA scanning, file limits, update profile and additional
+  PHP/web sources under **Settings → YARA**. Source changes are validated and
+  applied together; **Updates → YARA rules** installs or updates rule data.
+- Duplicate handling, source/rule overrides and previous-rule recovery.
 
 SecuriteInfo requires the administrator's own provider account/key and its
 entitlements. Paid data and credentials are not distributed with this project.

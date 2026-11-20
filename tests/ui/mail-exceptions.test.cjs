@@ -76,6 +76,19 @@ async function fixture(options={}) {
   return {dom,w,requests,byId:id=>w.document.getElementById('cs-mail-'+id),close:()=>w.close()};
 }
 
+test('Review mailbox selectors stay synchronized with policy scope without leaving Review',async()=>{
+  const f=await fixture();
+  try{
+    const domain=f.w.document.querySelector('.cs-mail-domain-mirror'),box=f.w.document.querySelector('.cs-mail-box-mirror');
+    assert.equal(domain.value,'alice.test');assert.equal(box.options.length,2);
+    box.value='inbox';box.dispatchEvent(new f.w.Event('change'));
+    await until(()=>f.byId('exception-status').textContent.includes('inbox@alice.test'));
+    assert.equal(f.byId('box').value,'inbox');assert.equal(f.requests.filter(r=>r.action==='mail-policy-get').at(-1).mailbox,'inbox');
+    f.byId('box').value='';f.byId('box').dispatchEvent(new f.w.Event('change'));
+    assert.equal(box.value,'');
+  }finally{f.close();}
+});
+
 test('exceptions are visible as escaped text and policy permission does not grant exception editing', async()=>{
   const f=await fixture({permissions:{manage_exceptions:false}});
   try {

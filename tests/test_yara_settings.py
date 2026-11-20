@@ -27,7 +27,7 @@ class WebsiteYaraSettings(unittest.TestCase):
 
     def test_validated_settings_persist_and_change_scan_generation_without_changing_clamav_suffix(self):
         before=current(self.settings)
-        for value in (DEFAULTS|{'enabled':1},DEFAULTS|{'timeout_seconds':0},DEFAULTS|{'max_file_mib':True},DEFAULTS|{'extra':True}):
+        for value in (DEFAULTS|{'enabled':1},DEFAULTS|{'timeout_seconds':0},DEFAULTS|{'max_file_mib':True},DEFAULTS|{'max_file_mib':51},DEFAULTS|{'extra':True}):
             with self.assertRaises(ClamShieldError):self.policy.apply(value)
         self.policy.apply(DEFAULTS|{'enabled':False})
         after=current(self.settings);self.assertNotEqual(before,after)

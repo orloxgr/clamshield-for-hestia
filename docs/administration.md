@@ -62,7 +62,7 @@ automatic refinement or external reputation service is implied.
 
 ## Initial scanning data and resources
 
-Open **Plugins → ClamShield** as administrator. In **Updates → Signature providers**, select
+Open **Plugins → ClamShield** as administrator. In **Settings → Signature providers**, select
 the official data and desired SaneSecurity/SecuriteInfo feeds. Enter the
 provider credential in the password field; leaving it empty on a later save
 retains the saved credential. Subscription entitlement is decided by the provider.
@@ -91,16 +91,17 @@ deadline and displays it. Increasing/decreasing an interval or restarting worker
 cannot shorten that cooldown. Credential-bearing Freshclam output stays private;
 only the validated deadline and safe error text are kept in public status.
 
-In **Updates → YARA rules**, choose Core, Extended or Full in the dropdown and
-click **Install rules** or **Update rules**. The same asynchronous task downloads,
+In **Settings → YARA**, save the desired Core, Extended or Full profile. In
+**Updates → YARA rules**, click **Install rules** or **Update rules**. The same asynchronous task downloads,
 validates and activates the selected rules. Progress refreshes automatically,
 including after reopening the view. Success is shown only after activation;
 a failed download, validation or source-revision check does not activate the
 candidate. Existing active data remains available after failed validation.
 
-**Automatic rule updates** shows the saved interval, last attempt, last successful
-update and next permitted update in UTC. Checks default to every 1440 minutes
-(24 hours) and automatically validate and activate the installed Forge profile.
+**Settings → YARA → Rule update preferences** controls the profile and automatic
+interval. **Updates → YARA rules** shows last attempt/success and next permitted
+update in UTC. Checks default to every 1440 minutes
+(24 hours) and automatically validate and activate the selected Forge profile.
 Install a profile once before background updates can start. Save any whole-minute
 interval from 60 to 525600; unchecking the automatic option leaves manual updates
 available when due. These are server-wide administrator settings in every account
@@ -115,17 +116,32 @@ take precedence, including after a restart or interval change. Success is record
 after the entire requested operation finishes: activation for the normal flow,
 validated staging for an advanced Forge update.
 
-Automatic updates use the currently installed profile, skip disabled Forge
-sources and pause while source/rule edits differ from the active configuration.
+Automatic updates use the saved profile, skip disabled Forge sources and pause
+while source/rule edits differ from the active configuration.
 Queued work rechecks settings and native administrator authority before running.
-Changing the profile dropdown alone does not change the installed profile.
-Additional PHP/web/custom sources retain their separate staging controls.
+Changing a profile preference applies on the next update. Additional sources
+are selected in Settings and validated before application.
 
-**Advanced rule tools** retains staging, per-source/per-rule selections, receipts,
-manual candidate activation and rollback. Those controls are
-optional for normal Forge installation. Managed PHP/web hosting sources retain
-their review-only defaults. Engine binaries still come from Ubuntu APT.
-Rule data is compiled by Ubuntu's `yarac`, without building an engine.
+**Settings → YARA** has a real administrator-only website scanning toggle,
+per-file timeout (1–3600 seconds) and YARA file-size ceiling (1–50 MiB, within the
+existing website snapshot ceiling). Saved choices are applied by maintenance
+between website jobs and included in the scan generation. Disabled YARA is
+omitted from manual/scheduled/changed-file website scans; enabled YARA errors or
+size-limit gaps make coverage incomplete. File repair/recovery retain their
+independent validation contract, and email YARA remains separate.
+
+**Additional website rules** selects PHP Malware Finder and the extra web
+hosting heuristics. Save downloads missing sources, validates with Ubuntu YARA
+and applies the result in one task. New sources default to manual review;
+automatic-policy eligibility requires an explicit choice plus the website action
+policy. Failed validation preserves active rules and restores the saved source
+selection when no concurrent editor has replaced it. Repeated unchanged saves
+reuse the active selection. Custom source/rule saves also validate and apply;
+manual Build/Candidate/Activate controls are no longer part of the interface.
+Updates → YARA rules also offers update actions for enabled PHP/web sources;
+these validate and apply in one task, while preserving manual-review choices.
+
+The engine still comes from Ubuntu APT; `yarac` compiles rule data only.
 
 **Settings → Resources** controls six independent owned services: website scanning, website
 ClamAV, mail broker/YARA, mail ClamAV, mail SpamAssassin and maintenance.
@@ -363,7 +379,7 @@ notification types you want to see. For detections only, keep **Website malware
 detections** checked and clear the other categories. This includes repeated
 detections; WordPress integrity differences are a separate category. **Type**
 and **Status** filter the list without a request. **All recorded types** still
-shows retained events excluded from your selections. **Mark read** updates its
+shows retained events excluded from your selections. **Review → Notifications → Mark read** updates its
 own row without reloading the panel and preserves the row on failure.
 
 **Also notify me on Bell** is off by default. It sends future selected events to
@@ -410,3 +426,24 @@ sudo python3 /usr/local/src/clamshield-for-hestia/tools/uninstall.py
 Alternatively invoke `tools/uninstall.py` inside the retained release recorded
 in `/var/lib/clamshield/installation.json`. Reinstall restores the integrations
 and exposes retained, correctly scoped custody and history.
+
+## Where controls and records live
+
+Settings contains YARA, signature-provider credentials/selections, email
+policies and delegated permissions, SpamAssassin, automatic actions, personal
+notification choices, retention, resources, website permissions and Support Us.
+Updates contains update/install operations, last successful checks and recovery
+of previous rule data. Email Shield keeps the one-button server protection flow.
+
+Review contains website results, repairs, exceptions, quarantine, stored email
+and delivery decisions, event history, maintenance/action activity and notification
+records. Global **Review → Email** shows bounded current-account records across
+the server; Open review selects an account for its authorized previews, release,
+recovery and full decision history. Quarantine and Exceptions contain their
+website and email sections together. Domain/mailbox selectors stay scoped.
+
+Old bookmarks for moved leaf pages redirect to their current group. Source
+notices remain with downloaded data and historical evidence. The panel uses
+short source references, including technical views; full third-party licenses
+are not embedded in the interface. Settings → Support Us provides the supplied
+PayPal, SaneSecurity and SecuriteInfo links plus upstream acknowledgements.

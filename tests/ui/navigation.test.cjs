@@ -28,15 +28,27 @@ function fixture(options={}){
     "set_error_handler(function($s,$m){throw new ErrorException($m,0,$s);});$data=json_decode(stream_get_contents(STDIN),true);$_SESSION=['token'=>'fixture-token'];$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",
     path.join(root,'panel/view.php')],{input:JSON.stringify(values),encoding:'utf8'});
   assert.equal(rendered.status,0,rendered.stderr);assert.equal(rendered.stderr,'');
-  const dom=new JSDOM(rendered.stdout,{url:'https://panel.test/plugins/clamshield/'+(options.hash||''),runScripts:'outside-only'});
-  const w=dom.window,requests=[],timers=new Map();let timerId=0,statusIndex=0;if(options.saved)w.sessionStorage.setItem('clamshield-tab',options.saved);
+  const requests=[],timers=new Map(),errors=[];let timerId=0,statusIndex=0;
+  function initialize(w){
+  w.addEventListener('error',event=>errors.push(event.error));
+  if(options.saved)w.sessionStorage.setItem('clamshield-tab',options.saved);
   w.setTimeout=(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;};w.clearTimeout=id=>timers.delete(id);
   w.fetch=async(url,request)=>{const body=Object.fromEntries(request.body);requests.push(body);if(body.action==='rules-status'){const value=options.ruleSnapshots?.[Math.min(statusIndex++,options.ruleSnapshots.length-1)]??{pending:false,latest:null,active:values.rules};return {ok:true,json:async()=>({ok:true,...value})};}if(options.api)return options.api(body);return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
-  for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
-  return {w,requests,timers,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
+  }
+  const dom=new JSDOM(rendered.stdout,{url:'https://panel.test/plugins/clamshield/'+(options.hash||''),runScripts:options.parser?'dangerously':'outside-only',beforeParse:initialize});
+  const w=dom.window;
+  if(!options.parser)for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
+  return {w,requests,timers,errors,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
     visible:()=>[...new Set([...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page))]};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
+
+test('scripts initialize during normal document parsing and SpamAssassin controls remain connected',async()=>{
+  const f=fixture({parser:true,hash:'#settings/spamassassin'});
+  try{await settle();assert.deepEqual(f.errors,[]);assert.deepEqual(f.visible(),['spamassassin']);
+    f.click('#cs-sa-catalog');await settle();assert.equal(f.requests.filter(r=>r.action==='spamassassin-catalog').length,1);
+  }finally{await f.close();}
+});
 
 test('configuration, update operations and all-account email records stay in their own views',async()=>{
   const f=fixture({hash:'#updates/rules',change:v=>{v.context.view_scope='server';}});

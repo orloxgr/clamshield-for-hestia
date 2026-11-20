@@ -12,12 +12,13 @@ $cs_providers=$data['providers']??[]; $cs_sa=$data['spamassassin']??[];
 <?php if($engine==='clamav'): ?>
 <dt>ClamAV signatures</dt><dd class="cs-dashboard-value"><?php if($cs_admin): ?><span><?=$escape($cs_date($cs_providers['status']['official']['last_success']??null))?></span><a href="#updates/providers" data-tab="providers">Manage</a><?php else: ?>Managed by administrator<?php endif ?></dd>
 <?php endif; endforeach ?>
+<dt>YARA scanning</dt><dd><?=($data['yara_enabled']??true)?'Enabled':'Disabled'?></dd>
 <dt>YARA rules</dt><dd class="cs-dashboard-value"><span id="cs-dashboard-yara-status"><?php if($cs_rules['configured']): ?><?=$escape($cs_rules['profile']??'Custom')?> · <?=$escape($cs_rules['enabled']??$cs_rules['rules']??'Unknown')?> rules<br><?=$escape($cs_date($cs_rules['created']??null))?><?php else: ?>Not installed<?php endif ?></span><a href="#updates/rules" data-tab="rules">Manage</a></dd>
 <?php foreach(['securiteinfo'=>'SecuriteInfo','sanesecurity'=>'SaneSecurity'] as $provider=>$title): ?>
 <dt><?=$title?></dt><dd class="cs-dashboard-value"><?php if($cs_admin): ?><span><?=$escape(!empty($cs_providers[$provider]['enabled'])?$cs_date($cs_providers['status'][$provider]['last_success']??null):'Disabled')?><?php if(!empty($cs_providers['status'][$provider]['error'])): ?><br><?=$escape($cs_providers['status'][$provider]['error'])?><?php endif ?></span><a href="#settings/provider-settings" data-tab="provider-settings" data-focus-provider="<?=$provider?>">Manage</a><?php else: ?>Managed by administrator<?php endif ?></dd>
 <?php endforeach ?>
 </dl><p>Rule build times and the last successful provider downloads are shown in UTC. Downloaded data may still require activation; check Updates and scanner readiness.</p></article>
-<article class="card"><div class="row cs-dashboard-heading"><h3>SpamAssassin</h3><a href="<?=$cs_admin?'#settings/spamassassin':'#email'?>" data-tab="<?=$cs_admin?'spamassassin':'mail'?>">Manage</a></div>
+<article class="card"><div class="row cs-dashboard-heading"><h3>SpamAssassin</h3><a href="<?=$cs_admin?'#settings/spamassassin':'#settings/mail-settings'?>" data-tab="<?=$cs_admin?'spamassassin':'mail-settings'?>">Manage</a></div>
 <?php if(!$cs_admin): ?><p>Email protection follows your domain and mailbox policies.</p><a href="#email" data-tab="mail">View email protection</a>
 <?php elseif(isset($cs_sa['error'])): ?><p class="alert alert-warning"><?=$escape($cs_sa['error'])?></p>
 <?php else: ?><dl class="cs-engine-info">

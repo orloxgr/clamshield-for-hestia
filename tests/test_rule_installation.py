@@ -71,13 +71,26 @@ class RuleInstallation(unittest.TestCase):
         status=self.store.rule_install_status(self.context)
         self.assertFalse(status['pending']); self.assertTrue(status['latest']['activated'])
 
-    def worker(self, install, automatic=None):
+    def worker(self, install, automatic=None, manager=None):
         resources=Mock(); resources.journal.exists.return_value=False; resources.website_journal.exists.return_value=False
         integration=Mock(); integration.journal.exists.return_value=False
-        manager=Mock(); manager.install.side_effect=install
+        manager=manager or Mock(); manager.install.side_effect=install
         manager.automatic_update.return_value=automatic
         with patch('clamshield.resources.Resources',return_value=resources), patch('clamshield.mail_integration.MailIntegration',return_value=integration), patch('clamshield.rule_manager.RuleManager',return_value=manager):
             Maintenance(self.settings,self.store,self.hestia).once()
+
+    def test_additional_rule_update_activates_validated_generation_before_reporting_completion(self):
+        task_id=self.store.enqueue_task(self.context,'rules-php-hosting',{'apply':True})
+        manager=Mock();manager.php_hosting.return_value={'generation':'generation-php'}
+        def activate(generation):
+            self.assertEqual('generation-php',generation)
+            task=next(t for t in self.store.list_tasks(self.context) if t['id']==task_id)
+            self.assertEqual('running',task['status'])
+            return {'generation':generation}
+        manager.activate.side_effect=activate
+        self.worker(Mock(),manager=manager)
+        task=next(t for t in self.store.list_tasks(self.context) if t['id']==task_id)
+        self.assertEqual('completed',task['status']);self.assertTrue(task['result']['activated'])
 
     def test_queued_automatic_work_passes_its_revision_to_the_installer_after_revalidation(self):
         payload={'profile':'extended','release':None,'automatic':True,'revision':'current'}

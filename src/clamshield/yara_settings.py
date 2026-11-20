@@ -22,7 +22,7 @@ class YaraSettings:
     def validate(value):
         if not isinstance(value, dict) or set(value) != set(DEFAULTS) or type(value['enabled']) is not bool:
             raise ClamShieldError('Choose a YARA scanning toggle, timeout and file-size limit')
-        for key, maximum in (('timeout_seconds', 3600), ('max_file_mib', 4096)):
+        for key, maximum in (('timeout_seconds', 3600), ('max_file_mib', 50)):
             if type(value[key]) is not int or not 1 <= value[key] <= maximum:
                 raise ClamShieldError('Invalid YARA timeout or file-size limit')
         return dict(value)

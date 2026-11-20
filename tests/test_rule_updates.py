@@ -46,6 +46,22 @@ class RuleUpdateTiming(unittest.TestCase):
         fetch.assert_not_called()
         self.assertGreater(RuleUpdates(self.settings).status()['last_success'],0)
 
+    def test_selected_profile_survives_attempt_history_and_change_during_download_prevents_activation(self):
+        self.updates.record(profile='core',last_attempt=0)
+        self.updates.save({'profile':'extended'})
+        self.assertEqual('extended',RuleUpdates(self.settings).status()['profile'])
+        manager=RuleManager(self.settings)
+        automatic={'profile':'extended','automatic':True}
+        def fetch(*args,**kwargs):
+            self.updates.save({'profile':'full'})
+            return {'generation':'generation-candidate'}
+        with patch.object(manager,'automatic_update',return_value=automatic),patch.object(manager,'_forge',side_effect=fetch),patch.object(manager,'activate') as activate:
+            with self.assertRaisesRegex(ClamShieldError,'settings changed'):
+                manager.install('extended',automatic=automatic)
+            activate.assert_not_called()
+        self.assertEqual('full',self.updates.status()['profile'])
+        self.assertEqual('failed',self.updates.status()['state'])
+
     def test_parallel_requests_allow_only_one_operation_and_interval_changes_keep_upstream_cooldown(self):
         self.updates.save({'interval_minutes':60})
         operation = Mock(return_value={'ok':True})
