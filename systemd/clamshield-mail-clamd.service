@@ -1,0 +1,28 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield isolated mail ClamAV daemon
+After=network.target
+
+[Service]
+Type=simple
+User=clamav
+Group=clamav
+AppArmorProfile=clamshield-mail-clamd
+RuntimeDirectory=clamshield-mail-clamd
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/clamd --foreground=true --config-file=/etc/clamshield/mail-clamd.conf
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+UMask=0007
+CPUQuota=100%
+MemoryMax=2G
+IOWeight=100
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/clamshield-mail-clamd
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,374 @@
+"""One scoped application API for the native panel and root CLI."""
+import json
+import os
+from pathlib import Path
+import time
+
+from . import __version__
+from .engines import ClamAV, Yara
+from .errors import AccessDenied, ClamShieldError
+from .paths import relative_path
+from .quarantine import Quarantine
+from .rules import Rules
+from .scheduler import Scheduler
+from .providers import Providers
+from .signatures import Signatures
+from .generations import current as current_generation
+from .exceptions import Exceptions
+from .health import Health
+from .wordpress import WordPress
+from .repairs import Repairs
+from .rule_manager import RuleManager
+from .rule_trials import RuleTrials
+from .mail_policy import MailPolicies
+from .mail_custody import MailCustody
+
+
+class Application:
+    def __init__(self, settings, store, hestia):
+        self.settings, self.store, self.hestia = settings, store, hestia
+
+    def dispatch(self, request):
+        if not isinstance(request, dict):
+            raise AccessDenied('Expected a request object')
+        binding=None
+        if os.environ.get('SUDO_USER')=='hestiaweb' or 'native_user' in request or 'native_session' in request:
+            binding=self.hestia.panel_session(request.get('actor'),request.get('native_user'),request.get('native_session'))
+        context = self.hestia.authorize(request.get('actor'), request.get('owner'))
+        if binding is not None:self.hestia.verify_panel_session(binding)
+        action = request.get('action', 'dashboard')
+        if not isinstance(action, str):
+            raise AccessDenied('Invalid operation')
+        from .website_permissions import WebsitePermissions
+        permissions=WebsitePermissions(self.settings,self.store,self.hestia)
+        if action=='website-permissions-get':result=permissions.get(context)
+        elif action=='website-permissions-save':result=permissions.save(context,request.get('policy'))
+        else:
+            with permissions.guard(context,action,request) as live:result=self._dispatch(request,live or context)
+        if binding is not None:self.hestia.verify_panel_session(binding)
+        return result
+
+    def _dispatch(self,request,context):
+        action=request.get('action','dashboard')
+        if action in ('scans-status','scan-cancel'):
+            from .scan_status import ScanStatus
+            scans=ScanStatus(self.store,self.hestia)
+            if action=='scan-cancel':return scans.cancel(context,request.get('job_id'),request.get('scope','account'))
+            return scans.list(context,request.get('scope','account'),request.get('search',''),request.get('kind','all'),request.get('offset',0))
+        if action in ('server-history-get','server-history-preview','server-history-save','server-history-reset'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            from .server_history import ServerHistory,validate as validate_server_history
+            server=ServerHistory(self.settings,self.store,self.hestia)
+            if action=='server-history-save':return server.save(context,request.get('policy'),request.get('revision'))
+            if action=='server-history-reset':return server.save(context,None,request.get('revision'),reset=True)
+            if action=='server-history-preview':validate_server_history(request.get('policy'))
+            return server.get(context,request.get('policy') if action=='server-history-preview' else None)
+        if action in ('history-retention-get','history-retention-preview','history-retention-save','history-retention-reset','history-retention-permission'):
+            from .history_retention import HistoryRetention
+            history = HistoryRetention(self.settings,self.store,self.hestia)
+            if action=='history-retention-permission':
+                value=request.get('policy')
+                if not isinstance(value,dict) or set(value)!={'allowed'}:raise ClamShieldError('Choose whether the hosting user can change retention')
+                return history.permission(context,value['allowed'],request.get('revision'))
+            if action=='history-retention-save':return history.save(context,request.get('policy'),request.get('revision'))
+            if action=='history-retention-reset':return history.save(context,None,request.get('revision'),reset=True)
+            if action=='history-retention-preview':
+                from .history_retention import validate
+                validate(request.get('policy'))
+            return history.get(context,request.get('policy') if action=='history-retention-preview' else None)
+        if action in ('resources-status','resources-save','website-engine-start','website-engine-stop','resources-recover'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            from .resources import Resources,validate as validate_resources
+            if action=='resources-status':return Resources(self.settings).status()
+            payload={'policy':validate_resources(request.get('policy'))} if action=='resources-save' else {}
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            task=self.store.enqueue_task(task_context,action,payload)
+            self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},'resources.queued','server',{'task_id':task,'action':action})
+            return {'queued':True,'task_id':task}
+        if action in ('mail-integration-status','mail-integration-enable','mail-integration-disable','mail-integration-refresh','mail-integration-recover'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            from .mail_integration import MailIntegration
+            if action=='mail-integration-status':return MailIntegration(self.settings,self.store,self.hestia).status()
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            task=self.store.enqueue_task(task_context,action,{})
+            self.store.audit(context,'mail.integration_queued','server',{'task_id':task,'operation':action})
+            return {'queued':True,'task_id':task}
+        if action in ('mail-adapter-status','mail-adapter-build','mail-adapter-verify'):
+            if not context['admin']:
+                raise AccessDenied('Administrator access required')
+            from .mail_adapter import MailAdapter
+            if action=='mail-adapter-status':return MailAdapter(self.settings).status()
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            task=self.store.enqueue_task(task_context,action,{})
+            self.store.audit(context,'mail.adapter_preparation_queued','server',{'task_id':task})
+            return {'queued':True,'task_id':task}
+        if action in ('spamassassin-status', 'spamassassin-catalog', 'spamassassin-save'):
+            if not context['admin']:
+                raise AccessDenied('Administrator access required')
+            from .spamassassin import SpamAssassinControls, validate as validate_spamassassin
+            controls = SpamAssassinControls(self.settings)
+            if action == 'spamassassin-status':
+                return controls.status()
+            if action == 'spamassassin-catalog':
+                return controls.catalog()
+            policy = validate_spamassassin(request.get('policy'))
+            task_context = self.hestia.authorize(context['actor'], context['actor'])
+            task = self.store.enqueue_task(task_context, action, {'policy': policy})
+            self.store.audit(context, 'spamassassin.queued', 'server', {'task_id': task})
+            return {'task_id': task, 'queued': True}
+        if action in ('mail-review', 'mail-review-recheck'):
+            from .mail_review import MailReview
+            review = MailReview(self.settings, self.store, self.hestia)
+            if action == 'mail-review':return review.list(context, request.get('search', ''), request.get('offset', 0))
+            return review.recheck(context, request.get('delivery_id'), request.get('stage'))
+        if action in ('mail-retention-get', 'mail-retention-preview', 'mail-retention-save', 'mail-retention-history', 'mail-retention-retry'):
+            from .mail_retention import MailRetention
+            retention = MailRetention(self.settings, self.store, self.hestia)
+            if action == 'mail-retention-history':
+                return retention.history(context, request.get('search', ''), request.get('offset', 0))
+            if action == 'mail-retention-retry':return retention.retry(context, request.get('delivery_id'))
+            if action == 'mail-retention-save':
+                return retention.save(context, request.get('domain'), request.get('mailbox', ''), request.get('policy'), request.get('revision'))
+            if action == 'mail-retention-preview':
+                from .mail_retention import days
+                days(request.get('policy'))
+            return retention.get(context, request.get('domain'), request.get('mailbox', ''),
+                                 proposed=request.get('policy') if action == 'mail-retention-preview' else None)
+        if action in ('mail-quarantine', 'mail-preview', 'mail-release', 'mail-delete', 'mail-quarantine-exception'):
+            custody = MailCustody(self.settings, self.store, self.hestia)
+            if action == 'mail-quarantine':
+                return custody.list(context, request.get('search', ''), request.get('offset', 0))
+            if action == 'mail-preview':
+                return {'preview': custody.preview(context, request.get('delivery_id'))}
+            if action == 'mail-release':
+                return custody.queue_release(context, request.get('delivery_id'), request.get('note', ''))
+            if action == 'mail-quarantine-exception':
+                return custody.add_exception(context, request.get('delivery_id'), request.get('policy'))
+            return custody.delete(context, request.get('delivery_id'))
+        if action in ('mail-exception-add', 'mail-exception-remove', 'mail-exceptions-inherit'):
+            operation = {'mail-exception-add': 'add', 'mail-exception-remove': 'remove', 'mail-exceptions-inherit': 'inherit'}[action]
+            return MailPolicies(self.store,self.hestia).change_exception(context, request.get('domain'),
+                request.get('mailbox',''), operation, request.get('policy'), entry_id=request.get('exception_id'),
+                revision=request.get('revision'))
+        if action in ('mail-dashboard', 'mail-policy-get', 'mail-policy-save', 'mail-policy-reset',
+                      'mail-permissions-save', 'mail-decisions'):
+            mail = MailPolicies(self.store, self.hestia)
+            if action == 'mail-dashboard':
+                return mail.list(context)
+            if action == 'mail-policy-get':
+                return mail.get(context, request.get('domain'), request.get('mailbox', ''))
+            if action in ('mail-policy-save', 'mail-policy-reset'):
+                return mail.save(context, request.get('domain'), request.get('mailbox', ''),
+                                 request.get('policy'), reset=action == 'mail-policy-reset', revision=request.get('revision'))
+            if action == 'mail-permissions-save':
+                return {'permissions': mail.save_permissions(context, request.get('policy'))}
+            return mail.decisions(context, request.get('search', ''), request.get('offset', 0))
+        if action == 'dashboard':
+            sites = self.hestia.sites(context['owner'])
+            scheduler = Scheduler(self.settings, self.store, self.hestia)
+            sites = [site | {'policy': scheduler.policy(context, site)} for site in sites]
+            data = {'version': __version__, 'context': context, 'sites': sites,
+                    'summary': self.store.dashboard_counts(context),
+                    'jobs': self.store.list_jobs(context),
+                    'findings': self.store.list_findings(context),
+                    'quarantine': Quarantine(self.settings, self.store, self.hestia).list(context),
+                    'history': self.store.history(context), 'engines': self.engine_status(),
+                    'rules': Rules(self.settings).status(), 'exceptions': Exceptions(self.store).list(context),
+                    'notifications': self.store.notifications(context)}
+            data['wordpress'] = WordPress(self.settings, self.store, self.hestia).list(context)
+            from .readiness import public_status
+            data['website_readiness'] = public_status(Health(self.settings, self.store).status().get('website-coverage'), time.time())
+            from .website_permissions import WebsitePermissions
+            data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context)
+            data['repairs'] = Repairs(self.settings, self.store, self.hestia).list(context)
+            from .remediation import Remediation
+            remediation=Remediation(self.settings,self.store,self.hestia)
+            data['remediation_policy']=remediation.policy(context)
+            data['remediation_history']=remediation.history(context)
+            remediation.site_policies(context,sites)
+            data['rule_candidate'] = RuleManager(self.settings).candidate()
+            data['rule_trials'] = RuleTrials(self.settings,self.store,self.hestia).list(context)
+            from .website_availability import WebsiteAvailability
+            WebsiteAvailability(context, sites).annotate(data)
+            if context['admin']:
+                from .resources import Resources
+                data['resources']=Resources(self.settings).status()
+                data['rule_manager'] = RuleManager(self.settings).status()
+                data['providers'] = Providers(self.settings).public()
+                data['health'] = Health(self.settings, self.store).status()
+                data['signatures'] = Signatures(self.settings).status()
+                from .spamassassin import SpamAssassinControls
+                data['spamassassin'] = SpamAssassinControls(self.settings).status()
+                from .mail_adapter import MailAdapter
+                data['mail_adapter'] = MailAdapter(self.settings).status()
+                from .mail_integration import MailIntegration
+                data['mail_integration'] = MailIntegration(self.settings,self.store,self.hestia).status()
+                task_context = self.hestia.authorize(context['actor'], context['actor'])
+                data['maintenance'] = self.store.list_tasks(task_context)
+                data['accounts'] = [{'owner': a['owner'], 'role': a['role'],
+                                     'suspended': a['suspended'], 'sites': len(a['sites'])}
+                                    for a in self.hestia.inventory()]
+            return data
+        if action=='rules-trial':
+            return {'jobs':[RuleTrials(self.settings,self.store,self.hestia).queue(context,request.get('domain'),request.get('path',''),request.get('generation'))]}
+        if action=='rules-trial-report':
+            return RuleTrials(self.settings,self.store,self.hestia).report(context,request.get('job_id'),request.get('offset',0))
+        if action == 'repair-preview':
+            return {'plan_id': Repairs(self.settings, self.store, self.hestia).queue(context, request.get('finding_id')), 'queued': True}
+        if action=='cleanup-preview':
+            return {'plan_id':Repairs(self.settings,self.store,self.hestia).queue(context,request.get('finding_id'),cleanup=True),'queued':True}
+        if action in ('remediation-policy-get','remediation-policy-save','remediation-history','remediation-cancel'):
+            from .remediation import Remediation
+            automatic=Remediation(self.settings,self.store,self.hestia)
+            if action=='remediation-history':return {'actions':automatic.history(context)}
+            if action=='remediation-cancel':return automatic.cancel(context,request.get('operation_id'))
+            if request.get('scope','site') not in ('site','account'):raise AccessDenied('Invalid remediation scope')
+            domain=None if request.get('scope')=='account' else request.get('domain')
+            if domain is None and request.get('scope')!='account':raise AccessDenied('Choose a website')
+            result=automatic.save(context,request.get('policy'),domain) if action=='remediation-policy-save' else automatic.policy(context,domain)
+            return {'policy':result}
+        if action=='repair-backups':
+            from .native_backups import NativeBackups
+            return NativeBackups(self.settings,self.store,self.hestia).catalog(context,self.store.finding(context,request.get('finding_id')))
+        if action=='repair-hestia-preview':
+            if not isinstance(request.get('name'),str) or not request['name']:raise AccessDenied('Choose a native Hestia backup')
+            return {'plan_id':Repairs(self.settings,self.store,self.hestia).queue(context,request.get('finding_id'),backup_name=request['name']),'queued':True}
+        if action == 'repair-backup-preview':
+            if not isinstance(request.get('path'), str) or not request['path']:
+                raise AccessDenied('Choose a backup path relative to this website')
+            return {'plan_id': Repairs(self.settings, self.store, self.hestia).queue(
+                context, request.get('finding_id'), backup_path=request['path']), 'queued': True}
+        if action == 'repair-plan':
+            return {'repair': Repairs(self.settings, self.store, self.hestia).get(context, request.get('plan_id'))}
+        if action in ('repair-apply', 'repair-undo', 'repair-recover'):
+            repairs = Repairs(self.settings, self.store, self.hestia)
+            method = {'repair-apply': repairs.apply, 'repair-undo': repairs.undo, 'repair-recover': repairs.recover}[action]
+            return method(context, request.get('plan_id'))
+        if action == 'wordpress-report':
+            return WordPress(self.settings, self.store, self.hestia).report(context, request.get('job_id'), request.get('offset', 0))
+        if action == 'wordpress-scan':
+            site = next((s for s in self.hestia.sites(context['owner'])
+                         if s['domain'] == request.get('domain') and not s['suspended']), None)
+            if site is None:
+                raise AccessDenied('Site unavailable')
+            target = relative_path(request.get('path', ''))
+            job_id = self.store.enqueue(context, site, target, source='wordpress-integrity', generation=self.generation())
+            return {'jobs': [job_id]}
+        if action == 'scan':
+            domain = request.get('domain')
+            scope = request.get('scope', 'site')
+            if scope not in ('site', 'account', 'server'):
+                raise AccessDenied('Invalid scan scope')
+            if scope == 'server' and not context['admin']:
+                raise AccessDenied('Administrator access required')
+            targets = []
+            if scope == 'server':
+                for account in self.hestia.inventory():
+                    if account['suspended']:
+                        continue
+                    owner_context = self.hestia.authorize(context['actor'], account['owner'])
+                    targets.extend((owner_context, s) for s in account['sites'] if not s['suspended'])
+            else:
+                sites = self.hestia.sites(context['owner'])
+                if scope == 'site':
+                    sites = [site for site in sites if site['domain'] == domain]
+                    if not sites:
+                        raise AccessDenied('Site is unavailable for this account')
+                targets = [(context, site) for site in sites if not site['suspended']]
+            if not targets:
+                raise ClamShieldError('No active websites were selected')
+            target = relative_path(request.get('path', ''))
+            if scope != 'site' and target:
+                raise AccessDenied('Choose one site when scanning a relative path')
+            jobs = [self.store.enqueue(c, site, target, generation=self.generation()) for c, site in targets]
+            return {'jobs': jobs}
+        if action == 'cancel':
+            self.store.cancel(context, request.get('job_id'))
+            return {'cancel_requested': True}
+        if action == 'quarantine':
+            operation = Quarantine(self.settings, self.store, self.hestia).capture(context, request.get('finding_id'))
+            return {'operation_id': operation}
+        if action == 'restore':
+            Quarantine(self.settings, self.store, self.hestia).restore(context, request.get('operation_id'))
+            return {'restored': True}
+        if action=='quarantine-recover':
+            row=Quarantine(self.settings,self.store,self.hestia).recover(context,request.get('operation_id'))
+            return {'operation_id':row['id'],'status':row['status']}
+        if action in ('rules-update','rules-php-hosting','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
+                      'rules-source-toggle','rules-source-review','rules-source-fetch','rules-rule-toggle','rules-catalog'):
+            if not context['admin']:
+                raise AccessDenied('Administrator access required')
+            manager=RuleManager(self.settings)
+            if action=='rules-catalog':return manager.catalog(request.get('generation'),request.get('search',''),request.get('offset',0))
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            task_action,payload=action,{}
+            if action=='rules-update':
+                if request.get('profile','core') not in ('core','extended','full'):raise ClamShieldError('Invalid Forge profile')
+                payload={'profile':request.get('profile','core'),'release':request.get('release')}
+            elif action=='rules-source-save':
+                saved=manager.save_source(request.get('source'))
+                task_action='rules-fetch' if saved['fetch_required'] else 'rules-build'
+                payload={'source_id':saved['source_id']} if saved['fetch_required'] else {'revision':saved['revision']}
+            elif action in ('rules-source-toggle','rules-rule-toggle'):
+                saved=manager.toggle_source(request.get('source_id'),request.get('enabled')) if action=='rules-source-toggle' else manager.toggle_rule(request.get('rule_id'),request.get('enabled'),request.get('cascade',False))
+                task_action,payload='rules-build',{'revision':saved['revision']}
+            elif action=='rules-source-fetch':task_action,payload='rules-fetch',{'source_id':request.get('source_id')}
+            elif action=='rules-source-review':
+                saved=manager.review_mode(request.get('source_id'),request.get('enabled'))
+                task_action,payload='rules-build',{'revision':saved['revision']}
+            elif action=='rules-activate':payload={'generation':request.get('generation')}
+            elif action=='rules-build':payload={'revision':manager.status()['revision']}
+            self.store.audit(context,action,'rules',{'queued_action':task_action})
+            return {'task_id':self.store.enqueue_task(task_context,task_action,payload),'queued':True}
+        if action == 'policy-save':
+            site = next((s for s in self.hestia.sites(context['owner']) if s['domain'] == request.get('domain')), None)
+            if site is None:
+                raise AccessDenied('Site unavailable')
+            return {'policy': Scheduler(self.settings, self.store, self.hestia).save(context, site, request.get('policy'))}
+        if action in ('providers-save', 'signature-local-save', 'signature-local-delete', 'signatures-update', 'signatures-activate', 'signatures-rollback'):
+            if not context['admin']:
+                raise AccessDenied('Administrator access required')
+            providers = Providers(self.settings)
+            if action == 'providers-save':
+                result = providers.save(request.get('providers'))
+                self.store.audit(context, 'providers.saved', 'server', {'configured': True})
+                return {'providers': result}
+            if action == 'signature-local-save':
+                result = providers.save_local(request.get('name'), request.get('content'))
+                self.store.audit(context, 'signatures.local_saved', result['name'], {})
+                return result
+            if action == 'signature-local-delete':
+                result = providers.delete_local(request.get('name'))
+                self.store.audit(context, 'signatures.local_deleted', result['name'], {})
+                return result
+            task_context = self.hestia.authorize(context['actor'], context['actor'])
+            provider = request.get('provider', 'all')
+            if provider not in ('all', 'official', 'securiteinfo', 'sanesecurity', 'local'):
+                raise ClamShieldError('Unknown signature provider')
+            task_id = self.store.enqueue_task(task_context, action, {'provider': provider})
+            return {'task_id': task_id, 'queued': True}
+        if action == 'exception-add':
+            exception_id = Exceptions(self.store).add(context, request.get('finding_id'),
+                request.get('kind', 'file'), request.get('note', ''), request.get('expires'), request.get('whole_site', False))
+            return {'exception_id': exception_id}
+        if action == 'exception-remove':
+            Exceptions(self.store).remove(context, request.get('exception_id'))
+            return {'removed': True}
+        if action == 'notification-read':
+            self.store.read_notification(context, request.get('notification_id'))
+            return {'read': True}
+        raise AccessDenied('Unsupported operation')
+
+    def generation(self):
+        return current_generation(self.settings)
+
+    def engine_status(self):
+        result = {}
+        for engine in (ClamAV(self.settings.clamd_socket),
+                       Yara(self.settings.yara_binary, self.settings.rules)):
+            try:
+                result[engine.name] = {'available': True, 'version': engine.version()}
+            except ClamShieldError as exc:
+                result[engine.name] = {'available': False, 'error': str(exc)}
+        result['yara']['rules_available'] = self.settings.rules.is_file()
+        return result

@@ -1,0 +1,17 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield schedules and changed-file monitoring
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I -B /opt/clamshield/entry.py tick
+UMask=0077
+Nice=19
+IOSchedulingClass=idle
+CPUQuota=25%
+MemoryMax=256M
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/lib/clamshield
+PrivateTmp=true

@@ -1,0 +1,8 @@
+<?php // Managed by clamshield
+if (!$data['context']['admin']) return; ?>
+<details id="cs-server-history" data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>"><summary>Server events and maintenance retention</summary>
+<p>These settings apply across the server. Zero keeps history indefinitely. Positive periods expire eligible old server events and read notices, and remove old maintenance details. Task identity, status, integrity receipts, latest maintenance outcomes, unread notices and recovery proofs remain retained. Pruning waits for active maintenance or recovery. Provider databases and YARA generations are unchanged.</p>
+<p id="cs-server-history-status" role="status" aria-live="polite">Open History to load server retention.</p>
+<form id="cs-server-history-form"><div class="row"><label>Server event retention (days) <input class="form-control" name="event_days" type="number" min="0" max="3650" step="1" required></label><label>Maintenance detail retention (days) <input class="form-control" name="maintenance_days" type="number" min="0" max="3650" step="1" required></label></div><div class="row"><button class="button" type="button" id="cs-server-history-preview" disabled>Preview server history retention</button><button class="button" type="submit" disabled>Apply server history retention</button><button class="button" type="button" id="cs-server-history-reset" disabled>Keep server history indefinitely</button><button class="button" type="button" id="cs-server-history-refresh">Refresh server history retention</button></div></form>
+<p id="cs-server-history-preview-result" role="status" aria-live="polite"></p></details>
+<script><?php readfile(__DIR__.'/server_history.js'); ?></script>

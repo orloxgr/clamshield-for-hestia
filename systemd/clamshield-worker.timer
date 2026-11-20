@@ -1,0 +1,11 @@
+# Managed by clamshield
+[Unit]
+Description=Process ClamShield scan jobs
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=5
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target

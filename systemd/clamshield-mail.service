@@ -1,0 +1,26 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield native mail scanner policy and custody broker
+After=network.target clamshield-mail-clamd.service clamshield-mail-spamd.service
+Wants=clamshield-mail-clamd.service clamshield-mail-spamd.service
+
+[Service]
+Type=simple
+User=root
+Group=Debian-exim
+RuntimeDirectory=clamshield-mail clamshield-mail-scan
+RuntimeDirectoryMode=0750
+ExecStart=/usr/local/hestia/bin/v-clamshield mail-service
+Restart=on-failure
+RestartSec=3
+TimeoutStopSec=45
+UMask=0077
+CPUQuota=150%
+MemoryMax=1G
+IOWeight=100
+# Native Exim delivery must retain its normal privilege and mailbox access.
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

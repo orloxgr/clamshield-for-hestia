@@ -1,0 +1,28 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield isolated website ClamAV daemon
+After=network.target
+
+[Service]
+Type=simple
+User=clamav
+Group=clamav
+AppArmorProfile=clamshield-clamd
+RuntimeDirectory=clamshield
+RuntimeDirectoryMode=0750
+ExecStart=/usr/sbin/clamd --foreground=true --config-file=/etc/clamshield/clamd.conf
+Restart=on-failure
+RestartSec=10
+TimeoutStopSec=90
+UMask=0007
+Nice=10
+CPUQuota=100%
+MemoryMax=2G
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/run/clamshield
+
+[Install]
+WantedBy=multi-user.target

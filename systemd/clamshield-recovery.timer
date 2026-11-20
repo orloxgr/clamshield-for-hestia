@@ -1,0 +1,12 @@
+# Managed by clamshield
+[Unit]
+Description=Recover interrupted ClamShield file operations
+
+[Timer]
+OnBootSec=30
+OnUnitInactiveSec=30
+AccuracySec=5
+Unit=clamshield-recovery.service
+
+[Install]
+WantedBy=timers.target

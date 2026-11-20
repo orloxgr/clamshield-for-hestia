@@ -1,0 +1,120 @@
+from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
+import tempfile
+import sqlite3
+import unittest
+
+from clamshield.errors import AccessDenied, Conflict
+from clamshield.store import Store,SCHEMA
+
+
+class ScopedStore(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.store = Store(Path(self.temp.name) / 'state.sqlite3')
+        self.alice = dict(actor='alice', owner='alice', identity='alice-generation-1')
+        self.bob = dict(actor='bob', owner='bob', identity='bob-generation-1')
+        self.site = dict(owner='alice', identity='alice-generation-1', domain='alice.test', root='/srv/alice')
+
+    def test_independent_connections_enforce_durable_wal_commits(self):
+        for immediate in (False, True):
+            with self.store.connection(immediate) as db:
+                self.assertEqual('wal', db.execute('PRAGMA journal_mode').fetchone()[0])
+                self.assertEqual(2, db.execute('PRAGMA synchronous').fetchone()[0])
+
+    def test_account_and_recreated_account_cannot_read_or_cancel_old_job(self):
+        job = self.store.enqueue(self.alice, self.site)
+        for context in (self.bob, self.alice | {'identity': 'alice-generation-2'}):
+            self.assertEqual([], self.store.list_jobs(context))
+            with self.assertRaises(AccessDenied):
+                self.store.cancel(context, job)
+            with self.assertRaises(AccessDenied):
+                self.store.job(context, job)
+
+    def test_only_one_worker_claims_each_job(self):
+        ids = {self.store.enqueue(self.alice, self.site) for _ in range(20)}
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            rows = list(pool.map(lambda i: self.store.claim('worker-' + str(i)), range(25)))
+        claimed = [row['id'] for row in rows if row]
+        self.assertEqual(ids, set(claimed))
+        self.assertEqual(len(ids), len(claimed))
+
+    def test_cancellation_is_terminal_for_queued_job(self):
+        job = self.store.enqueue(self.alice, self.site)
+        self.store.cancel(self.alice, job)
+        self.assertIsNone(self.store.claim('worker'))
+        self.assertEqual('cancelled', self.store.job(self.alice, job)['status'])
+        with self.assertRaises(Conflict):
+            self.store.cancel(self.alice, job)
+
+    def test_audit_and_findings_are_scoped(self):
+        job_id = self.store.enqueue(self.alice, self.site)
+        job = self.store.claim('worker')
+        self.store.add_finding(job, 'bad.php', {'sha256': 'abc'},
+            dict(engine='yara', signature='Webshell', provider='local'))
+        self.assertEqual(1, len(self.store.list_findings(self.alice)))
+        self.assertEqual([], self.store.list_findings(self.bob))
+        self.assertEqual([], self.store.history(self.bob))
+        self.assertEqual(job_id, job['id'])
+
+    def test_dashboard_totals_include_rows_beyond_preview_limits_and_isolate_account_generation(self):
+        old = self.store.enqueue(self.alice, self.site)
+        with self.store.connection() as db:
+            db.execute('UPDATE jobs SET created=0 WHERE id=?',(old,))
+            for n in range(201):
+                db.execute("INSERT INTO jobs(id,owner,identity,domain,root,target,source,actor,created,generation,status) VALUES(?,?,?,?,?,'','manual',?,?,'test','completed')",
+                           ('recent-'+str(n),*self.store.scope(self.alice),'alice.test','/srv/alice','alice',n+1))
+            for n in range(501):
+                db.execute("INSERT INTO findings(id,job_id,owner,identity,domain,path,fingerprint,engine,signature,provider,severity,created,status) VALUES(?,?,?,?,?,'sample','{}','yara','Test','local','review',?,?)",
+                           ('f-'+str(n),old,*self.store.scope(self.alice),'alice.test',n,'open' if n<500 else 'resolved'))
+            for n in range(302):
+                db.execute("INSERT INTO operations(id,finding_id,owner,identity,actor,kind,status,created,metadata) VALUES(?,?,?,?,?,'quarantine',?,?, '{}')",
+                           ('q-'+str(n),'f-0',*self.store.scope(self.alice),'alice','quarantined' if n<301 else 'restored',n))
+        self.assertEqual(500,len(self.store.list_findings(self.alice)))
+        self.assertEqual(499,sum(v['status']=='open' for v in self.store.list_findings(self.alice)))
+        self.assertFalse(any(v['status']=='queued' for v in self.store.list_jobs(self.alice)))
+        self.assertEqual(dict(open_findings=500,active_scans=1,quarantined=301),self.store.dashboard_counts(self.alice))
+        for other in (self.bob,self.alice|{'identity':'recreated'}):
+            self.assertEqual(dict(open_findings=0,active_scans=0,quarantined=0),self.store.dashboard_counts(other))
+
+    def test_system_audit_is_visible_to_native_admin_context_only_and_keeps_tenant_generation_scope(self):
+        self.store.audit(dict(actor='clamshield-maintenance',owner='@admin',identity=''),'mail.refresh_rebased','server',{'fixture':True})
+        self.store.audit(self.alice,'owner.event','old-account',{})
+        self.assertEqual(['owner.event'],[r['action'] for r in self.store.history(self.alice)])
+        self.assertEqual([],self.store.history(self.alice|{'identity':'recreated-account'}))
+        self.assertEqual([],self.store.history(self.bob))
+        actions={r['action'] for r in self.store.history(self.bob|{'admin':True})}
+        self.assertEqual({'mail.refresh_rebased'},actions)
+
+    def test_rule_provenance_is_a_scoped_snapshot_of_the_actual_detection(self):
+        self.store.enqueue(self.alice,self.site);job=self.store.claim('worker')
+        detection=dict(engine='yara',signature='local:Rule',provider='local',rule_id='local:Rule',
+                       source_version='1',license='MIT',rule_sha256='a'*64)
+        finding_id=self.store.add_finding(job,'bad.php',{'sha256':'abc'},detection)
+        detection['source_version']='changed later'
+        self.assertEqual('1',self.store.finding(self.alice,finding_id)['detail']['source_version'])
+        with self.assertRaises(AccessDenied):self.store.finding(self.bob,finding_id)
+
+    def test_concurrent_legacy_database_migration_preserves_existing_findings(self):
+        path=Path(self.temp.name)/'legacy.sqlite3'
+        with sqlite3.connect(path) as db:
+            db.executescript(SCHEMA.replace(", detail TEXT NOT NULL DEFAULT '{}'",''))
+            db.execute("INSERT INTO jobs(id,owner,identity,domain,root,target,source,actor,created,generation) VALUES('j','alice','alice-generation-1','alice.test','/srv/alice','','manual','alice',1,'old')")
+            db.execute("INSERT INTO findings(id,job_id,owner,identity,domain,path,fingerprint,engine,signature,provider,severity,created) VALUES('f','j','alice','alice-generation-1','alice.test','old.php','{}','yara','Old','yara','review',1)")
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            list(pool.map(lambda _:Store(path),range(4)))
+        self.assertEqual({},Store(path).finding(self.alice,'f')['detail'])
+        self.assertEqual('Old',Store(path).finding(self.alice,'f')['signature'])
+
+    def test_unsafe_initialization_lock_cannot_redirect_or_share_state(self):
+        import os
+        path=Path(self.temp.name)/'new.sqlite3';lock=path.with_name(path.name+'.init.lock')
+        target=Path(self.temp.name)/'untouched';target.write_bytes(b'keep')
+        lock.symlink_to(target)
+        with self.assertRaises((OSError,AccessDenied)):Store(path)
+        self.assertEqual(b'keep',target.read_bytes());lock.unlink()
+        os.link(target,lock)
+        with self.assertRaises(AccessDenied):Store(path)
+        lock.unlink();lock.write_bytes(b'');lock.chmod(0o666)
+        with self.assertRaises(AccessDenied):Store(path)

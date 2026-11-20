@@ -1,0 +1,209 @@
+/* ClamShield's Exim API adapter. This is application glue, not an Exim fork.
+ * Build against the Ubuntu exim4-dev headers. No scanner or mail policy lives
+ * in this module. Do not enable before the durable mail policy service exists.
+ */
+#define _GNU_SOURCE
+#define LOCAL_SCAN
+#include <stdint.h>
+#include <stddef.h>
+#include <stdio.h>
+#include <string.h>
+#include <stdlib.h>
+#include <errno.h>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <sys/stat.h>
+#include <sys/time.h>
+#include <arpa/inet.h>
+#include "local_scan.h"
+
+#ifndef CS_SOCKET_PATH
+#define CS_SOCKET_PATH "/run/clamshield-mail/policy.sock"
+#endif
+#define CS_METADATA_MAX (128 * 1024)
+#define CS_MESSAGE_MAX (64 * 1024 * 1024)
+#define CS_HEADERS_MAX (1024 * 1024)
+#define CS_RECIPIENTS_MAX 1000
+#define CS_TIMEOUT_SECONDS 30
+
+int local_scan_version_major(void) { return LOCAL_SCAN_ABI_VERSION_MAJOR; }
+int local_scan_version_minor(void) { return LOCAL_SCAN_ABI_VERSION_MINOR; }
+
+static int write_all(int fd, const void *data, size_t size)
+{
+  const unsigned char *p = data;
+  while (size) {
+    ssize_t n = write(fd, p, size);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) return -1;
+    p += n;
+    size -= (size_t)n;
+  }
+  return 0;
+}
+
+/* pread leaves Exim's spool descriptor and body bytes unchanged. */
+static int message_snapshot(int body)
+{
+  struct stat before, after;
+  off_t offset = lseek(body, 0, SEEK_CUR);
+  if (offset < 0 || fstat(body, &before) || !S_ISREG(before.st_mode) ||
+      before.st_size < offset || before.st_size - offset > CS_MESSAGE_MAX)
+    return -1;
+  int out = memfd_create("clamshield-mail", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+  if (out < 0) return -1;
+  size_t headers = 0;
+  for (header_line *h = header_list; h; h = h->next) {
+    if (h->type == '*') continue;
+    if (h->slen < 0 || (size_t)h->slen > CS_HEADERS_MAX - headers ||
+        !h->text || write_all(out, h->text, (size_t)h->slen)) goto fail;
+    headers += (size_t)h->slen;
+  }
+  if (write_all(out, "\n", 1)) goto fail;
+  unsigned char buffer[65536];
+  off_t at = offset;
+  while (at < before.st_size) {
+    size_t want = (size_t)(before.st_size - at);
+    if (want > sizeof(buffer)) want = sizeof(buffer);
+    ssize_t n = pread(body, buffer, want, at);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0 || write_all(out, buffer, (size_t)n)) goto fail;
+    at += n;
+  }
+  if (fstat(body, &after) || before.st_dev != after.st_dev ||
+      before.st_ino != after.st_ino || before.st_size != after.st_size ||
+      before.st_mtim.tv_sec != after.st_mtim.tv_sec ||
+      before.st_mtim.tv_nsec != after.st_mtim.tv_nsec ||
+      before.st_ctim.tv_sec != after.st_ctim.tv_sec ||
+      before.st_ctim.tv_nsec != after.st_ctim.tv_nsec ||
+      fcntl(out, F_ADD_SEALS, F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK |
+            F_SEAL_SEAL) || lseek(out, 0, SEEK_SET) < 0) goto fail;
+  return out;
+fail:
+  close(out);
+  return -1;
+}
+
+static int append_string(unsigned char *buffer, size_t *used,
+                         const unsigned char *value, size_t limit)
+{
+  size_t size = value ? strnlen((const char *)value, limit + 1) : 0;
+  if (size > limit || size + 4 > CS_METADATA_MAX - *used) return -1;
+  uint32_t length = htonl((uint32_t)size);
+  memcpy(buffer + *used, &length, 4);
+  *used += 4;
+  if (size) memcpy(buffer + *used, value, size);
+  *used += size;
+  return 0;
+}
+
+int local_scan(int body, uschar **return_text)
+{
+  int out = -1, connection = -1, result = LOCAL_SCAN_TEMPREJECT_NOLOGHDR;
+  unsigned char *request = NULL;
+  *return_text = US"ClamShield mail check unavailable; please retry";
+  if (recipients_count < 1 || recipients_count > CS_RECIPIENTS_MAX) goto done;
+  request = malloc(CS_METADATA_MAX);
+  if (!request) goto done;
+  memcpy(request, "CSMAIL01", 8);
+  uint32_t count = htonl((uint32_t)recipients_count);
+  uint32_t flags = htonl((smtp_input ? 1u : 0u) | (smtp_batched_input ? 2u : 0u));
+  memcpy(request + 8, &count, 4);
+  memcpy(request + 12, &flags, 4);
+  size_t used = 16;
+  const uschar *authenticated = expand_string(US"$authenticated_id");
+  if (!authenticated ||
+      append_string(request, &used, message_id, 128) ||
+      append_string(request, &used, sender_address, 1024) ||
+      append_string(request, &used, sender_host_address, 128) ||
+      append_string(request, &used, authenticated, 1024) ||
+      append_string(request, &used, received_protocol, 64)) goto done;
+  for (int i = 0; i < recipients_count; ++i)
+    if (append_string(request, &used, recipients_list[i].address, 1024)) goto done;
+  out = message_snapshot(body);
+  if (out < 0) goto done;
+  connection = socket(AF_UNIX, SOCK_SEQPACKET | SOCK_CLOEXEC, 0);
+  if (connection < 0) goto done;
+  struct timeval timeout = {.tv_sec = CS_TIMEOUT_SECONDS, .tv_usec = 0};
+  if (setsockopt(connection, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout)) ||
+      setsockopt(connection, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout))) goto done;
+  struct sockaddr_un address = {.sun_family = AF_UNIX};
+  if (sizeof(CS_SOCKET_PATH) > sizeof(address.sun_path)) goto done;
+  memcpy(address.sun_path, CS_SOCKET_PATH, sizeof(CS_SOCKET_PATH));
+  if (connect(connection, (struct sockaddr *)&address, sizeof(address))) goto done;
+  /* Only a root-owned policy service may issue a decision. */
+  struct ucred credentials;
+  socklen_t length = sizeof(credentials);
+  if (getsockopt(connection, SOL_SOCKET, SO_PEERCRED, &credentials, &length) ||
+      length != sizeof(credentials) || credentials.uid != 0) goto done;
+  union { struct cmsghdr align; unsigned char bytes[CMSG_SPACE(sizeof(int))]; } control;
+  memset(&control, 0, sizeof(control));
+  struct iovec vector = {.iov_base = request, .iov_len = used};
+  struct msghdr message = {.msg_iov = &vector, .msg_iovlen = 1,
+                          .msg_control = control.bytes, .msg_controllen = sizeof(control.bytes)};
+  struct cmsghdr *c = CMSG_FIRSTHDR(&message);
+  c->cmsg_level = SOL_SOCKET;
+  c->cmsg_type = SCM_RIGHTS;
+  c->cmsg_len = CMSG_LEN(sizeof(int));
+  memcpy(CMSG_DATA(c), &out, sizeof(int));
+  ssize_t sent;
+  do { sent = sendmsg(connection, &message, MSG_NOSIGNAL); } while (sent < 0 && errno == EINTR);
+  if (sent < 0 || (size_t)sent != used) goto done;
+  unsigned char response[49 + CS_RECIPIENTS_MAX];
+  ssize_t received;
+  do { received = recv(connection, response, sizeof(response), 0); }
+  while (received < 0 && errno == EINTR);
+  if (received < 44 || memcmp(response, "CSMRSP01", 8)) goto done;
+  uint32_t decision;
+  memcpy(&decision, response + 8, 4);
+  decision = ntohl(decision);
+  if (decision > 4 || (decision != 4 && received != 44)) goto done;
+  if (decision == 4) {
+    if (received < 48) goto done;
+    uint32_t count;
+    memcpy(&count, response + 44, 4);
+    count = ntohl(count);
+    if (count != (uint32_t)recipients_count || received != 48 + (ssize_t)count) goto done;
+    unsigned int selected = 0;
+    for (uint32_t i = 0; i < count; ++i) {
+      if (response[48 + i] > 1) goto done;
+      selected += response[48 + i];
+    }
+    if (selected == 0 || selected == count) goto done;
+  }
+  for (size_t i = 12; i < 44; ++i)
+    if (!((response[i] >= '0' && response[i] <= '9') ||
+          (response[i] >= 'a' && response[i] <= 'f'))) goto done;
+  char event[33];
+  memcpy(event, response + 12, 32);
+  event[32] = '\0';
+  log_write(0, LOG_MAIN, "ClamShield decision=%u event=%s", decision, event);
+  if (decision == 0) {
+    *return_text = NULL;
+    result = LOCAL_SCAN_ACCEPT;
+  } else if (decision == 1) {
+    *return_text = US"Message rejected by ClamShield policy";
+    result = LOCAL_SCAN_REJECT_NOLOGHDR;
+  } else if (decision == 3) {
+    /* The policy service must durably own ALL recipients before returning this. */
+    recipients_count = 0;
+    *return_text = NULL;
+    result = LOCAL_SCAN_ACCEPT;
+  } else if (decision == 4) {
+    /* Retain full native recipient metadata for every non-custody recipient. */
+    int kept = 0;
+    for (int i = 0; i < recipients_count; ++i)
+      if (response[48 + i] == 0) recipients_list[kept++] = recipients_list[i];
+    recipients_count = kept;
+    *return_text = NULL;
+    result = LOCAL_SCAN_ACCEPT;
+  }
+done:
+  if (connection >= 0) close(connection);
+  if (out >= 0) close(out);
+  free(request);
+  return result;
+}

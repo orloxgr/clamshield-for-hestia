@@ -1,0 +1,28 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield isolated mail SpamAssassin daemon
+After=network.target
+
+[Service]
+Type=simple
+User=debian-spamd
+Group=debian-spamd
+RuntimeDirectory=clamshield-mail-spamd
+RuntimeDirectoryMode=0700
+StateDirectory=clamshield-spamd
+StateDirectoryMode=0700
+EnvironmentFile=/etc/clamshield/spamd.env
+ExecStart=/usr/sbin/spamd --socketpath=/run/clamshield-mail-spamd/spamd.sock --socketmode=600 --nouser-config --max-children=2 --min-children=1 --min-spare=1 --max-spare=2 --helper-home-dir=/var/lib/clamshield-spamd "--cf=bayes_auto_learn 0" "--cf=use_bayes 0" "--cf=include /etc/clamshield/spamassassin/active.cf" --timeout-child=20 --timeout-tcp=5 $SPAMD_OPTIONS
+Restart=on-failure
+RestartSec=5
+CPUQuota=100%
+MemoryMax=512M
+IOWeight=100
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/clamshield-spamd /run/clamshield-mail-spamd
+
+[Install]
+WantedBy=multi-user.target

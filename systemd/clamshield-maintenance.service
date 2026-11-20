@@ -1,0 +1,21 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield validated signature maintenance
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 -I -B /opt/clamshield/entry.py maintenance
+UMask=0077
+Nice=15
+IOSchedulingClass=idle
+CPUQuota=100%
+MemoryMax=3G
+TasksMax=64
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/clamshield /var/lib/clamshield-signatures /var/lib/clamshield-cache /var/lib/clamshield-mail-adapters /etc/clamshield /opt/clamshield-mail -/etc/exim4 -/var/lib/exim4 /usr/local/hestia/log /etc/systemd/system/exim4.service.d
+ReadWritePaths=/etc/systemd/system/clamshield-worker.service.d /etc/systemd/system/clamshield-clamd.service.d /etc/systemd/system/clamshield-mail.service.d /etc/systemd/system/clamshield-mail-clamd.service.d /etc/systemd/system/clamshield-mail-spamd.service.d /etc/systemd/system/clamshield-maintenance.service.d
+PrivateTmp=true
+TimeoutStartSec=infinity

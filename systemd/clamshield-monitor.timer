@@ -1,0 +1,11 @@
+# Managed by clamshield
+[Unit]
+Description=Check ClamShield schedules and filesystem changes
+
+[Timer]
+OnBootSec=60
+OnUnitInactiveSec=30
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target

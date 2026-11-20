@@ -1,0 +1,23 @@
+# Managed by clamshield
+#include <tunables/global>
+profile clamshield-freshclam flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+  network inet stream,
+  network inet6 stream,
+  network inet dgram,
+  network inet6 dgram,
+  capability setuid,
+  capability setgid,
+  capability chown,
+  /usr/bin/freshclam mrix,
+  /etc/clamav/certs/{,**} r,
+  /var/lib/clamshield/freshclam-config/** r,
+  /var/lib/clamshield-cache/ r,
+  /var/lib/clamshield-cache/** rwk,
+  /tmp/ rw,
+  /tmp/** rwk,
+  @{PROC}/filesystems r,
+  @{PROC}/[0-9]*/status r,
+}

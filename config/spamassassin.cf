@@ -1,0 +1,16 @@
+# Managed by clamshield
+# Initial isolated daemon defaults. Structured UI activation adds a verified revision.
+bayes_auto_learn 0
+use_bayes 0
+ifplugin Mail::SpamAssassin::Plugin::Pyzor
+use_pyzor 0
+endif
+ifplugin Mail::SpamAssassin::Plugin::Razor2
+use_razor2 0
+endif
+ifplugin Mail::SpamAssassin::Plugin::DCC
+use_dcc 0
+endif
+required_score 5.0
+skip_rbl_checks 0
+skip_uribl_checks 0

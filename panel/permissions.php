@@ -1,0 +1,13 @@
+<?php // Managed by clamshield
+if($data['context']['admin']): ?>
+<section data-page="permissions" hidden><h2>Website user permissions</h2>
+<p>Choose which website actions the selected hosting account may use. Administrators retain access to every action. Email permissions are managed separately in Email.</p>
+<form id="cs-website-permissions"><fieldset><legend>Allowed actions for <?=$escape($data['context']['owner'])?></legend>
+<?php foreach($data['website_permissions']['labels'] as $key=>$label): ?><label style="display:block"><input type="checkbox" name="<?=$escape($key)?>" <?=$data['website_permissions']['permissions'][$key]?'checked':''?>> <?=$escape($label)?></label><?php endforeach ?>
+</fieldset><p>Permission changes stop newly requested actions and revoke pending automatic actions configured by this user. Automatic protection configured by an administrator continues. Existing monitoring schedules and recovery of file operations already in progress continue.</p>
+<button class="button" type="submit">Save website user permissions</button><p role="status" aria-live="polite"></p></form>
+</section>
+<script>
+document.getElementById('cs-website-permissions').addEventListener('submit',async event=>{event.preventDefault();const form=event.target,button=form.querySelector('button'),status=form.querySelector('[role="status"]'),values=new FormData(form),policy={};form.querySelectorAll('input[type="checkbox"]').forEach(input=>policy[input.name]=values.has(input.name));button.disabled=true;status.textContent='Saving website user permissions…';try{const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>,owner:<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>,action:'website-permissions-save',policy:JSON.stringify(policy)})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Website permissions could not be saved');location.reload();}catch(error){status.textContent=error.message;button.disabled=false;}});
+</script>
+<?php endif ?>

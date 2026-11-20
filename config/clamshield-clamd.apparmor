@@ -1,0 +1,23 @@
+# Managed by clamshield
+#include <tunables/global>
+profile clamshield-clamd flags=(attach_disconnected) {
+  #include <abstractions/base>
+  #include <abstractions/nameservice>
+  #include <abstractions/openssl>
+  network unix stream,
+  network unix dgram,
+  /usr/sbin/clamd mr,
+  /etc/clamshield/clamd.conf r,
+  /etc/clamav/certs/{,**} r,
+  /run/systemd/journal/dev-log w,
+  /var/lib/clamav/ r,
+  /var/lib/clamav/** r,
+  /var/lib/clamshield-signatures/ r,
+  /var/lib/clamshield-signatures/** r,
+  /run/clamshield/ rw,
+  /run/clamshield/** rw,
+  /tmp/ rw,
+  /tmp/** krw,
+  @{PROC}/filesystems r,
+  @{PROC}/[0-9]*/status r,
+}
