@@ -173,7 +173,7 @@ sudo python3 /usr/local/src/clamshield-for-hestia/tools/install.py
 Updates preserve saved settings and private data. An interrupted installation
 can be resumed with the same installer. ClamShield publishes an owned immutable
 release and maintains its own recovery state; it does not reapply vendor patches.
-The additive integration was verified through native Hestia1.10.8→1.10.8 upgrades
+The additive integration was verified through native Hestia1.10.7→1.10.8 upgrades
 in web/cache and active-mail configurations, including Varnish/Dragonfly coexistence.
 
 ### Installer output
