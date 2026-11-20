@@ -53,7 +53,7 @@ test('scripts initialize during normal document parsing and SpamAssassin control
 test('configuration, update operations and all-account email records stay in their own views',async()=>{
   const f=fixture({hash:'#updates/rules',change:v=>{v.context.view_scope='server';}});
   try{await settle();
-    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-server-quarantine','email-review'],['cs-sa-tasks','activity'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
+    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-server-quarantine','email-review'],['cs-sa-tasks','history'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
       assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,page,id);
     for(const node of f.document.querySelectorAll('[data-page]'))assert.equal(node.hidden,node.dataset.page!=='rules');
     assert.equal(f.document.querySelector('[data-action=rules-build],[data-action=rules-activate]'),null);
@@ -158,7 +158,7 @@ test('Review filters query the complete server list and paginate beyond the old 
 
 test('Review ignores stale responses, serializes refreshes and retains rows on escaped failures',async()=>{
   const pending=[];
-  const f=fixture({hash:'#review/history',api:body=>new Promise(resolve=>pending.push({body,resolve}))});
+  const f=fixture({hash:'#review/history',api:body=>body.list==='history'?new Promise(resolve=>pending.push({body,resolve})):reviewResponse(body)});
   try{await settle();const form=f.document.querySelector('[data-review-list=history]'),rows=f.document.getElementById('cs-review-history-rows');
     form.elements.search.value='latest';form.dispatchEvent(new f.w.Event('change',{bubbles:true}));assert.equal(pending.length,1);
     pending[0].resolve(reviewResponse(pending[0].body,{html:'<tr><td>STALE RESPONSE</td></tr>'}));await settle();
@@ -495,7 +495,7 @@ test('Review groups existing review tools and remembers the selected child while
   const f=fixture();try{
     f.click('[data-main-tab=review]');assert.deepEqual(f.visible(),['findings']);
     const review=f.document.querySelector('[data-subnav=review]');
-    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','Email','History','Activity','Notifications']);
+    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','Email','History','Notifications']);
     for(const page of ['findings','repairs','exceptions','quarantine','history']){
       f.click('[data-subnav=review] [data-tab='+page+']');assert.deepEqual(f.visible(),[page]);
       assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');
@@ -518,6 +518,32 @@ test('Review retains old bookmarks and saved selections after consolidating the 
     const f=fixture(options);try{assert.deepEqual(f.visible(),[page]);assert.equal(f.w.location.hash,hash);assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');}finally{await f.close();}
   }
   const unknown=fixture({hash:'#__proto__'});try{assert.deepEqual(unknown.visible(),['dashboard']);}finally{await unknown.close();}
+});
+
+test('History contains events, maintenance and automatic actions with one refresh and no separate Activity tab',async()=>{
+  const f=fixture({hash:'#review/history',api:async body=>reviewResponse(body)});
+  try{await settle();assert.equal(f.document.querySelector('[data-tab=activity],[data-page=activity]'),null);
+    for(const id of ['cs-review-history-rows','cs-review-activity-rows','cs-review-automatic-rows'])assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,'history');
+    for(const kind of ['history','activity','automatic'])assert.ok(f.requests.some(r=>r.action==='review-list'&&r.list===kind));
+    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-history-lists-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+3);
+    assert.equal(f.document.getElementById('cs-history-refresh').closest('[data-page]').dataset.page,'retention');
+    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard a[data-focus-id=cs-sa-tasks]');await settle();assert.deepEqual(f.visible(),['history']);assert.equal(f.w.location.hash,'#review/history');assert.equal(f.document.activeElement.id,'cs-sa-tasks');assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('former Activity bookmarks and saved selections open History and maintenance links use its canonical route',async()=>{
+  for(const options of [{hash:'#activity'},{hash:'#review/activity'},{hash:'#settings/activity'},{saved:'activity'}]){
+    const f=fixture(options);try{await settle();assert.deepEqual(f.visible(),['history']);assert.equal(f.document.querySelector('[data-subnav=review] [data-tab=history]').getAttribute('aria-current'),'page');if(options.hash)assert.equal(f.w.location.hash,'#review/history');
+      assert.equal(f.document.querySelector('a[href="#review/activity"]'),null);
+    }finally{await f.close();}
+  }
+});
+
+test('tenant History keeps account events and automatic action history without privileged maintenance queries',async()=>{
+  const f=fixture({admin:false,hash:'#review/history',api:async body=>reviewResponse(body)});
+  try{await settle();assert.deepEqual(f.visible(),['history']);assert.equal(f.document.getElementById('cs-review-activity-rows'),null);assert.ok(f.document.getElementById('cs-review-automatic-rows'));
+    f.click('#cs-history-lists-refresh');await settle();assert.equal(f.requests.some(r=>r.action==='review-list'&&r.list==='activity'),false);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
 });
 test('tenant retains all seven sections without privileged forms or navigation targets',async()=>{
   const f=fixture({admin:false});try{

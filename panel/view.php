@@ -81,7 +81,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 </tbody></table></div></section>
 <section data-page="repairs" hidden><h2>Repairs</h2><p>Prepare a preview from a verified WordPress release, a backup, or targeted infection cleaning chosen in Findings. Review the source, hashes and differences before applying it. Repairs retain the original content or a record that the file was absent. Published files receive a ClamAV/YARA recheck. Undo restores the original content or absence; created folders and other files are retained.</p><button class="button" id="cs-refresh-repairs">Refresh results</button>
 <div id="cs-review-repairs-rows"><?php require __DIR__.'/review_rows/repairs.php'; ?></div></section>
-<section data-page="history" hidden><h2>History</h2><?php require __DIR__.'/history_events.php'; ?></section>
+<section data-page="history" hidden><div class="row"><h2>History</h2><button class="button" type="button" id="cs-history-lists-refresh">Refresh history</button></div><h3>Events</h3><?php require __DIR__.'/history_events.php'; require __DIR__.'/activity.php'; ?></section>
 <?php require __DIR__.'/wordpress_recovery.php'; ?>
 <?php require __DIR__.'/rules.php'; ?>
 <?php if($data['context']['admin']): $providers=$data['providers']; ?>
@@ -105,14 +105,14 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 </form>
 <h3>Local signatures</h3><?php if(!$providers['local']['files']): ?><p>No local signature files.</p><?php endif ?><?php foreach($providers['local']['files'] as $file): ?><p><?=$escape($file)?> <button class="button" data-action="signature-local-delete" data-name="<?=$escape($file)?>">Remove from selected data</button></p><?php endforeach ?>
 <form id="cs-local-signatures"><div class="row"><label>Filename <input class="form-control" name="name" placeholder="hosting.hdb" required></label></div><p><textarea class="form-control" name="content" rows="5" style="width:100%" maxlength="45000" aria-label="Local signature content" required></textarea></p><button class="button" type="submit">Save local signature file</button></form>
-<p><a href="#review/activity" data-tab="activity">View maintenance history</a></p>
+<p><a href="#review/history" data-tab="history" data-focus-id="cs-sa-tasks">View maintenance history</a></p>
 </section>
 <?php endif ?>
 <?php require __DIR__.'/mail.php'; ?>
 <?php require __DIR__.'/spamassassin.php'; ?>
 <?php require __DIR__.'/resources.php'; ?>
 <?php require __DIR__.'/remediation.php'; ?>
-<?php require __DIR__.'/permissions.php'; require __DIR__.'/yara_settings.php'; require __DIR__.'/activity.php'; require __DIR__.'/support.php'; ?>
+<?php require __DIR__.'/permissions.php'; require __DIR__.'/yara_settings.php'; require __DIR__.'/support.php'; ?>
 <section data-page="retention" hidden><h2>History retention settings</h2><?php require __DIR__.'/history.php'; require __DIR__.'/server_history.php'; ?></section>
 </main>
 <script>
@@ -125,7 +125,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  const websiteActions={"scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
  const ruleOverrides=<?=json_encode($data['context']['admin']?$data['rule_manager']['disabled']:[],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  document.getElementById('cs-rules-refresh')?.addEventListener('click',()=>location.reload());
- document.getElementById('cs-sa-refresh-tasks')?.addEventListener('click',()=>document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:'activity'})));
+ document.getElementById('cs-history-lists-refresh').addEventListener('click',()=>{for(const kind of ['history','activity','automatic'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));});
  function prepareReviewControls(scope=document){
  scope.querySelectorAll('[data-action]').forEach(control=>{const capability=control.dataset.capability||websiteActions[control.dataset.action];if(capability)control.dataset.capability=capability;});
  scope.querySelectorAll('[data-capability]').forEach(container=>{if(websitePermissions[container.dataset.capability]!==false)return;container.title=websitePermissionLabels[container.dataset.capability]+' is disabled by the administrator';const controls=container.matches('button,input,select,textarea')?[container]:container.querySelectorAll('button,input,select,textarea');controls.forEach(control=>{control.disabled=true;control.setAttribute('aria-disabled','true');control.title=container.title;});});

@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.11.1** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.11.2** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -88,7 +88,8 @@ Updates | Settings
 
 Settings holds configuration; Updates holds data installation and update
 operations. Review brings together results, repairs, exceptions, quarantine,
-email activity, history and notifications. Settings → Support Us contains
+email activity, history and notifications. History includes events, update and
+configuration tasks, and automatic action history. Settings → Support Us contains
 donation links and short upstream acknowledgements; complete third-party notices
 remain with the installed source data.
 

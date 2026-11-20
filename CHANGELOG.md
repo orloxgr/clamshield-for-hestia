@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.11.2
+
+- Merge Review Activity into History, retaining task statuses, filters, paging,
+  selected/all controls and automatic action history in the same tab.
+- Route queue/update/configuration links and former Activity bookmarks to
+  History; one refresh updates its event and task lists.
+
 ## 1.11.1
 
 - Add page checkboxes and scoped selected/all actions throughout Review, with

@@ -4,7 +4,7 @@ $cs_navigation = [
     'email'=>['Email Shield', ['mail'=>'Email protection']],
     'scan'=>['On-demand Scan', ['sites'=>'Websites', 'jobs'=>'Scan progress', 'wordpress'=>'WordPress integrity', 'wordpress-recovery'=>'WordPress recovery']],
     'scheduled'=>['Scheduled Scanner', ['scheduled'=>'Schedules and monitoring']],
-    'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Repairs and cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'email-review'=>'Email', 'history'=>'History', 'activity'=>'Activity', 'notices'=>'Notifications']],
+    'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Repairs and cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'email-review'=>'Email', 'history'=>'History', 'notices'=>'Notifications']],
     'updates'=>['Updates', ['rules'=>'YARA rules', 'providers'=>'Signature providers']],
     'settings'=>['Settings', ['yara-settings'=>'YARA', 'provider-settings'=>'Signature providers', 'mail-settings'=>'Email', 'spamassassin'=>'SpamAssassin', 'automatic'=>'Automatic actions', 'notifications'=>'Notifications', 'retention'=>'History retention', 'resources'=>'Resources', 'permissions'=>'Website permissions', 'support'=>'Support Us']],
 ];

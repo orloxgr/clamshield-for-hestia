@@ -30,7 +30,7 @@ $sa = $data['spamassassin']; ?>
 <p>Installed scores are shown for local tests and network tests, with Bayes disabled. UI overrides replace both values when applied.</p>
 <div class="scroll"><table><thead><tr><th>Rule</th><th>Local score</th><th>Network score</th><th>Description</th></tr></thead><tbody id="cs-sa-rules"></tbody></table></div>
 <?php endif ?>
-<p><a href="#review/activity" data-tab="activity">View configuration history</a></p></section>
+<p><a href="#review/history" data-tab="history" data-focus-id="cs-sa-tasks">View configuration history</a></p></section>
 <script>
 (() => {'use strict';
  const form=document.getElementById('cs-spamassassin');if(!form)return;

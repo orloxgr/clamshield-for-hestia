@@ -14,7 +14,7 @@ $cs_rule_schedule=$data['rule_manager']['updates']??['automatic'=>true,'interval
 <?php foreach(['last_attempt','last_success','next_allowed'] as $cs_time): $cs_timestamp=$cs_rule_schedule[$cs_time]??0; ?><td id="cs-yara-<?=$cs_time?>"><?=$escape($cs_timestamp?gmdate('Y-m-d H:i:s',(int)$cs_timestamp):($cs_time==='next_allowed'?'Due now':'Never'))?></td><?php endforeach ?>
 </tr></tbody></table></div>
 <p id="cs-yara-timing" role="status" aria-live="polite"></p>
-<p><a href="#review/activity" data-tab="activity">View update history</a></p>
+<p><a href="#review/history" data-tab="history" data-focus-id="cs-sa-tasks">View update history</a></p>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Recovery</summary><button class="button" data-action="rules-rollback">Restore previous rules</button></details>
 <?php else: ?><p>Rule updates are managed by the administrator.</p><?php endif ?>
 </section>
