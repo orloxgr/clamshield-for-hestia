@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.3.0** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.4.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -55,9 +55,11 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
 
    Choose site schedules and changed-file monitoring under **Scheduled Scanner**.
    Review **Settings → Automatic actions** and **Settings → Website permissions** for tenant access.
-   For native Exim/SpamAssassin email, configure scores and domain/mailbox
-   policies, then explicitly enable **Mail integration** under **Email Shield → Email policies**.
-   Saved mail policies are enforced only while that integration is connected.
+   For native Exim/SpamAssassin email, click **Enable mail protection** under
+   **Email Shield → Email policies**. Preparation, verification and activation
+   run automatically with progress. This enables inherited protection across
+   server accounts; existing domain/mailbox overrides remain in effect.
+   Advanced settings contain per-domain policies, quarantine and recovery tools.
 
 This repository is public; cloning does not require GitHub credentials.
 See the [administration guide](docs/administration.md) for daily operation,

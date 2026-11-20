@@ -123,7 +123,28 @@ recovery. Review these policies together with delegated tenant permissions.
 
 ## Email and SpamAssassin
 
-In **Email Shield → Email policies**, domain policy provides mailbox defaults. Selecting a mailbox and
+In **Email Shield → Email policies**, an administrator clicks **Enable mail
+protection** for the entire server, including accounts other than the viewing
+account. The queued task prepares missing signature data and, when YARA is
+enabled without installed rules, installs the Core profile. Existing data and
+profile choices are retained. The owned mail lifecycle builds/verifies its
+adapter, prepares initial SpamAssassin settings and probes the actual scanners
+and connection. Only then are inherited server policies enabled. Progress is
+automatic; a failed check remains visible and retryable instead of reporting
+Enabled. No manual adapter preparation or refresh is needed for normal activation.
+
+Unconfigured domains, including future domains, inherit enabled protection.
+Explicit domain/mailbox overrides, sender lists and exceptions remain intact;
+an explicitly disabled policy stays disabled. Native Hestia antivirus/antispam/
+rejection flags retain their precedence. The toggle becomes **Disable mail
+protection** only with a verified active connection and enabled server defaults.
+Disabling drains/detaches the connection and retains policies and quarantined
+email. Tenant users retain their delegated account controls; the global toggle
+requires native administrator authority.
+
+**Advanced email settings and activity** is closed initially and contains
+integration/adapter diagnostics, domain settings, quarantine, history and
+recovery tools. Domain policy provides mailbox defaults. Selecting a mailbox and
 enabling a field override changes only that field. Other fields continue to
 inherit later domain edits. **Use domain policy for this mailbox** removes its
 overrides. Sender allowlists affect spam scoring; malware/phishing policies
@@ -136,11 +157,10 @@ shows installed base scores; the editor records applied overrides. Zone/list
 access also depends on the server resolver and provider restrictions. A saved
 toggle does not prove public-list access. Pyzor/Razor2/DCC are disabled by default.
 
-The administrator explicitly enables **Mail integration** after selecting valid
-data and policies. Native Hestia antivirus/antispam/reject flags and their
-precedence are displayed. A saved ClamShield policy is not enforced while the
-integration is disconnected. Activation validates the owned adapter and actual
-scanners before attaching the supported native Exim hook.
+A saved ClamShield policy is not enforced while the integration is disconnected.
+The advanced integration controls remain available for maintenance and diagnosis.
+Foreign hook/library changes still require review; automatic activation does not
+overwrite unowned configuration to force a successful result.
 
 Search quarantine and use plain-text preview before release/deletion. Release
 queues the stored original for its recorded recipient and finishes only after

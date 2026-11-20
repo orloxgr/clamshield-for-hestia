@@ -1,9 +1,18 @@
 <?php // Managed by clamshield ?>
 <section data-page="mail" hidden id="cs-mail" data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-admin="<?=$data['context']['admin']?'true':'false'?>">
-<div class="row"><h2>Email protection</h2><button class="button" type="button" id="cs-mail-refresh">Refresh email controls</button></div>
+<h2>Email protection</h2>
+<?php if($data['context']['admin']): ?>
+<article class="card" id="cs-mail-protection">
+<p>Protect email across all server accounts. Existing domain and mailbox overrides remain in effect.</p>
+<button class="button" type="button" id="cs-mail-protection-toggle">Enable mail protection</button>
+<p id="cs-mail-protection-status" role="status" aria-live="polite">Checking protection status…</p>
+</article>
+<?php else: ?><p>Server connection is managed by your administrator. Domain and mailbox controls are available below.</p><?php endif ?>
+<details id="cs-mail-advanced"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Advanced email settings and activity</summary>
+<button class="button" type="button" id="cs-mail-refresh">Refresh email controls</button>
 <p id="cs-mail-status" role="status" aria-live="polite">Load email domains to view their policies.</p>
 <?php if($data['context']['admin']): $integration=$data['mail_integration']; ?>
-<details open><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Mail integration</summary>
+<details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Mail integration</summary>
 <p>State: <?=$escape($integration['phase'])?> <?=$escape($integration['transition']??'')?></p>
 <?php if(isset($integration['error'])): ?><p class="alert alert-danger"><?=$escape($integration['error'])?></p><?php endif ?>
 <div class="row"><button class="button" type="button" data-action="mail-integration-enable">Enable mail integration</button><button class="button" type="button" data-action="mail-integration-refresh">Refresh mail integration</button><button class="button" type="button" data-action="mail-integration-disable">Drain and disable mail integration</button><button class="button" type="button" data-action="mail-integration-recover">Recover interrupted transition</button></div>
@@ -48,5 +57,6 @@
 <div class="scroll"><table><thead><tr><th>Time</th><th>Email</th><th>Status</th><th>Actions</th></tr></thead><tbody id="cs-mail-quarantine"></tbody></table></div><button class="button" type="button" id="cs-mail-quarantine-more" hidden>More quarantined email</button>
 <h3>Email decision history</h3><form id="cs-mail-history-form" class="row"><input class="form-control" name="search" placeholder="Envelope sender, recipient or mail reference" aria-label="Search email decision history" maxlength="300"><button class="button" type="submit">Search decisions</button></form><p id="cs-mail-history-status"></p>
 <div class="scroll"><table><thead><tr><th>Time</th><th>Envelope sender / recipient</th><th>Decision</th><th>Detection</th></tr></thead><tbody id="cs-mail-history"></tbody></table></div><button class="button" type="button" id="cs-mail-more" hidden>More email decisions</button>
+</details>
 </section>
 <script><?php readfile(__DIR__.'/mail.js'); ?></script>

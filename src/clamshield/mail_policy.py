@@ -248,12 +248,30 @@ class MailPolicies:
                          (*self.store.scope(context), domain, mailbox)).fetchone()
         return validate(json.loads(row['settings'])) if row else {}
 
+    def server_defaults(self, db=None):
+        # Reserved scope cannot be a native account; tenant overrides retain
+        # their own native generations and never inherit another tenant's data.
+        if db is None:
+            with self.store.connection() as connection:return self.server_defaults(connection)
+        row=db.execute("SELECT settings FROM mail_policies WHERE owner='@server' AND identity='' AND domain='' AND mailbox=''").fetchone()
+        return validate(json.loads(row['settings'])) if row else {}
+
+    def enable_server_defaults(self, context):
+        live=self.hestia.authorize(context['actor'],context['actor'])
+        if not live['admin'] or live['identity']!=context['identity']:
+            raise AccessDenied('Administrator account changed before enabling mail protection')
+        with self.store.connection(True) as db:
+            value=self.server_defaults(db)|{'enabled':True}
+            db.execute("INSERT INTO mail_policies VALUES('@server','','','',?,?) ON CONFLICT(owner,identity,domain,mailbox) DO UPDATE SET settings=excluded.settings,updated=excluded.updated",(encode(value),time.time()))
+            self.store.audit(dict(actor=live['actor'],owner='@admin',identity=''),'mail.defaults_enabled','server',{},db)
+
     def get(self, context, domain, mailbox=''):
         target, mailbox = self.target(context, domain, mailbox)
         with self.store.connection() as db:
             db.execute('BEGIN')
-            parent = self._saved(context, target['domain'], '', db)
-            overrides = self._saved(context, target['domain'], mailbox, db) if mailbox else parent
+            saved = self._saved(context, target['domain'], '', db)
+            parent = self.server_defaults(db) | saved
+            overrides = self._saved(context, target['domain'], mailbox, db) if mailbox else saved
         resolved = effective(parent, overrides if mailbox else {})
         return {'domain': target['domain'], 'mailbox': mailbox, 'overrides': overrides,
                 'effective': resolved,
@@ -282,17 +300,18 @@ class MailPolicies:
             raise AccessDenied('Mail policy changes are disabled for this account')
         value = {} if reset else validate(value)
         with self.store.connection(True) as db:
-            parent = self._saved(context, target['domain'], '', db)
+            defaults = self.server_defaults(db)
+            parent = defaults | self._saved(context, target['domain'], '', db)
             old = self._saved(context, target['domain'], mailbox, db)
             check_revision(revision, parent, old)
-            proposed = effective(parent, value) if mailbox else effective(value)
+            proposed = effective(parent, value) if mailbox else effective(defaults | value)
             if not context['admin'] and not permissions['manage_exceptions'] and old.get('exceptions') != value.get('exceptions'):
                 raise AccessDenied('Mail exception changes are disabled for this account')
             # A domain edit must not silently invalidate inherited mailbox limits.
             if not mailbox:
                 for row in db.execute('SELECT settings FROM mail_policies WHERE owner=? AND identity=? AND domain=? AND mailbox<>\'\'',
                                       (*self.store.scope(context), target['domain'])):
-                    effective(value, validate(json.loads(row['settings'])))
+                    effective(defaults | value, validate(json.loads(row['settings'])))
             if reset:
                 db.execute('DELETE FROM mail_policies WHERE owner=? AND identity=? AND domain=? AND mailbox=?',
                            (*self.store.scope(context), target['domain'], mailbox))
@@ -321,7 +340,7 @@ class MailPolicies:
             permissions = dict(PERMISSIONS) | (json.loads(row['settings']) if row else {})
             if not context['admin'] and not permissions['manage_exceptions']:
                 raise AccessDenied('Mail exception changes are disabled for this account')
-            parent = self._saved(context, target['domain'], '', db)
+            parent = self.server_defaults(db) | self._saved(context, target['domain'], '', db)
             old = self._saved(context, target['domain'], mailbox, db)
             check_revision(revision, parent, old)
             proposed = deepcopy(old)

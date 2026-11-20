@@ -25,7 +25,7 @@
     event.preventDefault();const page=link.dataset.tab;
     select(page?groupOf(page):link.dataset.mainTab,page);
     const target=document.getElementById(link.dataset.focusId||('cs-provider-'+link.dataset.focusProvider));
-    if(target){target.scrollIntoView?.({block:'nearest'});target.focus();}
+    if(target){for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;target.scrollIntoView?.({block:'nearest'});target.focus();}
   }));
   function fromHash(){
     const [group,page]=location.hash.slice(1).split('/');

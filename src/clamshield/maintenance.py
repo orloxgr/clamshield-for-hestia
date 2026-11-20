@@ -53,7 +53,7 @@ class Maintenance:
                     return {'worked':bool(task),'website_recovery_pending':True}
             from .mail_integration import MailIntegration
             integration=MailIntegration(self.settings,self.store,self.hestia)
-            if integration.journal.exists() and not (task and task['action']=='mail-integration-disable'):
+            if integration.journal.exists() and not (task and task['action'] in ('mail-integration-disable','mail-protection-disable')):
                 try:
                     integration.recover()
                     self.store.notify('@admin','','maintenance.recovered','mail-integration',{'message':'An interrupted mail integration transition was restored'})
@@ -90,6 +90,11 @@ class Maintenance:
                     adapter=MailAdapter(self.settings)
                     result=adapter.build() if task['action']=='mail-adapter-build' else adapter.verify()
                     self.store.audit(context,'mail.adapter_prepared' if task['action']=='mail-adapter-build' else 'mail.adapter_verified','server',{'generation':result['generation'],'native':result['native']})
+                elif task['action'] in ('mail-protection-enable','mail-protection-disable'):
+                    from .mail_protection import MailProtection
+                    protection=MailProtection(self.settings,self.store,self.hestia)
+                    result=protection.enable(context,progress=lambda phase:self.store.task_progress(task,phase)) if task['action']=='mail-protection-enable' else protection.disable()
+                    self.store.audit(context,task['action'],'server',result)
                 elif task['action'].startswith('mail-integration-'):
                     from .mail_integration import MailIntegration
                     integration=MailIntegration(self.settings,self.store,self.hestia)

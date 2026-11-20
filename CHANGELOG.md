@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.4.0
+
+- Add one Enable mail protection action for the server: prepare missing signature
+  and YARA data, verify/start the owned native integration, then enable inherited
+  mail policies. Existing domain/mailbox overrides and native filter precedence
+  are preserved; future domains inherit the same default.
+- Display queued preparation and verification automatically. Enabled requires a
+  verified connection, an active lifecycle and enabled inherited defaults.
+- Put technical integration/adapter controls, domain settings, quarantine,
+  history and recovery inside a closed Advanced section. Disable uses the
+  existing safe drain lifecycle and retains policies and quarantined email.
+
 ## 1.3.0
 
 - Replace per-website scan inputs with account/website dropdowns, an all-websites

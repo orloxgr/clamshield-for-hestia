@@ -117,6 +117,16 @@ test('dashboard reports stopped and unapplied states with escaped values and rea
   }finally{await f.close();}
 });
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
+test('email normal view keeps technical controls closed and management links open the right section',async()=>{
+  const f=fixture({hash:'#email'});
+  try{await settle();const advanced=f.document.getElementById('cs-mail-advanced');
+    assert.equal(advanced.open,false);
+    assert.equal(f.document.getElementById('cs-mail-protection-toggle').closest('details'),null);
+    for(const selector of ['[data-action="mail-adapter-build"]','[data-action="mail-integration-enable"]','#cs-mail-policy','#cs-mail-history-form','#cs-mail-quarantine-form'])assert.ok(f.document.querySelector(selector).closest('#cs-mail-advanced'));
+    f.click('[data-focus-id="cs-mail-domain"]');assert.equal(advanced.open,true);assert.deepEqual(f.visible(),['mail']);
+    advanced.open=false;f.click('[data-focus-id="cs-mail-quarantine-form"]');assert.equal(advanced.open,true);
+  }finally{await f.close();}
+});
 const inactive={configured:false}, installed={configured:true,profile:'extended',enabled:5089,version:'fixture-new',generation:'generation-installed',created:1};
 function installSnapshot(status,phase,active=inactive){return {pending:['queued','running'].includes(status),active,latest:{status,phase,profile:'extended',generation:installed.generation,activated:status==='completed'}};}
 test('one Install click downloads, checks and activates with automatic progress and no advanced controls',async()=>{

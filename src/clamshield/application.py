@@ -88,6 +88,13 @@ class Application:
             task=self.store.enqueue_task(task_context,action,payload)
             self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},'resources.queued','server',{'task_id':task,'action':action})
             return {'queued':True,'task_id':task}
+        if action in ('mail-protection-status','mail-protection-enable','mail-protection-disable'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            if action=='mail-protection-status':
+                from .mail_protection import MailProtection
+                return {**self.store.mail_protection_status(task_context),'protection':MailProtection(self.settings,self.store,self.hestia).status()}
+            return {'queued':True,'task_id':self.store.enqueue_task(task_context,action,{})}
         if action in ('mail-integration-status','mail-integration-enable','mail-integration-disable','mail-integration-refresh','mail-integration-recover'):
             if not context['admin']:raise AccessDenied('Administrator access required')
             from .mail_integration import MailIntegration

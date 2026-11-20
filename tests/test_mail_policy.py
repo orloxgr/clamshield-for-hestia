@@ -6,7 +6,7 @@ import unittest
 from unittest.mock import Mock
 
 from clamshield.application import Application
-from clamshield.errors import AccessDenied, ClamShieldError
+from clamshield.errors import AccessDenied, ClamShieldError, Conflict
 from clamshield.hestia import Hestia
 from clamshield import mail_inventory
 from clamshield.mail_policy import DEFAULTS, PERMISSIONS, MailPolicies, effective, evaluate, transaction_plan, validate
@@ -54,6 +54,42 @@ class MailPolicyTests(unittest.TestCase):
 
     def policy(self, **kwargs):
         return effective(validate({'enabled': True, **kwargs}))
+
+    def test_server_activation_inherits_across_accounts_and_future_domains(self):
+        self.assertFalse(self.mail.get(self.context,'alice.test')['effective']['enabled'])
+        self.mail.enable_server_defaults(self.native.authorize('admin'))
+        for context,domain in ((self.context,'alice.test'),(self.native.authorize('bob'),'bob.test')):
+            value=self.mail.get(context,domain)
+            self.assertTrue(value['effective']['enabled']);self.assertEqual({},value['overrides'])
+        self.domain_rows['bob']['future.test']={};self.account_rows['future.test']={}
+        self.assertTrue(self.mail.get(self.native.authorize('bob'),'future.test')['effective']['enabled'])
+
+    def test_server_activation_preserves_overrides_and_reset_inherits_enabled(self):
+        self.mail.save(self.context,'alice.test','',{'enabled':False,'spam_threshold':7,'exceptions':[self.exception()]})
+        self.mail.save(self.context,'alice.test','first',{'enabled':True,'spam_action':'tag'})
+        self.mail.enable_server_defaults(self.native.authorize('admin'))
+        self.assertFalse(self.mail.get(self.context,'alice.test')['effective']['enabled'])
+        box=self.mail.get(self.context,'alice.test','first')['effective']
+        self.assertTrue(box['enabled']);self.assertEqual(7,box['spam_threshold']);self.assertEqual('tag',box['spam_action'])
+        self.assertEqual([self.exception()],box['exceptions'])
+        self.mail.save(self.context,'alice.test','',None,reset=True)
+        self.assertTrue(self.mail.get(self.context,'alice.test')['effective']['enabled'])
+
+    def test_global_default_change_invalidates_stale_edits_and_requires_current_admin(self):
+        revision=self.mail.get(self.context,'alice.test')['revision']
+        with self.assertRaises(AccessDenied):self.mail.enable_server_defaults(self.context)
+        admin=self.native.authorize('admin');self.mail.enable_server_defaults(admin)
+        with self.assertRaises(Conflict):self.mail.save(self.context,'alice.test','',{'enabled':False},revision=revision)
+        self.ids['admin']='replacement'
+        with self.assertRaises(AccessDenied):self.mail.enable_server_defaults(admin)
+
+    def test_recreated_account_inherits_only_server_default(self):
+        self.mail.save(self.context,'alice.test','',{'enabled':False,'spam_threshold':9})
+        self.mail.enable_server_defaults(self.native.authorize('admin'))
+        self.ids['alice']='replacement'
+        value=self.mail.get(self.native.authorize('alice'),'alice.test')
+        self.assertEqual({},value['overrides']);self.assertTrue(value['effective']['enabled'])
+        self.assertEqual(5,value['effective']['spam_threshold'])
 
     def verdict(self, result=None, **policy):
         return evaluate(self.policy(**policy), result or scan(), sender='sender@remote.test', sha256='a' * 64, now=100)
