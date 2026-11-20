@@ -336,6 +336,42 @@ class Store:
             result.update(status='running', worker=worker, started=now)
             return result
 
+    def interrupt_for_update(self):
+        """Called with exclusive installation ownership after controllers stop.
+
+        Preserve interrupted evidence. Ordinary scans start afresh under the new
+        engines; recovery/repair work keeps its journals for explicit recovery.
+        The whole transition commits together, so installer retries cannot add
+        duplicate replacement jobs or lose the interruption record.
+        """
+        restartable={'manual','scheduled','signature-update','watch-initial','watch',
+                     'wordpress-integrity','wordpress-recovery-recheck'}
+        interrupted=requeued=0
+        with self.connection(True) as db:
+            for job in db.execute("SELECT * FROM jobs WHERE status='running'").fetchall():
+                replacement=None;now=time.time()
+                if not job['cancel_requested'] and job['source'] in restartable:
+                    replacement=uuid.uuid4().hex
+                    db.execute('''INSERT INTO jobs
+                      (id,owner,identity,domain,root,target,source,actor,created,generation,dedup_key)
+                      VALUES(?,?,?,?,?,?,?,?,?,?,?)''',
+                      (replacement,job['owner'],job['identity'],job['domain'],job['root'],job['target'],
+                       job['source'],job['actor'],now,'unknown','installation:'+job['id']))
+                    requeued+=1
+                status='cancelled' if job['cancel_requested'] else 'failed'
+                message='Interrupted for ClamShield update; previous scan coverage is incomplete'
+                if replacement:message+='; full replacement scan queued: '+replacement
+                db.execute('UPDATE jobs SET status=?,finished=?,heartbeat=?,error=? WHERE id=?',
+                           (status,now,now,message,job['id']))
+                context=dict(actor='clamshield-installer',owner=job['owner'],identity=job['identity'])
+                detail=dict(domain=job['domain'],job_id=job['id'],replacement_job=replacement,
+                            counters=json.loads(job['counters']),error=message)
+                self.audit(context,'installation.scan_interrupted',job['id'],detail,db)
+                self.notify(job['owner'],job['identity'],'scan.update_interrupted',job['domain'],detail,job['id'],db)
+                if replacement:self.audit(context,'scan.queued',replacement,dict(domain=job['domain'],target=job['target'],replaces=job['id']),db)
+                interrupted+=1
+        return dict(interrupted=interrupted,requeued=requeued)
+
     def cancelled(self, job_id):
         with self.connection() as db:
             row = db.execute('SELECT cancel_requested FROM jobs WHERE id=?', (job_id,)).fetchone()

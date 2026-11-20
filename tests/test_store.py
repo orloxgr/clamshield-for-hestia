@@ -3,6 +3,7 @@ from pathlib import Path
 import tempfile
 import sqlite3
 import unittest
+from unittest.mock import patch
 
 from clamshield.errors import AccessDenied, Conflict
 from clamshield.store import Store,SCHEMA
@@ -57,6 +58,51 @@ class ScopedStore(unittest.TestCase):
         self.assertEqual([], self.store.list_findings(self.bob))
         self.assertEqual([], self.store.history(self.bob))
         self.assertEqual(job_id, job['id'])
+
+    def test_update_keeps_scan_evidence_and_queues_exact_scoped_fresh_scan_once(self):
+        original=self.store.enqueue(self.alice,self.site,'uploads',source='manual',generation='old')
+        job=self.store.claim('interrupted-worker')
+        counters=dict(seen=8,scanned=7,infected=1,errors=0)
+        self.store.progress(original,counters)
+        self.store.add_finding(job,'uploads/bad.php',{'sha256':'abc'},dict(engine='yara',signature='Test',provider='local'))
+        self.store.file_result(original,'uploads/bad.php','infected',{'fixture':True})
+        self.assertEqual(dict(interrupted=1,requeued=1),self.store.interrupt_for_update())
+        old=self.store.job(self.alice,original)
+        self.assertEqual('failed',old['status']);self.assertEqual(counters,old['counters'])
+        self.assertIn('coverage is incomplete',old['error'])
+        replacements=[row for row in self.store.list_jobs(self.alice) if row['id']!=original]
+        self.assertEqual(1,len(replacements));new=replacements[0]
+        for field in ('owner','identity','actor','domain','root','target','source'):
+            self.assertEqual(old[field],new[field])
+        self.assertEqual('queued',new['status']);self.assertEqual({},new['counters'])
+        self.assertEqual('unknown',new['generation'])
+        self.assertEqual(1,len(self.store.list_findings(self.alice)))
+        with self.store.connection() as db:
+            self.assertEqual(1,db.execute('SELECT count(*) FROM file_results WHERE job_id=?',(original,)).fetchone()[0])
+        self.assertEqual(dict(interrupted=0,requeued=0),self.store.interrupt_for_update())
+        self.assertEqual(2,len(self.store.list_jobs(self.alice)))
+        for foreign in (self.bob,self.alice|{'identity':'recreated'}):
+            self.assertEqual([],self.store.list_jobs(foreign));self.assertEqual([],self.store.history(foreign))
+        self.assertEqual(new['id'],self.store.claim('new-worker')['id'])
+
+    def test_update_never_replays_mutations_cancelled_work_or_unclaimed_jobs(self):
+        repair=self.store.enqueue(self.alice,self.site,source='repair-preview')
+        self.store.claim('worker')
+        cancelled=self.store.enqueue(self.alice,self.site)
+        self.store.claim('other-worker');self.store.cancel(self.alice,cancelled)
+        queued=self.store.enqueue(self.alice,self.site)
+        self.assertEqual(dict(interrupted=2,requeued=0),self.store.interrupt_for_update())
+        self.assertEqual('failed',self.store.job(self.alice,repair)['status'])
+        self.assertEqual('cancelled',self.store.job(self.alice,cancelled)['status'])
+        self.assertEqual('queued',self.store.job(self.alice,queued)['status'])
+        self.assertEqual(3,len(self.store.list_jobs(self.alice)))
+
+    def test_update_interruption_and_replacement_roll_back_together(self):
+        original=self.store.enqueue(self.alice,self.site);self.store.claim('worker')
+        with patch.object(self.store,'audit',side_effect=RuntimeError('Simulated interruption')):
+            with self.assertRaises(RuntimeError):self.store.interrupt_for_update()
+        self.assertEqual('running',self.store.job(self.alice,original)['status'])
+        self.assertEqual(1,len(self.store.list_jobs(self.alice)))
 
     def test_dashboard_totals_include_rows_beyond_preview_limits_and_isolate_account_generation(self):
         old = self.store.enqueue(self.alice, self.site)

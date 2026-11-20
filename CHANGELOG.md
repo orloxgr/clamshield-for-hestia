@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.5.3
+
+- Give installation and updates priority over background scans: close admission,
+  pause owned timers and stop verified ClamShield controllers before acquiring
+  the application lock, with bounded waits and escalation for stuck controllers.
+- Keep interrupted scan findings, coverage and history. Queue ordinary scans
+  again from the beginning; retain repair/recovery work for journaled recovery
+  and review instead of replaying mutations automatically.
+
 ## 1.5.2
 
 - Restore the required SpamAssassin validation helper in the public checkout and

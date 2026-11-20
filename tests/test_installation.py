@@ -4,20 +4,25 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
 from unittest.mock import Mock,patch
 
 from clamshield.atomic import write_json
 from clamshield.errors import Conflict
-from clamshield.installation import Installation,UNITS,TIMERS
+from clamshield.installation import Installation,UNITS,TIMERS,CONTROLLERS
 from clamshield.resources import DEFAULTS,render,revision
 from clamshield.settings import Settings
 
 
 class FixtureInstallation(Installation):
     def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.calls=[]
-    def system(self,*args,**kwargs):self.calls.append(args);return subprocess.CompletedProcess(args,0,b'',b'')
+    def system(self,*args,**kwargs):
+        self.calls.append(args)
+        output=b'inactive\n'*len(CONTROLLERS) if args[:3]==('show','--property=ActiveState','--value') else b''
+        return subprocess.CompletedProcess(args,0,output,b'')
     def detach_mail(self):self.calls.append(('detach-mail',))
     def recover_operations(self):self.calls.append(('recover-operations',))
     def unload_profile(self,path):self.calls.append(('unload-profile',str(path)))
@@ -152,6 +157,87 @@ class InstalledLifecycle(unittest.TestCase):
             fcntl.flock(fd,fcntl.LOCK_EX|fcntl.LOCK_NB);fcntl.flock(fd,fcntl.LOCK_UN)
         finally:os.close(fd)
 
+    def controller_process(self,ignore_term=False,release_lock=False):
+        fd=os.open(self.settings.state/'installation.lock',os.O_CREAT|os.O_RDWR,0o600);os.close(fd)
+        script='''import fcntl,signal,sys,time
+lock=open(sys.argv[1],'a+b');fcntl.flock(lock,fcntl.LOCK_SH)
+if sys.argv[2]=='ignore':signal.signal(signal.SIGTERM,signal.SIG_IGN)
+if sys.argv[2]=='release':signal.signal(signal.SIGTERM,lambda *_:fcntl.flock(lock,fcntl.LOCK_UN))
+print('ready',flush=True)
+time.sleep(60)
+'''
+        child=subprocess.Popen([sys.executable,'-c',script,str(self.settings.state/'installation.lock'),
+                                'release' if release_lock else 'ignore' if ignore_term else 'normal'],stdout=subprocess.PIPE,text=True)
+        def cleanup():
+            if child.poll() is None:child.kill()
+            child.wait(timeout=5);child.stdout.close()
+        self.addCleanup(cleanup)
+        self.assertEqual('ready',child.stdout.readline().strip())
+        return child
+
+    def test_update_closes_admission_and_stops_real_lock_holder_before_publishing(self):
+        child=self.controller_process();system=self.installation.system
+        def stop(*args,**kwargs):
+            self.assertTrue(self.installation.install_journal.exists())
+            with self.assertRaises(Conflict):self.installation.available()
+            if args==('stop','--no-block',*CONTROLLERS):child.terminate()
+            if args[0]=='show':
+                return subprocess.CompletedProcess(args,0,(b'inactive\n' if child.poll() is not None else b'deactivating\n')*len(CONTROLLERS),b'')
+            return system(*args,**kwargs)
+        started=time.monotonic()
+        with patch.object(self.installation,'system',side_effect=stop):
+            with self.installation.update(self.release,grace=1,timeout=1):
+                child.wait(timeout=1)
+                self.assertTrue(self.installation.install_journal.exists())
+                self.assertEqual(b'Preserved quarantine original',self.custody.read_bytes())
+                self.installation.finish_install()
+        self.assertLess(time.monotonic()-started,5)
+        self.assertEqual(('stop',*TIMERS),self.installation.calls[0])
+        self.assertEqual(('stop','--no-block',*CONTROLLERS),self.installation.calls[1])
+        self.installation.available()
+
+    def test_update_escalates_only_recorded_controllers_when_they_ignore_stop(self):
+        child=self.controller_process(ignore_term=True,release_lock=True);system=self.installation.system
+        def stop(*args,**kwargs):
+            if args==('stop','--no-block',*CONTROLLERS):child.terminate()
+            if args[0]=='kill':child.kill()
+            if args[0]=='show':
+                return subprocess.CompletedProcess(args,0,(b'inactive\n' if child.poll() is not None else b'deactivating\n')*len(CONTROLLERS),b'')
+            return system(*args,**kwargs)
+        with patch.object(self.installation,'system',side_effect=stop):
+            with self.installation.update(self.release,grace=.1,timeout=1):pass
+        self.assertIn(('kill','--kill-whom=all','--signal=SIGKILL',*CONTROLLERS),self.installation.calls)
+        self.assertTrue(self.installation.install_journal.exists())
+
+    def test_update_lock_timeout_retains_gate_and_never_kills_an_arbitrary_request(self):
+        with self.installation.runtime():
+            with self.assertRaises(TimeoutError):
+                with self.installation.update(self.release,grace=0,timeout=0):
+                    self.fail('No publication while an active request holds the lock')
+        self.assertTrue(self.installation.install_journal.exists())
+        self.assertTrue(all('exim4' not in arg and 'hestia' not in arg for call in self.installation.calls for arg in call))
+
+    def test_foreign_controller_is_refused_before_admission_or_services_change(self):
+        path=self.root/'etc/systemd/system/clamshield-worker.service';path.write_text('Foreign controller')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.release):pass
+        self.assertFalse(self.installation.install_journal.exists());self.assertEqual([],self.installation.calls)
+
+    def test_partial_publication_retry_accepts_exact_owned_new_unit_only(self):
+        self.installation.begin_install(self.release)
+        units=self.release/'systemd';units.mkdir()
+        name='clamshield-worker.service';content='# Managed by clamshield\nNew owned version\n'
+        (units/name).write_text(content)
+        (self.root/'etc/systemd/system'/name).write_text(content)
+        with self.installation.update(self.release,grace=0,timeout=0):pass
+        self.assertIn(('stop','--no-block',*CONTROLLERS),self.installation.calls)
+
+    def test_fresh_install_opens_gate_without_stopping_foreign_system_services(self):
+        self.installation.target.unlink();self.installation.manifest.unlink()
+        with self.installation.update(self.release):
+            self.assertTrue(self.installation.install_journal.exists())
+        self.assertEqual([],self.installation.calls)
+
     def resource_fixture(self,enabled=None,active=False):
         if enabled is not None:write_json(self.settings.state/'website-engine.json',dict(owner='clamshield',schema=1,enabled=enabled,changed_at=1))
         resource=Mock();resource.locked.side_effect=lambda:nullcontext();resource.worker_lock.side_effect=lambda:nullcontext()
@@ -225,6 +311,15 @@ class InstalledLifecycle(unittest.TestCase):
         with patch('clamshield.resources.Resources',return_value=resource):
             with self.assertRaisesRegex(Conflict,'did not finish'):self.installation.recover_configuration()
         self.assertTrue(self.installation.install_journal.exists());self.assertTrue((self.settings.state/'resources-activation.json').exists())
+
+    def test_interrupted_mail_transition_is_recovered_before_code_publication(self):
+        path=self.settings.state/'mail-integration-journal.json';write_json(path,{})
+        integration=Mock()
+        def recover():path.unlink();return {'recovered':True}
+        integration.recover.side_effect=recover
+        with patch('clamshield.mail_integration.MailIntegration',return_value=integration):
+            result=self.installation.recover_configuration()
+        self.assertEqual({'recovered':True},result[path.name]);integration.recover.assert_called_once()
 
     def test_linked_or_writable_recovery_metadata_is_refused_before_controllers(self):
         path=self.settings.state/'resources-activation.json';path.symlink_to(self.custody)

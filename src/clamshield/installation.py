@@ -31,14 +31,84 @@ class Installation:
     def at(self,path):return self.root/path.lstrip('/')
 
     @contextmanager
-    def locked(self,*,exclusive=False,control=False):
+    def locked(self,*,exclusive=False,control=False,timeout=None):
         self.settings.prepare();path=self.settings.state/('installation-control.lock' if control else 'installation.lock')
         fd=os.open(path,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'a+b') as stream:
             info=os.fstat(fd)
             if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_nlink!=1 or info.st_mode&0o077:
                 raise Conflict('Untrusted installation lock')
-            fcntl.flock(stream,fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH);yield
+            operation=fcntl.LOCK_EX if exclusive else fcntl.LOCK_SH
+            if timeout is None:
+                fcntl.flock(stream,operation)
+            else:
+                deadline=time.monotonic()+timeout
+                while True:
+                    try:fcntl.flock(stream,operation|fcntl.LOCK_NB);break
+                    except BlockingIOError:
+                        if time.monotonic()>=deadline:
+                            raise TimeoutError('ClamShield installation lock is still held by an active request; retry the installer')
+                        time.sleep(.05)
+            yield
+
+    def update_units(self):
+        """Only interrupt controllers recorded as our exact owned integrations."""
+        manifest=self.read(self.manifest);pending=self.read(self.install_journal)
+        if manifest is None and not self.target.exists():return (),()
+        inventory=self.inventory() if manifest is not None else {'files':{}}
+        published=None
+        if pending and pending.get('owner')=='clamshield' and pending.get('schema')==1 and self.target.exists():
+            published=self.target.resolve();self.code(published)
+        selected=[]
+        for names in (TIMERS,CONTROLLERS):
+            units=[]
+            for name in names:
+                path=self.at('/etc/systemd/system')/name
+                if not path.exists() and not path.is_symlink():continue
+                actual=self.digest(path);expected=inventory['files'].get(str(path))
+                staged=published/'systemd'/name if published else None
+                if actual!=expected and not (staged and staged.is_file() and actual==self.digest(staged)):
+                    raise Conflict('Owned controller changed outside installation: '+name)
+                units.append(name)
+            selected.append(tuple(units))
+        return tuple(selected)
+
+    @contextmanager
+    def update(self,source,*,grace=15,timeout=15,report=lambda _message:None):
+        """Close admission before stopping background work, then publish exclusively."""
+        with self.locked(exclusive=True,control=True,timeout=15):
+            timers,controllers=self.update_units()
+            self.begin_install(source)
+            report('Update takes priority: new ClamShield requests are paused')
+            if timers:
+                report('Pausing ClamShield background timers')
+                self.system('stop',*timers,timeout=20)
+            if controllers:
+                report('Stopping ClamShield background jobs; scan results and recovery journals are retained')
+                self.system('stop','--no-block',*controllers,timeout=10)
+                if not self.controllers_stopped(controllers,grace):
+                    report('Stopping remaining ClamShield controller processes')
+                    self.system('kill','--kill-whom=all','--signal=SIGKILL',*controllers,check=False,timeout=10)
+                    if not self.controllers_stopped(controllers,timeout):
+                        raise TimeoutError('ClamShield controllers did not stop; installation remains paused for retry')
+            report('Finishing active requests before applying the update')
+            with self.locked(exclusive=True,timeout=timeout):
+                if self.settings.database.exists():
+                    from .store import Store
+                    result=Store(self.settings.database).interrupt_for_update()
+                    report('Interrupted scans retained: '+str(result['interrupted'])+'; full scans queued again: '+str(result['requeued']))
+                yield
+
+    def controllers_stopped(self,controllers,timeout):
+        # A subprocess can outlive its lock-holding Python parent. Do not publish
+        # code/config until systemd has finished stopping the complete services.
+        deadline=time.monotonic()+timeout
+        while True:
+            result=self.system('show','--property=ActiveState','--value',*controllers,timeout=5)
+            states=result.stdout.decode().split()
+            if len(states)==len(controllers) and all(state in ('inactive','failed') for state in states):return True
+            if time.monotonic()>=deadline:return False
+            time.sleep(.05)
 
     @contextmanager
     def runtime(self):
@@ -151,7 +221,8 @@ class Installation:
 
     def recover_configuration(self):
         """Recover existing scanner intent before publication, under installer gates."""
-        names=('resources-activation.json','signature-activation.json','spamassassin-activation.json','website-engine-activation.json')
+        names=('resources-activation.json','signature-activation.json','spamassassin-activation.json','website-engine-activation.json',
+               'mail-integration-journal.json')
         pending=[name for name in names if (self.settings.state/name).exists() or (self.settings.state/name).is_symlink()]
         if not pending:return {}
         self.code(self.target.resolve())
@@ -160,12 +231,15 @@ class Installation:
         from .resources import Resources
         from .signatures import Signatures
         from .spamassassin import SpamAssassinControls
+        from .mail_integration import MailIntegration
+        from .hestia import Hestia
         from .store import Store
         resources=Resources(self.settings,unit_dir=self.at('/etc/systemd/system'))
         handlers={'resources-activation.json':resources.recover_limits,
             'signature-activation.json':lambda:Signatures(self.settings).recover(),
             'spamassassin-activation.json':lambda:SpamAssassinControls(self.settings).recover(),
-            'website-engine-activation.json':resources.recover_website}
+            'website-engine-activation.json':resources.recover_website,
+            'mail-integration-journal.json':lambda:MailIntegration(self.settings,Store(self.settings.database),Hestia(self.settings.hestia)).recover()}
         store=Store(self.settings.database);context=dict(actor='clamshield-installer',owner='@admin',identity='');result={}
         for name in pending:
             path=self.settings.state/name
@@ -247,8 +321,8 @@ class Installation:
         return files
 
     @staticmethod
-    def system(*args,check=True):
-        result=subprocess.run(['/usr/bin/systemctl',*args],capture_output=True,timeout=180)
+    def system(*args,check=True,timeout=180):
+        result=subprocess.run(['/usr/bin/systemctl',*args],capture_output=True,timeout=timeout)
         if check and result.returncode:raise ClamShieldError('Owned installation service operation failed')
         return result
 

@@ -111,12 +111,10 @@ def perform(args):
     from clamshield.installation import Installation
     from clamshield.settings import Settings
     lifecycle=Installation(Settings())
-    progress.stage('Waiting for the installation control lock')
-    with lifecycle.locked(exclusive=True,control=True):
-        progress.stage('Waiting for current ClamShield requests to finish')
-        with lifecycle.locked(exclusive=True):
-            progress.stage('Installation locks acquired')
-            return install(args,lifecycle)
+    progress.stage('Acquiring installation priority')
+    with lifecycle.update(SOURCE,report=progress.stage):
+        progress.stage('Installation locks acquired')
+        return install(args,lifecycle)
 
 
 def install(args,lifecycle):
@@ -143,7 +141,7 @@ def install(args,lifecycle):
         run(str(hestia / 'php/bin/php'), '-l', str(path))
     progress.stage('[3/10] Recovering any interrupted scanner configuration')
     lifecycle.recover_configuration()
-    lifecycle.begin_install(SOURCE)
+    if lifecycle.settings.database.exists():lifecycle.recover_operations()
     progress.stage('[4/10] Publishing application code and native Hestia integration')
     extension_directory(hestia / 'web/plugins')
     extension_directory(Path('/etc/systemd/system/exim4.service.d'))
