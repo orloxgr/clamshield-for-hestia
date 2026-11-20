@@ -132,6 +132,14 @@
   controls(state);
  }
  document.addEventListener('clamshield-mail-rows',event=>{for(const state of states.values())if(state.native&&state.body===event.detail)selectRows(state);});
+ document.addEventListener('submit',async event=>{
+  const form=event.target;if(!form.matches('.cs-review-email-deliver'))return;event.preventDefault();
+  const button=form.querySelector('button'),status=form.querySelector('.cs-review-email-status');if(button.disabled||!form.reportValidity())return;
+  button.disabled=true;status.textContent='Queueing delivery to the stored recipient…';
+  try{await api('mail-release',{owner:form.closest('[data-owner]').dataset.owner,delivery_id:form.dataset.delivery,note:form.elements.note.value});
+   const state=states.get('email-stored');state.outcome='Email queued for its stored recipient. Delivery is not confirmed yet.';load(state);
+  }catch(error){status.textContent=error.message;button.disabled=false;}
+ });
  function selected(){for(const state of states.values())if(!state.body.closest('[data-page]').hidden&&!state.loaded)load(state);}
  document.addEventListener('clamshield-tab-change',selected);
  document.addEventListener('clamshield-review-refresh',event=>{for(const state of states.values())if(state.kind===event.detail)load(state);});

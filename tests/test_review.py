@@ -201,8 +201,8 @@ class ReviewTests(unittest.TestCase):
             insert('exceptions',id='exception',owner=owner,identity=identity,actor=owner,domain='alice.test',root=root,path='fixture.php',kind='file',engine='yara',signature='Fixture',sha256='a'*64,note='Fixture',created=1)
             insert('remediation_actions',id='automatic',owner=owner,identity=identity,actor=owner,job_id=job,finding_id=finding,path='fixture.php',status='quarantined',created=1,updated=1,detail=encode(dict(policy=dict(mode='quarantine'),operation_id='operation')))
             insert('maintenance',id='task',owner=owner,identity=identity,actor=owner,action='signatures-update',payload='{}',created=1)
-            insert('mail_transactions',id='transaction',exim_id='fixture-exim',created=1,updated=1,status='accepted',sha256='a'*64,size=1,metadata='{}')
-            insert('mail_recipients',id='recipient',transaction_id='transaction',owner=owner,identity=identity,domain='alice.test',mailbox='inbox',recipient='inbox@alice.test',action='tag',status='delivered',created=1,updated=1,detail='{}')
+            insert('mail_transactions',id='transaction',exim_id='fixture-exim',created=1,updated=1,status='committed',sha256='a'*64,size=1,metadata=encode(dict(summary={'Subject':'<img src=subject>'},envelope={'sender':'sender@site.test'})))
+            insert('mail_recipients',id='recipient',transaction_id='transaction',owner=owner,identity=identity,domain='alice.test',mailbox='inbox',recipient='inbox@alice.test',action='quarantine',status='quarantined',created=1,updated=1,detail='{}')
             insert('mail_decisions',id='decision',owner=owner,identity=identity,domain='alice.test',mailbox='inbox',recipient='inbox@alice.test',sender='sender@site.test',exim_id='fixture-exim',created=1,sha256='a'*64,action='tag',classification='clean',detail='{}')
         renderer=Path(__file__).resolve().parents[1]/'panel/review_render.php'
         code="set_error_handler(function($s,$m){throw new ErrorException($m,0,$s);});$data=json_decode(stream_get_contents(STDIN),true);$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];"
@@ -212,3 +212,4 @@ class ReviewTests(unittest.TestCase):
             result=subprocess.run(['php','-d','display_errors=stderr','-r',code,str(renderer)],input=encode(value),capture_output=True,text=True)
             self.assertEqual(0,result.returncode,result.stderr);self.assertEqual('',result.stderr,kind)
             if kind=='notices':self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)
+            if kind=='email-stored':self.assertIn('Deliver anyway',result.stdout);self.assertIn('&lt;img',result.stdout);self.assertNotIn('<img',result.stdout)

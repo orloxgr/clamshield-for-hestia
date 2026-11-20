@@ -256,6 +256,17 @@ test('account email bulk controls retain the original preview and delivery row a
   }finally{await f.close();}
 });
 
+test('Global Deliver anyway queues once for the recorded account and original recipient without leaving Global',async()=>{
+  let finish;
+  const html='<tr data-owner="bob"><td><form class="cs-review-email-deliver" data-delivery="stored-recipient"><input name="note" required><button type="submit">Deliver anyway</button><p class="cs-review-email-status"></p></form></td></tr>';
+  const f=fixture({hash:'#review/email-review',change:v=>{v.context.view_scope='server';},api:async body=>body.action==='mail-release'?new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,queued:true})});}):body.action==='review-list'?reviewResponse(body,{html:body.list==='email-stored'?html:'<tr><td>Decision</td></tr>'}):{ok:false,json:async()=>({ok:false,error:'Unused fixture API'})}});
+  try{await settle();const form=f.document.querySelector('.cs-review-email-deliver');form.elements.note.value='Reviewed sender and attachment';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    const sent=f.requests.filter(r=>r.action==='mail-release');assert.equal(sent.length,1);assert.equal(sent[0].owner,'bob');assert.equal(sent[0].delivery_id,'stored-recipient');assert.equal(sent[0].note,'Reviewed sender and attachment');assert.equal(sent[0].recipient,undefined);
+    finish();await settle();assert.deepEqual(f.visible(),['email-review']);assert.match(f.document.querySelector('[data-review-pager=email-stored]').nextElementSibling.textContent,/queued.*Delivery is not confirmed/);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('notification preferences save selected types and Bell without reload while filters retain access to recorded events',async()=>{
   const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found'),notice('scan.partial','notice-two'),notice('wordpress.integrity_issues','notice-three')],api:async body=>({ok:true,json:async()=>({ok:true,...notificationSettings(body.action==='notification-settings-save'?JSON.parse(body.policy):{})})})});
   try{await settle();const form=f.document.getElementById('cs-notification-preferences');assert.equal(form.elements.bell.checked,false);
