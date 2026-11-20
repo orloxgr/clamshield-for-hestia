@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.2.4
+
+- Add 12px bottom spacing below the dashboard panel grid.
+
 ## 1.2.3
 
 - Give every ClamShield card 12px padding on all four sides.
