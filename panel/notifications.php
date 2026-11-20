@@ -57,7 +57,7 @@ $notification_counts = ['scanned'=>'Scanned files', 'infected'=>'Files with dete
         $subject=$notification_subjects[$subject]??$subject;
     $title=$notification_labels[$notification['event']]??ucfirst(str_replace(['.','_'],' ',(string)$notification['event']));
 ?>
-<tr><td><?=$escape(gmdate('Y-m-d H:i:s',(int)$notification['created']))?></td>
+<tr data-owner="<?=$escape($notification['owner']??$data['context']['owner'])?>"><td><?php if($cs_global): ?><?=$escape($notification['owner']??'Server')?><br><?php endif ?><?=$escape(gmdate('Y-m-d H:i:s',(int)$notification['created']))?></td>
 <td><?=$escape($title)?></td><td><?=$escape($subject)?>
 <?php foreach($parts as $part): ?><p><?=$escape($part)?></p><?php endforeach ?>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Technical details</summary><pre style="white-space:pre-wrap"><?=$escape(json_encode(['event'=>$notification['event'],'detail'=>$notification['detail']],JSON_PRETTY_PRINT))?></pre></details>

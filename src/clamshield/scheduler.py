@@ -70,7 +70,35 @@ class Scheduler:
         with self.store.connection() as db:
             row = db.execute('SELECT settings,root FROM policies WHERE owner=? AND identity=? AND domain=?',
                              (*self.store.scope(context), site['domain'])).fetchone()
-        return validate_policy(json.loads(row['settings'])) if row and row['root'] == site['root'] else dict(DEFAULTS)
+        defaults=self.defaults(context)
+        return validate_policy(defaults|json.loads(row['settings'])) if row and row['root'] == site['root'] else defaults
+
+    def defaults(self,context,server=False):
+        if server and not context.get('admin'):raise AccessDenied('Administrator access required')
+        with self.store.connection() as db:
+            global_row=db.execute("SELECT settings FROM policies WHERE owner='@server' AND identity='' AND domain=''").fetchone()
+            row=None if server else db.execute("SELECT settings FROM policies WHERE owner=? AND identity=? AND domain=''",self.store.scope(context)).fetchone()
+        return validate_policy((json.loads(global_row['settings']) if global_row else {}) | (json.loads(row['settings']) if row else {}))
+
+    def save_defaults(self,context,value,server=False,reset=False):
+        live=self.hestia.authorize(context['actor'],context['owner'])
+        if live['identity']!=context['identity'] or server and not live['admin']:raise AccessDenied('Schedule scope unavailable')
+        scope=('@server','') if server else self.store.scope(context)
+        policy=validate_policy(value) if not reset else {}
+        with self.store.connection(True) as db:
+            if reset:db.execute("DELETE FROM policies WHERE owner=? AND identity=? AND domain=''",scope)
+            else:db.execute('''INSERT INTO policies VALUES(?,?,?,'',?,?) ON CONFLICT(owner,identity,domain)
+                DO UPDATE SET settings=excluded.settings,last_slot=excluded.last_slot''',
+                (*scope,'',encode(policy),schedule_slot(policy,datetime.now(timezone.utc))))
+            self.store.audit(dict(live,owner='@admin',identity='') if server else live,'policy.defaults_saved','server' if server else context['owner'],policy,db)
+        return self.defaults(context,server)
+
+    def reset(self,context,site):
+        if (site['owner'],site['identity'])!=self.store.scope(context):raise AccessDenied('Site unavailable')
+        with self.store.connection(True) as db:
+            db.execute('DELETE FROM policies WHERE owner=? AND identity=? AND domain=?',(*self.store.scope(context),site['domain']))
+            self.store.audit(context,'policy.reset',site['domain'],{},db)
+        return self.policy(context,site)
 
     def save(self, context, site, settings, now=None):
         if (site['owner'], site['identity']) != self.store.scope(context):
@@ -127,6 +155,10 @@ class Scheduler:
 
     def site(self, context, site, generation, now):
         policy = self.policy(context, site)
+        if policy['frequency']!='never':
+            with self.store.connection(True) as db:
+                inherited=db.execute("SELECT last_slot FROM policies WHERE domain='' AND ((owner=? AND identity=?) OR (owner='@server' AND identity='')) ORDER BY CASE WHEN owner='@server' THEN 1 ELSE 0 END LIMIT 1",self.store.scope(context)).fetchone()
+                if inherited:db.execute('INSERT OR IGNORE INTO policies VALUES(?,?,?,?,?,?)',(*self.store.scope(context),site['domain'],site['root'],'{}',inherited['last_slot']))
         pending = [row for row in self.pending(context, site['domain']) if row['source'] not in ('wordpress-integrity', 'repair-preview','yara-trial')]
         if any(row['target'] == '' for row in pending):
             return []

@@ -50,6 +50,7 @@ class MailCustodyTests(unittest.TestCase):
         self.custody = MailCustody(self.settings, self.store, self.native)
         self.policies = MailPolicies(self.store, self.native)
         self.alice, self.bob = self.native.authorize('alice'), self.native.authorize('bob')
+        for owner in ('alice','bob'):self.policies.save_permissions(self.native.authorize('admin',owner),dict.fromkeys(PERMISSIONS,True))
         self.fds = []; self.addCleanup(lambda: [os.close(fd) for fd in self.fds])
         self.request = self.request_for()
 
@@ -248,7 +249,7 @@ class MailCustodyTests(unittest.TestCase):
     def test_permissions_and_native_generation_changes_guard_preview_release_delete(self):
         self.capture(); delivery = self.delivery(self.alice)
         admin = self.native.authorize('admin', 'alice')
-        self.policies.save_permissions(admin, PERMISSIONS | {'release': False, 'delete': False})
+        self.policies.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | {'release': False, 'delete': False})
         with self.assertRaises(AccessDenied): self.custody.queue_release(self.alice, delivery, 'reviewed')
         with self.assertRaises(AccessDenied): self.custody.queue_release(self.alice | {'admin': True}, delivery, 'forged role')
         with self.assertRaises(AccessDenied): self.custody.delete(self.alice, delivery)

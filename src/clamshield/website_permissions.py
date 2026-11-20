@@ -17,7 +17,7 @@ LABELS=dict(scan='Run website and integrity scans',schedule='Change scan schedul
     repair='Prepare and apply trusted or backup replacements',cleanup='Prepare and apply recognized infection cleaning',
     exceptions='Manage website detection exceptions',automatic='Change automatic website actions',
     rule_trials='Run YARA comparison trials')
-ACTIONS={'scan':'scan','wordpress-scan':'scan','policy-save':'schedule','quarantine':'quarantine',
+ACTIONS={'scan':'scan','wordpress-scan':'scan','policy-save':'schedule','policy-reset':'schedule','policy-defaults-save':'schedule','policy-defaults-reset':'schedule','quarantine':'quarantine',
     'restore':'restore','repair-preview':'repair','repair-backup-preview':'repair','repair-hestia-preview':'repair',
     'cleanup-preview':'cleanup','repair-undo':'restore','exception-add':'exceptions','exception-remove':'exceptions',
     'rules-trial':'rule_trials','remediation-policy-save':'automatic','repair-apply':None}
@@ -44,15 +44,19 @@ class WebsitePermissions:
         if live['identity']!=context['identity']:raise AccessDenied('Website permission account was replaced')
         return live
 
-    def snapshot(self,context):
-        with self.store.connection() as db:row=db.execute('SELECT * FROM website_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()
+    def snapshot(self,context,server=False):
+        with self.store.connection() as db:
+            row=db.execute('SELECT * FROM website_permissions WHERE owner=? AND identity=?',('@server','') if server else self.store.scope(context)).fetchone()
+            if row is None and not server:row=db.execute("SELECT * FROM website_permissions WHERE owner='@server' AND identity=''").fetchone()
         if not row:return dict(permissions=dict(DEFAULTS),revision='default',updated=0)
         values=json.loads(row['settings'])
         if set(values)!=set(DEFAULTS) or any(type(v) is not bool for v in values.values()):raise AccessDenied('Website permission data requires administrator review')
         return dict(permissions=values,revision=row['revision'],updated=row['updated'])
 
-    def get(self,context):
-        live=self.native(context);result=self.snapshot(context)
+    def get(self,context,server=False):
+        live=self.native(context)
+        if server and not live['admin']:raise AccessDenied('Administrator access required')
+        result=self.snapshot(context,server)
         return result|dict(effective=dict(DEFAULTS) if live['admin'] else result['permissions'],labels=LABELS)
 
     def require(self,context,capability):
@@ -62,18 +66,19 @@ class WebsitePermissions:
             raise AccessDenied(LABELS[capability]+' is disabled by the administrator')
         return live
 
-    def save(self,context,value):
-        if not isinstance(value,dict) or set(value)!=set(DEFAULTS) or any(type(v) is not bool for v in value.values()):
+    def save(self,context,value,server=False,reset=False):
+        if not reset and (not isinstance(value,dict) or set(value)!=set(DEFAULTS) or any(type(v) is not bool for v in value.values())):
             raise ClamShieldError('Choose a boolean value for every website permission')
         with self.locked(True):
             live=self.native(context)
             if not live['admin']:raise AccessDenied('Administrator access required')
-            revision=uuid.uuid4().hex;updated=time.time()
+            revision=uuid.uuid4().hex;updated=time.time();scope=('@server','') if server else self.store.scope(context)
             with self.store.connection(True) as db:
-                db.execute('INSERT INTO website_permissions VALUES(?,?,?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings,updated=excluded.updated,revision=excluded.revision',
-                    (*self.store.scope(context),encode(value),updated,revision))
-                self.store.audit(live,'website.permissions_saved',live['owner'],dict(permissions=value,revision=revision),db)
-        return self.get(context)
+                if reset:db.execute('DELETE FROM website_permissions WHERE owner=? AND identity=?',scope)
+                else:db.execute('INSERT INTO website_permissions VALUES(?,?,?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings,updated=excluded.updated,revision=excluded.revision',
+                    (*scope,encode(value),updated,revision))
+                self.store.audit(dict(live,owner='@admin',identity='') if server else live,'website.permissions_saved','server' if server else live['owner'],dict(permissions=value,revision=revision),db)
+        return self.get(context,server)
 
     @contextmanager
     def guard(self,context,action,request):

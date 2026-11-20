@@ -29,7 +29,7 @@ class MailRetentionTests(unittest.TestCase):
 
     def permission(self, owner, **changes):
         context = self.native.authorize('admin', owner)
-        return self.policies.save_permissions(context, dict(PERMISSIONS)|changes)
+        return self.policies.save_permissions(context, dict.fromkeys(PERMISSIONS,True)|changes)
 
     def test_default_keeps_originals_and_preview_never_changes_policy_or_custody(self):
         staged = self.capture()

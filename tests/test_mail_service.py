@@ -38,8 +38,8 @@ class MailBrokerTests(unittest.TestCase):
     def broker(self):return MailBroker(self.settings,self.store,self.native,self.factory,native=self.transport)
 
     def enable(self):
-        self.policies.save(self.alice,'alice.test','',dict(enabled=True,malware_action='quarantine'))
-        self.policies.save(self.bob,'bob.test','',dict(enabled=True,malware_action='reject'))
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='quarantine'))
+        self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='reject'))
 
     def exchange(self,broker=None,protocol='esmtp'):
         broker=broker or self.broker();client,server=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
@@ -70,7 +70,7 @@ class MailBrokerTests(unittest.TestCase):
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_delivery_attempts').fetchone()[0])
 
     def test_mixed_unmanaged_recipient_stays_native_and_others_are_captured(self):
-        self.policies.save(self.alice,'alice.test','',dict(enabled=True))
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))
         self.assertEqual((4,'custody'),self.exchange())
         self.assertEqual(1,len(self.custody.list(self.alice)['messages']))
         self.assertEqual([],self.custody.list(self.bob)['messages'])

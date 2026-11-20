@@ -19,7 +19,7 @@ DEFAULTS = {'enabled': False, 'malware_action': 'reject', 'phishing_action': 'qu
             'spam_action': 'junk', 'spam_high_action': 'reject', 'block_action': 'quarantine',
             'spam_threshold': 5.0, 'spam_high_threshold': 15.0, 'signature_spam_score': 5.0,
             'allow_senders': [], 'block_senders': [], 'exceptions': []}
-PERMISSIONS = {'manage_policy': True, 'manage_exceptions': True, 'release': True, 'delete': True}
+PERMISSIONS = {'manage_policy': False, 'manage_exceptions': False, 'release': False, 'delete': False}
 ACTIONS = {'deliver': 0, 'tag': 1, 'junk': 2, 'quarantine': 3, 'reject': 4, 'defer': 5}
 
 
@@ -226,22 +226,104 @@ class MailPolicies:
             raise AccessDenied('Mailbox unavailable')
         return row, mailbox
 
-    def permissions(self, context):
-        with self.store.connection() as db:
-            row = db.execute('SELECT settings FROM mail_permissions WHERE owner=? AND identity=?', self.store.scope(context)).fetchone()
-        return dict(PERMISSIONS) | (json.loads(row['settings']) if row else {})
+    def permissions(self, context, db=None):
+        if db is None:
+            with self.store.connection() as connection:return self.permissions(context,connection)
+        global_row=db.execute("SELECT settings FROM mail_permissions WHERE owner='@server' AND identity=''").fetchone()
+        row=db.execute('SELECT settings FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()
+        return dict(PERMISSIONS) | (json.loads(global_row['settings']) if global_row else {}) | (json.loads(row['settings']) if row else {})
 
-    def save_permissions(self, context, value):
+    def server(self, context, db=None):
+        if not context['admin']:raise AccessDenied('Administrator access required')
+        if db is None:
+            with self.store.connection() as connection:return self.server(context,connection)
+        defaults=self.server_defaults(db)
+        row=db.execute("SELECT settings FROM mail_permissions WHERE owner='@server' AND identity=''").fetchone()
+        permissions=dict(PERMISSIONS) | (json.loads(row['settings']) if row else {})
+        return dict(defaults=effective(defaults),permissions=permissions,
+                    revision=policy_revision(defaults,permissions))
+
+    def save_server(self, context, value, revision):
+        live=self.hestia.authorize(context['actor'],context['actor'])
+        if not live['admin'] or live['identity']!=context['identity']:raise AccessDenied('Administrator account changed')
+        if not isinstance(value,dict) or set(value)!={'defaults','permissions'}:
+            raise ClamShieldError('Choose server mail defaults and hosting-user permissions')
+        defaults=validate(value['defaults']);permissions=value['permissions']
+        if set(defaults)&{'enabled','exceptions'}:raise ClamShieldError('Server activation is managed by Enable mail protection')
+        if not isinstance(permissions,dict) or set(permissions)!=set(PERMISSIONS) or any(type(v) is not bool for v in permissions.values()):
+            raise ClamShieldError('Invalid mail permissions')
+        with self.store.connection(True) as db:
+            current=self.server(context,db)
+            if revision!=current['revision']:raise Conflict('Server mail settings changed. Refresh before saving.')
+            saved=self.server_defaults(db)|defaults;effective(saved)
+            # Validate the complete hierarchy together. Old account generations
+            # are excluded; they cannot block or inherit a new account's policy.
+            rows=db.execute("SELECT * FROM mail_policies WHERE owner<>'@server'").fetchall()
+            identities={}
+            for row in rows:
+                if row['owner'] not in identities:
+                    try:identities[row['owner']]=self.hestia.identity(row['owner'])
+                    except AccessDenied:identities[row['owner']]=None
+            domains={(r['owner'],r['identity'],r['domain']):validate(json.loads(r['settings'])) for r in rows if not r['mailbox']}
+            for row in rows:
+                if identities.get(row['owner'])!=row['identity']:continue
+                parent=saved|domains.get((row['owner'],row['identity'],''),{})|domains.get((row['owner'],row['identity'],row['domain']),{})
+                effective(parent,validate(json.loads(row['settings'])) if row['mailbox'] else {})
+            db.execute("INSERT INTO mail_policies VALUES('@server','','','',?,?) ON CONFLICT(owner,identity,domain,mailbox) DO UPDATE SET settings=excluded.settings,updated=excluded.updated",(encode(saved),time.time()))
+            db.execute("INSERT INTO mail_permissions VALUES('@server','',?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings",(encode(permissions),))
+            self.store.audit(dict(actor=live['actor'],owner='@admin',identity=''),'mail.server_settings_saved','server',value,db)
+        return self.server(context)
+
+    def account_defaults(self,context,db):
+        return self.server_defaults(db)|self._saved(context,'','',db)
+
+    def account(self,context):
+        if not context['admin']:raise AccessDenied('Administrator access required')
+        self.targets(context)
+        with self.store.connection() as db:
+            db.execute('BEGIN')
+            defaults=self.account_defaults(context,db);permissions=self.permissions(context,db)
+            return dict(defaults=effective(defaults),permissions=permissions,
+                        revision=policy_revision(defaults,permissions))
+
+    def save_account(self,context,value,revision,reset=False):
+        if not context['admin']:raise AccessDenied('Administrator access required')
+        self.targets(context)
+        if not reset and (not isinstance(value,dict) or set(value)!={'defaults','permissions'}):
+            raise ClamShieldError('Choose account mail defaults and permissions')
+        defaults={} if reset else validate(value['defaults'])
+        if set(defaults)&{'enabled','exceptions'}:raise ClamShieldError('Mail activation is managed by the server administrator')
+        permissions=self.permissions(context) if reset else value['permissions']
+        if not isinstance(permissions,dict) or set(permissions)!=set(PERMISSIONS) or any(type(v) is not bool for v in permissions.values()):
+            raise ClamShieldError('Invalid mail permissions')
+        with self.store.connection(True) as db:
+            previous=self.account_defaults(context,db)
+            if revision!=policy_revision(previous,self.permissions(context,db)):raise Conflict('Account mail defaults changed. Refresh before saving.')
+            parent=self.server_defaults(db)|defaults;effective(parent)
+            rows=db.execute('SELECT * FROM mail_policies WHERE owner=? AND identity=? AND domain<>\'\'',self.store.scope(context)).fetchall()
+            domains={row['domain']:validate(json.loads(row['settings'])) for row in rows if not row['mailbox']}
+            for row in rows:effective(parent|domains.get(row['domain'],{}),validate(json.loads(row['settings'])) if row['mailbox'] else {})
+            if reset:
+                db.execute("DELETE FROM mail_policies WHERE owner=? AND identity=? AND domain='' AND mailbox=''",self.store.scope(context))
+                db.execute('DELETE FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context))
+            else:
+                db.execute('INSERT INTO mail_policies VALUES(?,?,?,?,?,?) ON CONFLICT(owner,identity,domain,mailbox) DO UPDATE SET settings=excluded.settings,updated=excluded.updated',(*self.store.scope(context),'','',encode(defaults),time.time()))
+                db.execute('INSERT INTO mail_permissions VALUES(?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings',(*self.store.scope(context),encode(permissions)))
+            self.store.audit(context,'mail.account_defaults_reset' if reset else 'mail.account_defaults_saved',context['owner'],value,db)
+        return self.account(context)
+
+    def save_permissions(self, context, value, reset=False):
         if not context['admin']:
             raise AccessDenied('Administrator access required')
-        if not isinstance(value, dict) or set(value) != set(PERMISSIONS) or any(type(v) is not bool for v in value.values()):
+        if not reset and (not isinstance(value, dict) or set(value) != set(PERMISSIONS) or any(type(v) is not bool for v in value.values())):
             raise ClamShieldError('Invalid mail permissions')
         self.targets(context)
         with self.store.connection(True) as db:
-            db.execute('INSERT INTO mail_permissions VALUES(?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings',
-                       (*self.store.scope(context), encode(value)))
+            if reset:db.execute('DELETE FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context))
+            else:db.execute('INSERT INTO mail_permissions VALUES(?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings',
+                            (*self.store.scope(context), encode(value)))
             self.store.audit(context, 'mail.permissions_saved', context['owner'], value, db)
-        return dict(value)
+        return self.permissions(context)
 
     def _saved(self, context, domain, mailbox, db):
         row = db.execute('SELECT settings FROM mail_policies WHERE owner=? AND identity=? AND domain=? AND mailbox=?',
@@ -270,9 +352,11 @@ class MailPolicies:
         with self.store.connection() as db:
             db.execute('BEGIN')
             saved = self._saved(context, target['domain'], '', db)
-            parent = self.server_defaults(db) | saved
+            defaults = self.account_defaults(context,db)
+            parent = defaults | saved
             overrides = self._saved(context, target['domain'], mailbox, db) if mailbox else saved
         resolved = effective(parent, overrides if mailbox else {})
+        if 'enabled' in defaults:resolved['enabled']=defaults['enabled']
         return {'domain': target['domain'], 'mailbox': mailbox, 'overrides': overrides,
                 'effective': resolved,
                 'revision': policy_revision(parent, overrides),
@@ -295,12 +379,14 @@ class MailPolicies:
 
     def save(self, context, domain, mailbox, value, reset=False, revision=None):
         target, mailbox = self.target(context, domain, mailbox)
-        permissions = self.permissions(context)
-        if not context['admin'] and not permissions['manage_policy']:
-            raise AccessDenied('Mail policy changes are disabled for this account')
         value = {} if reset else validate(value)
         with self.store.connection(True) as db:
-            defaults = self.server_defaults(db)
+            permissions=self.permissions(context,db)
+            if not context['admin'] and not permissions['manage_policy']:
+                raise AccessDenied('Mail policy changes are disabled for this account')
+            defaults = self.account_defaults(context,db)
+            if not context['admin'] and 'enabled' in value:
+                raise AccessDenied('Mail protection activation is managed by the server administrator')
             parent = defaults | self._saved(context, target['domain'], '', db)
             old = self._saved(context, target['domain'], mailbox, db)
             check_revision(revision, parent, old)
@@ -335,12 +421,10 @@ class MailPolicies:
         if operation == 'inherit' and not mailbox:
             raise ClamShieldError('Only a mailbox can inherit domain exceptions')
         with self.store.connection(True) as db:
-            row = db.execute('SELECT settings FROM mail_permissions WHERE owner=? AND identity=?',
-                             self.store.scope(context)).fetchone()
-            permissions = dict(PERMISSIONS) | (json.loads(row['settings']) if row else {})
+            permissions = self.permissions(context,db)
             if not context['admin'] and not permissions['manage_exceptions']:
                 raise AccessDenied('Mail exception changes are disabled for this account')
-            parent = self.server_defaults(db) | self._saved(context, target['domain'], '', db)
+            parent = self.account_defaults(context,db) | self._saved(context, target['domain'], '', db)
             old = self._saved(context, target['domain'], mailbox, db)
             check_revision(revision, parent, old)
             proposed = deepcopy(old)

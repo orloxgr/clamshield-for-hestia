@@ -3,12 +3,13 @@
   'use strict';
   const root=document.getElementById('cs-wp-recovery');if(!root)return;
   const by=id=>document.getElementById('cs-wp-'+id),form=by('analyze'),output=by('status'),plans=by('plans');
+  const owners=new Map();
   let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null,epoch=0,refreshWanted=false,workId=null;
   const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const text=(tag,value)=>{const node=document.createElement(tag);node.textContent=value;return node;};
   async function api(action,fields={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...fields})});
+    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:owners.get(fields.plan_id||plan?.id)||root.dataset.owner,action,...fields})});
     const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Recovery request failed');return value;
   }
   function controls(){
@@ -62,8 +63,8 @@
     draw(value.items,append);by('more').hidden=next===null;controls();
   }
   async function list(){
-    const value=await api('wordpress-recovery-list'),current=plans.value;plans.replaceChildren(text('option','Choose a plan'));plans.firstChild.value='';
-    for(const item of value.plans){const option=text('option',item.domain+' · '+item.status+' · '+new Date(item.created*1000).toLocaleString());option.value=item.id;plans.append(option);}plans.value=current;loaded=true;
+    const value=await api('wordpress-recovery-list',{scope:root.dataset.scope}),current=plans.value;plans.replaceChildren(text('option','Choose a plan'));plans.firstChild.value='';
+    for(const item of value.plans){owners.set(item.id,item.owner||root.dataset.owner);const option=text('option',(root.dataset.scope==='server'?item.owner+' / ':'')+item.domain+' · '+item.status+' · '+new Date(item.created*1000).toLocaleString());option.value=item.id;plans.append(option);}plans.value=current;loaded=true;
   }
   async function refresh(append=false){
     if(loading||busy){refreshWanted=true;return;}if(!visible())return;stop();loading=true;const current=epoch;
@@ -81,7 +82,7 @@
     event.preventDefault();if(busy)return;busy=true;controls();stop();output.textContent='Queuing WordPress analysis…';let failure=null;
     try{const values=new FormData(form),policy={versions:{},packages:{}};for(const key of ['uploads_php','uploads_js','additional','database'])policy[key]=values.has(key);
       for(const [component,value]of Object.entries(sources)){if(value.version)policy.versions[component]=value.version;if(value.path)policy.packages[component]=value.path;}
-      const result=await api('wordpress-recovery-analyze',{domain:values.get('domain'),path:values.get('path'),policy:JSON.stringify(policy)});
+      const result=await api('wordpress-recovery-analyze',{owner:form.elements.domain.selectedOptions[0]?.dataset.owner||root.dataset.owner,domain:values.get('domain'),path:values.get('path'),policy:JSON.stringify(policy)});
       epoch++;await list();plans.value=result.plan_id;plan=null;initialized=null;
     }catch(error){failure=error.message;}
     finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}

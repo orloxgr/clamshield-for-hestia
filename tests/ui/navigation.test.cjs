@@ -38,6 +38,56 @@ function fixture(options={}){
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
 const queuedScans=async body=>({ok:true,json:async()=>body.action==='scan-targets'?{ok:true,sites:[{domain:'bob.test',suspended:false},{domain:'suspended.test',suspended:true}]}:{ok:true,jobs:['scan-one','scan-two']}});
+
+test('Global admin view defaults the scan target and progress to the entire server',async()=>{
+  const f=fixture({hash:'#scan',change:values=>{values.context.view_scope='server';values.sites[0].owner='bob';values.accounts.push({owner:'bob'});},api:queuedScans});
+  try{const form=f.document.getElementById('cs-scan-target');
+    assert.equal(f.document.getElementById('cs-owner').value,'');assert.equal(form.elements.owner.value,'');
+    assert.equal(form.elements.domain.disabled,true);assert.equal(f.document.getElementById('cs-scan-start').disabled,false);
+    assert.match(form.elements.domain.textContent,/All websites on this server/);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests.at(-1),{token:'fixture-token',owner:'alice',action:'scan',scope:'server'});
+    const progress=new URL(f.document.getElementById('cs-scan-target-progress').href);
+    assert.equal(progress.searchParams.get('scope'),'server');assert.equal(progress.searchParams.has('owner'),false);
+    form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    assert.equal(form.elements.domain.disabled,false);
+    form.elements.owner.value='';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    assert.equal(form.elements.domain.disabled,true);assert.equal(f.document.getElementById('cs-scan-start').disabled,false);
+  }finally{await f.close();}
+});
+
+const mailDefaults={malware_action:'reject',phishing_action:'quarantine',spam_action:'junk',spam_high_action:'reject',block_action:'quarantine',spam_threshold:5,spam_high_threshold:15,signature_spam_score:5,allow_senders:[],block_senders:[]};
+const mailPermissions={manage_policy:false,manage_exceptions:false,release:false,delete:false};
+test('Global Email Shield loads server settings and all-account activity without reading admin mail domains',async()=>{
+  const f=fixture({hash:'#email',change:values=>{values.context.view_scope='server';values.accounts.push({owner:'bob'});},api:async body=>({ok:true,json:async()=>({ok:true,...(body.action==='mail-server-activity'?{totals:{domains:2,quarantine:1,decisions:4},accounts:[{owner:'bob',domains:2,quarantine:1,decisions:4}],quarantine:[{owner:'bob',recipient:'inbox@bob.test',created:1,status:'quarantined'}],decisions:[]}:{defaults:mailDefaults,permissions:mailPermissions,revision:'server-revision'})})})});
+  try{await settle();
+    assert.ok(f.requests.some(row=>row.action==='mail-server-get'));assert.ok(f.requests.some(row=>row.action==='mail-server-activity'));
+    assert.equal(f.requests.some(row=>row.action==='mail-dashboard'),false);
+    assert.equal(f.document.getElementById('cs-mail-domain'),null);
+    assert.match(f.document.getElementById('cs-mail-server-totals').textContent,/2 mail domains/);
+    const link=new URL(f.document.querySelector('#cs-mail-server-accounts a').href);assert.equal(link.searchParams.get('owner'),'bob');assert.equal(link.searchParams.has('scope'),false);
+    const form=f.document.getElementById('cs-mail-server-form');assert.equal(form.elements.namedItem('enabled'),null);
+    assert.equal(form.elements.manage_policy.checked,false);form.elements.spam_threshold.value='7';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const saved=f.requests.find(row=>row.action==='mail-server-save');assert.equal(saved.revision,'server-revision');
+    assert.equal(JSON.parse(saved.policy).defaults.spam_threshold,7);assert.deepEqual(JSON.parse(saved.policy).permissions,mailPermissions);
+    assert.equal(f.requests.some(row=>row.action==='mail-policy-save'),false);
+  }finally{await f.close();}
+});
+
+test('Global row actions and site schedules send the actual record owner',async()=>{
+  const f=fixture({change:values=>{values.context.view_scope='server';values.sites[0].owner='bob';values.exceptions=[{id:'exception-bob',owner:'bob',domain:'bob.test',path:'inert.php',kind:'file',sha256:'a'.repeat(64),enabled:true}];},api:async()=>({ok:false,json:async()=>({ok:false,error:'Inert fixture: no mutation performed'})})});
+  try{f.click('[data-action=exception-remove]');await settle();assert.equal(f.requests.at(-1).owner,'bob');
+    const site=f.document.querySelector('.cs-policy[data-domain]');site.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.at(-1).owner,'bob');assert.equal(f.requests.at(-1).action,'policy-save');
+    const defaults=f.document.querySelector('.cs-policy[data-save-action]');
+    defaults.elements.watch.click();await settle();assert.equal(f.requests.filter(row=>row.action==='policy-defaults-save').length,0);
+    defaults.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.at(-1).scope,'server');assert.equal(f.requests.at(-1).action,'policy-defaults-save');
+    assert.equal(f.document.getElementById('cs-scans').dataset.viewScope,'server');
+    assert.equal(f.document.getElementById('cs-history-retention'),null);
+  }finally{await f.close();}
+});
 test('scan dropdown chooses account and website without scanning until Scan is pressed',async()=>{
   const f=fixture({hash:'#scan',change:values=>values.accounts.push({owner:'bob'}),api:queuedScans});
   try{const form=f.document.getElementById('cs-scan-target');
@@ -79,7 +129,7 @@ test('full panel opens Dashboard and keeps the ten native menu links while navig
     assert.deepEqual([...menu.children].map(link=>link.textContent),labels);
     for(const link of menu.children){link.click();assert.equal(f.visible().length,1);assert.equal(menu.hidden,false);assert.equal(link.getAttribute('aria-current'),'page');
       for(const sub of f.document.querySelectorAll('[data-subnav]:not([hidden]) [data-tab]')){sub.click();assert.deepEqual(f.visible(),[sub.dataset.tab]);}}
-    assert.equal(f.document.querySelector('[data-page=scheduled] .cs-policy').dataset.domain,'site.test');
+    assert.equal(f.document.querySelector('[data-page=scheduled] .cs-policy[data-domain]').dataset.domain,'site.test');
     assert.equal(f.document.querySelector('[data-page=sites] .cs-policy'),null);
     assert.equal(f.document.querySelectorAll('[id]').length,new Set([...f.document.querySelectorAll('[id]')].map(node=>node.id)).size);
   }finally{await f.close();}

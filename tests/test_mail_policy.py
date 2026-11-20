@@ -40,6 +40,7 @@ class MailPolicyTests(unittest.TestCase):
                             'bob': {'bob.test': {}}, 'admin': {}}
         self.account_rows = {'alice.test': {'first': {'ALIAS': 'alias', 'FWD_ONLY': 'no'}, 'second': {}},
                              'bob.test': {'other': {}}}
+        self.mail.save_permissions(self.native.authorize('admin','alice'),dict.fromkeys(PERMISSIONS,True))
 
     def call(self, command, *args):
         if command == 'v-list-user':
@@ -65,10 +66,10 @@ class MailPolicyTests(unittest.TestCase):
         self.assertTrue(self.mail.get(self.native.authorize('bob'),'future.test')['effective']['enabled'])
 
     def test_server_activation_preserves_overrides_and_reset_inherits_enabled(self):
-        self.mail.save(self.context,'alice.test','',{'enabled':False,'spam_threshold':7,'exceptions':[self.exception()]})
-        self.mail.save(self.context,'alice.test','first',{'enabled':True,'spam_action':'tag'})
+        self.mail.save(self.native.authorize('admin','alice'),'alice.test','',{'enabled':False,'spam_threshold':7,'exceptions':[self.exception()]})
+        self.mail.save(self.native.authorize('admin','alice'),'alice.test','first',{'enabled':True,'spam_action':'tag'})
         self.mail.enable_server_defaults(self.native.authorize('admin'))
-        self.assertFalse(self.mail.get(self.context,'alice.test')['effective']['enabled'])
+        self.assertTrue(self.mail.get(self.context,'alice.test')['effective']['enabled'])
         box=self.mail.get(self.context,'alice.test','first')['effective']
         self.assertTrue(box['enabled']);self.assertEqual(7,box['spam_threshold']);self.assertEqual('tag',box['spam_action'])
         self.assertEqual([self.exception()],box['exceptions'])
@@ -79,12 +80,12 @@ class MailPolicyTests(unittest.TestCase):
         revision=self.mail.get(self.context,'alice.test')['revision']
         with self.assertRaises(AccessDenied):self.mail.enable_server_defaults(self.context)
         admin=self.native.authorize('admin');self.mail.enable_server_defaults(admin)
-        with self.assertRaises(Conflict):self.mail.save(self.context,'alice.test','',{'enabled':False},revision=revision)
+        with self.assertRaises(Conflict):self.mail.save(self.context,'alice.test','',{'spam_threshold':6},revision=revision)
         self.ids['admin']='replacement'
         with self.assertRaises(AccessDenied):self.mail.enable_server_defaults(admin)
 
     def test_recreated_account_inherits_only_server_default(self):
-        self.mail.save(self.context,'alice.test','',{'enabled':False,'spam_threshold':9})
+        self.mail.save(self.native.authorize('admin','alice'),'alice.test','',{'enabled':False,'spam_threshold':9})
         self.mail.enable_server_defaults(self.native.authorize('admin'))
         self.ids['alice']='replacement'
         value=self.mail.get(self.native.authorize('alice'),'alice.test')
@@ -116,9 +117,9 @@ class MailPolicyTests(unittest.TestCase):
             self.mail.list(self.context)
 
     def test_domain_and_mailbox_overrides_retain_inheritance(self):
-        self.mail.save(self.context, 'alice.test', '', {'enabled': True, 'spam_threshold': 6})
+        self.mail.save(self.native.authorize('admin','alice'), 'alice.test', '', {'enabled': True, 'spam_threshold': 6})
         self.mail.save(self.context, 'alice.test', 'first', {'spam_action': 'tag'})
-        self.mail.save(self.context, 'alice.test', '', {'enabled': True, 'spam_threshold': 8})
+        self.mail.save(self.native.authorize('admin','alice'), 'alice.test', '', {'enabled': True, 'spam_threshold': 8})
         value = self.mail.get(self.context, 'alice.test', 'first')
         self.assertEqual({'spam_action': 'tag'}, value['overrides'])
         self.assertEqual(8, value['effective']['spam_threshold'])
@@ -135,13 +136,13 @@ class MailPolicyTests(unittest.TestCase):
 
     def test_admin_controls_tenant_policy_and_exception_permissions(self):
         admin = self.native.authorize('admin', 'alice')
-        self.mail.save_permissions(admin, PERMISSIONS | {'manage_policy': False})
+        self.mail.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | {'manage_policy': False})
         with self.assertRaises(AccessDenied):
             self.mail.save(self.context, 'alice.test', '', {'enabled': True})
         with self.assertRaises(AccessDenied):
             self.mail.save_permissions(self.context, PERMISSIONS)
-        self.mail.save_permissions(admin, PERMISSIONS | {'manage_exceptions': False})
-        self.mail.save(self.context, 'alice.test', '', {'enabled': True})
+        self.mail.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | {'manage_exceptions': False})
+        self.mail.save(self.context, 'alice.test', '', {'spam_threshold': 6})
         with self.assertRaises(AccessDenied):
             self.mail.save(self.context, 'alice.test', '', {'exceptions': [self.exception()]})
         self.mail.save(admin, 'alice.test', '', {'exceptions': [self.exception()]})
@@ -180,7 +181,7 @@ class MailPolicyTests(unittest.TestCase):
         self.assertEqual('reject', evaluate(policy, changed, sender='', sha256='a' * 64, now=100)['action'])
 
     def test_policy_and_decisions_scope_survives_account_recreation(self):
-        self.mail.save(self.context, 'alice.test', '', {'enabled': True})
+        self.mail.save(self.native.authorize('admin','alice'), 'alice.test', '', {'enabled': True})
         target = mail_inventory.resolve(self.mail.targets(self.context), 'first@alice.test')
         request = SimpleNamespace(message_id='native-exim-id', sender='sender@remote.test', recipients=('first@alice.test', 'other@bob.test'))
         self.mail.record(self.context, target, request, 'a' * 64, self.verdict(scan('malware')))
@@ -203,8 +204,8 @@ class MailPolicyTests(unittest.TestCase):
                       {'action': 'mail-verdict', 'scan': scan()}):
             with self.assertRaises(AccessDenied):
                 app.dispatch({'actor': 'alice', **value})
-        result = app.dispatch({'actor': 'alice', 'action': 'mail-policy-save', 'domain': 'alice.test', 'policy': {'enabled': True}})
-        self.assertTrue(result['effective']['enabled'])
+        result = app.dispatch({'actor': 'alice', 'action': 'mail-policy-save', 'domain': 'alice.test', 'policy': {'spam_threshold': 6}})
+        self.assertEqual(6,result['effective']['spam_threshold'])
         self.assertFalse(app.dispatch({'actor': 'alice', 'action': 'mail-dashboard'})['transport_active'])
 
     def test_invalid_policy_values_are_rejected(self):

@@ -1,3 +1,4 @@
+<?php if(($data['context']['view_scope']??'account')!=='server'): ?>
 <?php // Managed by clamshield ?>
 <details id="cs-history-retention" data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-admin="<?=$data['context']['admin']?'true':'false'?>"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>History retention for this hosting account</summary>
 <p>Zero keeps history indefinitely. Positive periods also apply to existing records. Expired scan details, confirmed email decisions and eligible old events are removed in bounded background batches. Scan summaries, open findings, quarantine, repair/recovery evidence, native mail proofs, unread notifications and duplicate-prevention records are retained. This does not change email-body quarantine retention.</p>
@@ -6,3 +7,5 @@
 <p id="cs-history-preview-result" role="status" aria-live="polite"></p>
 <?php if($data['context']['admin']): ?><form id="cs-history-permission"><label><input type="checkbox" name="allowed"> Allow this hosting user to change history retention</label><button class="button" type="submit" disabled>Save history permission</button></form><?php endif ?>
 </details><script><?php readfile(__DIR__.'/history.js'); ?></script>
+
+<?php else: ?><p>Select a hosting account above to manage retention of its scan and email details.</p><?php endif ?>

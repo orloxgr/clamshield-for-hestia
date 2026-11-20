@@ -202,7 +202,7 @@ class MailDeliveryTests(unittest.TestCase):
         worker,native=self.worker();attempt=worker.prepare()
         from clamshield.mail_policy import PERMISSIONS
         admin=self.native.authorize('admin','alice')
-        self.policies.save_permissions(admin,dict(PERMISSIONS,release=False))
+        self.policies.save_permissions(admin,dict(dict.fromkeys(PERMISSIONS,True),release=False))
         with self.assertRaises(AccessDenied):worker.submit(attempt)
         native.submit.assert_not_called()
 

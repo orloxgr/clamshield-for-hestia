@@ -10,6 +10,7 @@
     return node;
   }
   const root = document.getElementById('cs-mail');
+  if(!root||root.dataset.global==='true')return;
   const byId = id => document.getElementById('cs-mail-' + id);
   const status = byId('status'), domain = byId('domain'), mailbox = byId('box');
   let domains = [], current = null, permissions = {}, loaded = false, busy = false;
@@ -19,7 +20,6 @@
   let expirySearch = '', expiryOffset = 0, expiryRevision = 0;
   let reviewSearch = '', reviewOffset = 0, reviewRevision = 0;
   const fields = [
-    ['enabled', 'Apply ClamShield policy', 'boolean'],
     ['malware_action', 'Malware', 'action'], ['phishing_action', 'Phishing', 'action'],
     ['spam_action', 'Spam', 'action'], ['spam_high_action', 'High-score spam', 'action'],
     ['block_action', 'Blocked envelope sender', 'action'],
@@ -81,19 +81,19 @@
         else { input.min = '0'; input.max = '100'; input.step = '0.1'; input.value = value.effective[key]; }
       }
       input.name = key; title.append(input);
-      if (value.mailbox) {
+      if (true) {
         const inherit = document.createElement('label'), toggle = nativeControl('input', 'checkbox');
         toggle.dataset.override = key;
         toggle.checked = Object.hasOwn(value.overrides, key);
         toggle.disabled = !canEdit();
         input.disabled = !canEdit() || !toggle.checked;
         toggle.addEventListener('change', () => { input.disabled = !toggle.checked || !canEdit(); });
-        inherit.append(toggle, document.createTextNode(' Override domain setting')); row.append(' ', inherit);
+        inherit.append(toggle, document.createTextNode(value.mailbox?' Override domain setting':' Override server setting')); row.append(' ', inherit);
       } else input.disabled = !canEdit();
       list.append(row);
     }
     const explanation = document.createElement('p');
-    explanation.textContent = 'The sender allowlist affects spam scoring. Malware and phishing detections still follow their policies. A mailbox inherits each setting unless its override is selected.';
+    explanation.textContent = 'The sender allowlist affects spam scoring. Malware and phishing detections still follow their policies. Domains inherit the server settings; mailboxes inherit their domain. Select an override only for settings you want to change.';
     list.append(explanation);
     byId('exceptions').textContent = value.effective.exceptions.length + ' exact-content false-positive exceptions apply.';
     form.querySelector('button[type="submit"]').disabled = !canEdit(); byId('reset').disabled = !canEdit();
@@ -245,6 +245,7 @@
       renderPermissions(); status.textContent = 'Hosting user email permissions saved.';
     } catch (error) { status.textContent = error.message; }
   });
+  byId('permission-reset')?.addEventListener('click',async()=>{try{const result=await api('mail-permissions-reset');permissions=result.permissions;renderPermissions();await loadPolicy();status.textContent='Account inherits global email permissions.';}catch(error){status.textContent=error.message;}});
   function quarantineException(container, mail, preview) {
     const hits = preview.decision.detections || [];
     if (!hits.length) return;

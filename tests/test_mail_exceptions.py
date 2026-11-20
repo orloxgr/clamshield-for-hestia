@@ -22,10 +22,10 @@ class ScopedExceptionChanges(unittest.TestCase):
 
     def test_exception_permission_is_independent_from_policy_editing(self):
         admin = self.native.authorize('admin', 'alice')
-        self.mail.save_permissions(admin, PERMISSIONS | dict(manage_policy=False))
+        self.mail.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | dict(manage_policy=False))
         self.assertEqual(1, len(self.add()['exception_entries']))
         with self.assertRaises(AccessDenied): self.mail.save(self.context, 'alice.test', '', dict(enabled=True))
-        self.mail.save_permissions(admin, PERMISSIONS | dict(manage_exceptions=False))
+        self.mail.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | dict(manage_exceptions=False))
         with self.assertRaises(AccessDenied): self.add()
         self.mail.change_exception(admin, 'alice.test', '', 'add', self.entry())
 
@@ -155,10 +155,10 @@ class QuarantineFalsePositives(unittest.TestCase):
     def test_exception_permission_does_not_grant_release_and_api_has_no_internal_verdict(self):
         self.capture(); delivery = self.delivery(self.alice)
         admin = self.native.authorize('admin', 'alice')
-        self.policies.save_permissions(admin, PERMISSIONS | dict(manage_policy=False, release=False))
+        self.policies.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | dict(manage_policy=False, release=False))
         app = Application(self.settings,self.store,self.native)
         value = app.dispatch(dict(actor='alice', action='mail-quarantine-exception', delivery_id=delivery, policy=self.value()))
         self.assertEqual(1, len(value['exception_entries']))
         with self.assertRaises(AccessDenied): self.custody.queue_release(self.alice, delivery, 'Review')
-        self.policies.save_permissions(admin, PERMISSIONS | dict(manage_exceptions=False))
+        self.policies.save_permissions(admin, dict.fromkeys(PERMISSIONS,True) | dict(manage_exceptions=False))
         with self.assertRaises(AccessDenied): self.custody.add_exception(self.alice, delivery, self.value())

@@ -48,6 +48,15 @@ class Remediation:
         with self.store.connection() as db:row=db.execute('SELECT * FROM remediation_policies WHERE owner=? AND identity=? AND domain=?',(*self.store.scope(context),domain)).fetchone()
         return dict(row)|{'settings':json.loads(row['settings'])} if row else None
 
+    def account_policy(self,context,local=None):
+        local=self.saved(context,'') if local is None else local
+        common=self.saved(dict(owner='@server',identity=''),'')
+        if not local:return common
+        if local['settings']['mode']!='inherit':return local
+        if not common:return dict(local,settings=dict(local['settings'],mode='report'))
+        return dict(common,updated=max(local['updated'],common['updated']),
+                    revision=hashlib.sha256(encode([local['revision'],common['revision']]).encode()).hexdigest())
+
     def resolve(self,site,account,specific,permissions):
         with directory(site['root']) as fd:
             info=os.fstat(fd);root=dict(path=site['root'],device=info.st_dev,inode=info.st_ino)
@@ -68,7 +77,7 @@ class Remediation:
 
     def effective(self,context,domain):
         site,_=self.native(context,domain)
-        return self.resolve(site,self.saved(context,''),self.saved(context,domain),WebsitePermissions(self.settings,self.store,self.hestia).snapshot(context)),site
+        return self.resolve(site,self.account_policy(context),self.saved(context,domain),WebsitePermissions(self.settings,self.store,self.hestia).snapshot(context)),site
 
     def site_policies(self,context,sites):
         """Use the caller's freshly authorized inventory once for display."""
@@ -76,39 +85,45 @@ class Remediation:
         with self.store.connection() as db:
             saved={row['domain']:dict(row)|{'settings':json.loads(row['settings'])} for row in db.execute('SELECT * FROM remediation_policies WHERE owner=? AND identity=?',self.store.scope(context))}
         permissions=WebsitePermissions(self.settings,self.store,self.hestia).snapshot(context)
+        account=self.account_policy(context,saved.get(''))
         for site in sites:
             try:
                 if site['suspended']:raise AccessDenied('Remediation website is suspended')
                 specific=saved.get(site['domain'])
-                site['remediation']=dict(site=dict(mode=specific['settings']['mode'] if specific else 'inherit'),effective=self.resolve(site,saved.get(''),specific,permissions))
+                site['remediation']=dict(site=dict(mode=specific['settings']['mode'] if specific else 'inherit'),effective=self.resolve(site,account,specific,permissions))
             except (OSError,ClamShieldError):site['remediation']={'error':'Automatic policy unavailable; actions require review'}
 
-    def policy(self,context,domain=None):
+    def policy(self,context,domain=None,server=False):
         self.native(context)
-        account=self.saved(context,'')
-        result=dict(account=dict(mode=account['settings']['mode'] if account else 'report',revision=account['revision'] if account else None))
+        if server and not context['admin']:raise AccessDenied('Administrator access required')
+        account=self.saved(dict(owner='@server',identity='') if server else context,'')
+        common=self.account_policy(context) if not server else account
+        result=dict(account=dict(mode=account['settings']['mode'] if account else ('inherit' if common else 'report'),
+                                 effective_mode=common['settings']['mode'] if common else 'report',revision=account['revision'] if account else None))
         if domain is not None:
             effective,_=self.effective(context,domain);saved=self.saved(context,domain)
             result.update(site=dict(mode=saved['settings']['mode'] if saved else 'inherit'),effective=effective)
         return result
 
-    def save(self,context,policy,domain=None):
-        if not isinstance(policy,dict) or set(policy)!={'mode'} or not isinstance(policy['mode'],str) or policy['mode'] not in MODES+(('inherit',) if domain is not None else ()):
+    def save(self,context,policy,domain=None,server=False):
+        if not isinstance(policy,dict) or set(policy)!={'mode'} or not isinstance(policy['mode'],str) or policy['mode'] not in MODES+(('inherit',) if not server else ()):
             raise ClamShieldError('Choose a supported automatic remediation mode')
         permissions=WebsitePermissions(self.settings,self.store,self.hestia)
         with permissions.locked(),self.locked():
             live=permissions.require(context,'automatic')
+            if server and not live['admin']:raise AccessDenied('Administrator access required')
             selected=policy['mode']
-            if selected=='inherit':selected=self.saved(context,'')['settings']['mode'] if self.saved(context,'') else 'report'
+            if selected=='inherit':selected=self.account_policy(context)['settings']['mode'] if self.account_policy(context) else 'report'
             if not live['admin']:
                 for key in MODE_REQUIREMENTS[selected]:permissions.require(context,key)
             result=self.native(context,domain);settings=dict(policy,authority='administrator' if live['admin'] else 'account')
             if result:settings['root']=result[1]
             now=time.time();revision=uuid.uuid4().hex
             with self.store.connection(True) as db:
-                db.execute('INSERT INTO remediation_policies VALUES(?,?,?,?,?,?) ON CONFLICT(owner,identity,domain) DO UPDATE SET settings=excluded.settings,updated=excluded.updated,revision=excluded.revision',(*self.store.scope(context),domain or '',encode(settings),now,revision))
-                self.store.audit(context,'automatic.policy_saved',domain or 'account',dict(policy,revision=revision),db)
-        return self.policy(context,domain)
+                scope=('@server','') if server else self.store.scope(context)
+                db.execute('INSERT INTO remediation_policies VALUES(?,?,?,?,?,?) ON CONFLICT(owner,identity,domain) DO UPDATE SET settings=excluded.settings,updated=excluded.updated,revision=excluded.revision',(*scope,domain or '',encode(settings),now,revision))
+                self.store.audit(dict(context,owner='@admin',identity='') if server else context,'automatic.policy_saved',domain or ('server' if server else 'account'),dict(policy,revision=revision),db)
+        return self.policy(context,domain,server)
 
     def discover(self,job_id=None):
         with self.store.connection() as db:

@@ -8,13 +8,13 @@
   const options=document.getElementById('cs-scan-path-options'),allowed=form.dataset.allowed==='true',admin=form.dataset.admin==='true';
   let sites=JSON.parse(document.getElementById('cs-scan-initial-sites').textContent),serial=0,loading=false,busy=false;
   function controls(){
-    owner.disabled=!allowed||!admin||busy;domain.disabled=!allowed||loading||busy||!sites.some(site=>!site.suspended);
-    start.disabled=domain.disabled;start.dataset.scope=domain.value?'site':'account';if(all)all.disabled=!allowed||loading||busy;
+    owner.disabled=!allowed||!admin||busy;domain.disabled=!allowed||loading||busy||!owner.value||!sites.some(site=>!site.suspended);
+    start.disabled=!allowed||loading||busy||(!!owner.value&&domain.disabled);start.dataset.scope=!owner.value?'server':(domain.value?'site':'account');if(all)all.disabled=!allowed||loading||busy;
     options.hidden=!domain.value;path.disabled=!allowed||loading||busy||!domain.value;
   }
   function populate(values){
     sites=values;domain.replaceChildren();
-    domain.append(new Option(sites.some(site=>!site.suspended)?'All websites in this account':'No active websites',''));
+    domain.append(new Option(!owner.value?'All websites on this server':(sites.some(site=>!site.suspended)?'All websites in this account':'No active websites'),''));
     for(const site of sites){const option=new Option(site.domain+(site.suspended?' (suspended)':''),site.domain);option.disabled=site.suspended;domain.append(option);}
     path.value='';controls();
   }
@@ -23,7 +23,7 @@
     const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Scan request failed');return result;
   }
   owner.addEventListener('change',async()=>{
-    const version=++serial,account=owner.value;loading=true;sites=[];populate([]);status.textContent='Loading websites…';progress.hidden=true;
+    const version=++serial,account=owner.value;if(!account){loading=false;populate([]);status.textContent='All active websites across all accounts.';progress.hidden=true;return;}loading=true;sites=[];populate([]);status.textContent='Loading websites…';progress.hidden=true;
     try{const result=await api('scan-targets',account);if(version===serial){populate(result.sites);status.textContent=result.sites.some(site=>!site.suspended)?'':'No active websites in this account.';}}
     catch(error){if(version===serial)status.textContent=error.message;}
     finally{if(version===serial){loading=false;controls();}}
@@ -32,10 +32,10 @@
   async function scan(server=false){
     if(!allowed||busy||loading||(server?!admin:start.disabled))return;
     busy=true;controls();progress.hidden=true;status.textContent='Queuing scans…';
-    const account=owner.value,scope=server?'server':(domain.value?'site':'account');
+    server=server||!owner.value;const account=owner.value||form.dataset.actorOwner,scope=server?'server':(domain.value?'site':'account');
     const values=scope==='site'?{scope,domain:domain.value,path:path.value}:{scope};
     try{const result=await api('scan',account,values);status.textContent='Queued '+result.jobs.length+' website scan(s).';
-      const url=new URL(location.href);url.searchParams.set('owner',account);url.searchParams.set('scan_scope',server?'server':'account');url.hash='scan/jobs';progress.href=url.href;progress.hidden=false;
+      const url=new URL(location.href);if(server){url.searchParams.delete('owner');url.searchParams.set('scope','server');}else{url.searchParams.set('owner',account);url.searchParams.delete('scope');}url.searchParams.set('scan_scope',server?'server':'account');url.hash='scan/jobs';progress.href=url.href;progress.hidden=false;
     }catch(error){status.textContent=error.message;}
     finally{busy=false;controls();}
   }

@@ -28,8 +28,14 @@ $actor = $_SESSION['user'] ?? '';
 // Native "log in as" context must retain tenant permissions in the bridge.
 if (($_SESSION['userContext'] ?? '') === 'admin' && !empty($_SESSION['look'])) $actor = $_SESSION['look'];
 $request = ['actor' => $actor, 'native_user' => $_SESSION['user'] ?? '',
-    'native_session' => session_id(), 'owner' => $_GET['owner'] ?? $actor, 'action' => 'dashboard'];
+    'native_session' => session_id(), 'owner' => $_GET['owner'] ?? $actor, 'action' => 'dashboard',
+    'scope' => isset($_GET['owner']) ? 'account' : 'auto'];
+if (isset($_GET['scope'])) {
+    if (!is_string($_GET['scope']) || !in_array($_GET['scope'],['server','account'],true)) $respond(400,['ok'=>false,'error'=>'Invalid view scope.']);
+    $request['scope']=$_GET['scope'];
+}
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    unset($request['scope']);
     if (!empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) $respond(403, ['ok'=>false,'error'=>'Request token invalid or account is read only.']);
     foreach (['owner','action','scope','domain','mailbox','path','job_id','finding_id','operation_id','plan_id','delivery_id','profile','release','provider','name','content','exception_id','kind','note','notification_id','generation','search','source_id','rule_id','revision','stage'] as $key) {

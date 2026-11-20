@@ -41,8 +41,8 @@ class Application:
             raise AccessDenied('Invalid operation')
         from .website_permissions import WebsitePermissions
         permissions=WebsitePermissions(self.settings,self.store,self.hestia)
-        if action=='website-permissions-get':result=permissions.get(context)
-        elif action=='website-permissions-save':result=permissions.save(context,request.get('policy'))
+        if action=='website-permissions-get':result=permissions.get(context,server=request.get('scope')=='server')
+        elif action in ('website-permissions-save','website-permissions-reset'):result=permissions.save(context,request.get('policy'),server=request.get('scope')=='server',reset=action.endswith('-reset'))
         else:
             with permissions.guard(context,action,request) as live:result=self._dispatch(request,live or context)
         if binding is not None:self.hestia.verify_panel_session(binding)
@@ -54,7 +54,15 @@ class Application:
             from .wordpress_recovery import WordPressRecovery
             recovery=WordPressRecovery(self.settings,self.store,self.hestia)
             if action=='wordpress-recovery-analyze':return recovery.analyze(context,request.get('domain'),request.get('path',''),request.get('policy',{}))
-            if action=='wordpress-recovery-list':return {'plans':recovery.list(context)}
+            if action=='wordpress-recovery-list':
+                if request.get('scope')=='server':
+                    if not context['admin']:raise AccessDenied('Administrator access required')
+                    plans=[]
+                    for account in self.hestia.inventory():
+                        live=self.hestia.authorize(context['actor'],account['owner'])
+                        plans.extend(dict(row,owner=live['owner']) for row in recovery.list(live))
+                    return {'plans':sorted(plans,key=lambda row:row['created'],reverse=True)}
+                return {'plans':[dict(row,owner=context['owner']) for row in recovery.list(context)]}
             if action=='wordpress-recovery-status':return recovery.status(context,request.get('plan_id'),request.get('offset',0))
             return recovery.request(context,request.get('plan_id'),action.removeprefix('wordpress-recovery-'),request.get('revision'),request.get('policy'))
         if action=='scan-targets':
@@ -167,8 +175,32 @@ class Application:
             return MailPolicies(self.store,self.hestia).change_exception(context, request.get('domain'),
                 request.get('mailbox',''), operation, request.get('policy'), entry_id=request.get('exception_id'),
                 revision=request.get('revision'))
+        if action=='mail-server-activity':
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            mail=MailPolicies(self.store,self.hestia);custody=MailCustody(self.settings,self.store,self.hestia)
+            accounts=[];decisions=[];quarantine=[];totals=dict(domains=0,decisions=0,quarantine=0)
+            for account in self.hestia.inventory():
+                live=self.hestia.authorize(context['actor'],account['owner'])
+                inventory=mail.list(live);history=mail.decisions(live);stored=custody.list(live)
+                counts=dict(domains=len(inventory['domains']),decisions=history['total'],quarantine=stored['total'])
+                accounts.append(dict(owner=live['owner'],**counts))
+                for key,value in counts.items():totals[key]+=value
+                decisions.extend(dict(row,owner=live['owner']) for row in history['decisions'])
+                quarantine.extend(dict(row,owner=live['owner']) for row in stored['messages'])
+            return dict(accounts=accounts,totals=totals,
+                        decisions=sorted(decisions,key=lambda row:row['created'],reverse=True)[:100],
+                        quarantine=sorted(quarantine,key=lambda row:row['created'],reverse=True)[:100])
+        if action in ('mail-account-get','mail-account-save','mail-account-reset'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            mail=MailPolicies(self.store,self.hestia)
+            return mail.account(context) if action=='mail-account-get' else mail.save_account(context,request.get('policy'),request.get('revision'),reset=action=='mail-account-reset')
+        if action in ('mail-server-get','mail-server-save'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            admin=self.hestia.authorize(context['actor'],context['actor'])
+            mail=MailPolicies(self.store,self.hestia)
+            return mail.save_server(admin,request.get('policy'),request.get('revision')) if action=='mail-server-save' else mail.server(admin)
         if action in ('mail-dashboard', 'mail-policy-get', 'mail-policy-save', 'mail-policy-reset',
-                      'mail-permissions-save', 'mail-decisions'):
+                      'mail-permissions-save', 'mail-permissions-reset', 'mail-decisions'):
             mail = MailPolicies(self.store, self.hestia)
             if action == 'mail-dashboard':
                 return mail.list(context)
@@ -177,55 +209,15 @@ class Application:
             if action in ('mail-policy-save', 'mail-policy-reset'):
                 return mail.save(context, request.get('domain'), request.get('mailbox', ''),
                                  request.get('policy'), reset=action == 'mail-policy-reset', revision=request.get('revision'))
-            if action == 'mail-permissions-save':
-                return {'permissions': mail.save_permissions(context, request.get('policy'))}
+            if action in ('mail-permissions-save','mail-permissions-reset'):
+                return {'permissions': mail.save_permissions(context, request.get('policy'),reset=action=='mail-permissions-reset')}
             return mail.decisions(context, request.get('search', ''), request.get('offset', 0))
         if action == 'dashboard':
-            sites = self.hestia.sites(context['owner'])
-            scheduler = Scheduler(self.settings, self.store, self.hestia)
-            sites = [site | {'policy': scheduler.policy(context, site)} for site in sites]
-            data = {'version': __version__, 'context': context, 'sites': sites,
-                    'summary': self.store.dashboard_counts(context),
-                    'jobs': self.store.list_jobs(context),
-                    'findings': self.store.list_findings(context),
-                    'quarantine': Quarantine(self.settings, self.store, self.hestia).list(context),
-                    'history': self.store.history(context), 'engines': self.engine_status(),
-                    'rules': Rules(self.settings).status(), 'exceptions': Exceptions(self.store).list(context),
-                    'notifications': self.store.notifications(context)}
-            data['wordpress'] = WordPress(self.settings, self.store, self.hestia).list(context)
-            from .readiness import public_status
-            data['website_readiness'] = public_status(Health(self.settings, self.store).status().get('website-coverage'), time.time())
-            from .website_permissions import WebsitePermissions
-            data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context)
-            data['repairs'] = Repairs(self.settings, self.store, self.hestia).list(context)
-            from .remediation import Remediation
-            remediation=Remediation(self.settings,self.store,self.hestia)
-            data['remediation_policy']=remediation.policy(context)
-            data['remediation_history']=remediation.history(context)
-            remediation.site_policies(context,sites)
-            data['rule_candidate'] = RuleManager(self.settings).candidate()
-            data['rule_trials'] = RuleTrials(self.settings,self.store,self.hestia).list(context)
-            from .website_availability import WebsiteAvailability
-            WebsiteAvailability(context, sites).annotate(data)
-            if context['admin']:
-                from .resources import Resources
-                data['resources']=Resources(self.settings).status()
-                data['rule_manager'] = RuleManager(self.settings).status()
-                data['providers'] = Providers(self.settings).public()
-                data['health'] = Health(self.settings, self.store).status()
-                data['signatures'] = Signatures(self.settings).status()
-                from .spamassassin import SpamAssassinControls
-                data['spamassassin'] = SpamAssassinControls(self.settings).status()
-                from .mail_adapter import MailAdapter
-                data['mail_adapter'] = MailAdapter(self.settings).status()
-                from .mail_integration import MailIntegration
-                data['mail_integration'] = MailIntegration(self.settings,self.store,self.hestia).status()
-                task_context = self.hestia.authorize(context['actor'], context['actor'])
-                data['maintenance'] = self.store.list_tasks(task_context)
-                data['accounts'] = [{'owner': a['owner'], 'role': a['role'],
-                                     'suspended': a['suspended'], 'sites': len(a['sites'])}
-                                    for a in self.hestia.inventory()]
-            return data
+            scope=request.get('scope','account')
+            if scope not in ('account','server','auto'):raise AccessDenied('Invalid dashboard scope')
+            server=scope=='server' or scope=='auto' and context['admin']
+            if server and not context['admin']:raise AccessDenied('Administrator access required')
+            return self.dashboard(context,server=server)
         if action=='rules-trial':
             return {'jobs':[RuleTrials(self.settings,self.store,self.hestia).queue(context,request.get('domain'),request.get('path',''),request.get('generation'))]}
         if action=='rules-trial-report':
@@ -239,10 +231,12 @@ class Application:
             automatic=Remediation(self.settings,self.store,self.hestia)
             if action=='remediation-history':return {'actions':automatic.history(context)}
             if action=='remediation-cancel':return automatic.cancel(context,request.get('operation_id'))
-            if request.get('scope','site') not in ('site','account'):raise AccessDenied('Invalid remediation scope')
-            domain=None if request.get('scope')=='account' else request.get('domain')
-            if domain is None and request.get('scope')!='account':raise AccessDenied('Choose a website')
-            result=automatic.save(context,request.get('policy'),domain) if action=='remediation-policy-save' else automatic.policy(context,domain)
+            if request.get('scope','site') not in ('site','account','server'):raise AccessDenied('Invalid remediation scope')
+            server=request.get('scope')=='server'
+            if server and not context['admin']:raise AccessDenied('Administrator access required')
+            domain=None if request.get('scope') in ('account','server') else request.get('domain')
+            if domain is None and request.get('scope') not in ('account','server'):raise AccessDenied('Choose a website')
+            result=automatic.save(context,request.get('policy'),domain,server) if action=='remediation-policy-save' else automatic.policy(context,domain,server)
             return {'policy':result}
         if action=='repair-backups':
             from .native_backups import NativeBackups
@@ -343,11 +337,17 @@ class Application:
             elif action=='rules-build':payload={'revision':manager.status()['revision']}
             self.store.audit(context,action,'rules',{'queued_action':task_action})
             return {'task_id':self.store.enqueue_task(task_context,task_action,payload),'queued':True}
-        if action == 'policy-save':
+        if action in ('policy-defaults-get','policy-defaults-save','policy-defaults-reset'):
+            server=request.get('scope')=='server'
+            if server and not context['admin']:raise AccessDenied('Administrator access required')
+            scheduler=Scheduler(self.settings,self.store,self.hestia)
+            return {'policy':scheduler.defaults(context,server) if action=='policy-defaults-get' else scheduler.save_defaults(context,request.get('policy'),server,reset=action=='policy-defaults-reset')}
+        if action in ('policy-save','policy-reset'):
             site = next((s for s in self.hestia.sites(context['owner']) if s['domain'] == request.get('domain')), None)
             if site is None:
                 raise AccessDenied('Site unavailable')
-            return {'policy': Scheduler(self.settings, self.store, self.hestia).save(context, site, request.get('policy'))}
+            scheduler=Scheduler(self.settings,self.store,self.hestia)
+            return {'policy':scheduler.reset(context,site) if action=='policy-reset' else scheduler.save(context,site,request.get('policy'))}
         if action in ('providers-save', 'signature-local-save', 'signature-local-delete', 'signatures-update', 'signatures-activate', 'signatures-rollback'):
             if not context['admin']:
                 raise AccessDenied('Administrator access required')
@@ -381,6 +381,72 @@ class Application:
             self.store.read_notification(context, request.get('notification_id'))
             return {'read': True}
         raise AccessDenied('Unsupported operation')
+
+    def account_dashboard(self,context,sites=None):
+        sites=self.hestia.sites(context['owner']) if sites is None else sites
+        scheduler=Scheduler(self.settings,self.store,self.hestia)
+        sites=[site|{'policy':scheduler.policy(context,site)} for site in sites]
+        data=dict(sites=sites,summary=self.store.dashboard_counts(context),jobs=self.store.list_jobs(context),
+                  findings=self.store.list_findings(context),quarantine=Quarantine(self.settings,self.store,self.hestia).list(context),
+                  history=self.store.history(context),exceptions=Exceptions(self.store).list(context),
+                  notifications=self.store.notifications(context),wordpress=WordPress(self.settings,self.store,self.hestia).list(context),
+                  repairs=Repairs(self.settings,self.store,self.hestia).list(context),
+                  rule_trials=RuleTrials(self.settings,self.store,self.hestia).list(context))
+        from .website_permissions import WebsitePermissions
+        from .remediation import Remediation
+        data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context)
+        remediation=Remediation(self.settings,self.store,self.hestia)
+        data['remediation_policy']=remediation.policy(context)
+        data['remediation_history']=remediation.history(context)
+        remediation.site_policies(context,sites)
+        from .website_availability import WebsiteAvailability
+        WebsiteAvailability(context,sites).annotate(data)
+        for key in ('jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','rule_trials','remediation_history'):
+            data[key]=[dict(row,owner=row.get('owner',context['owner']),identity=row.get('identity',context['identity'])) for row in data[key]]
+        return data
+
+    def dashboard(self,context,*,server=False):
+        inventory=self.hestia.inventory() if context['admin'] else None
+        if server:
+            context=self.hestia.authorize(context['actor'],context['actor'])
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            keys=('sites','jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','rule_trials','remediation_history')
+            data={key:[] for key in keys};data['summary']=dict(open_findings=0,active_scans=0,quarantined=0)
+            for account in inventory:
+                live=dict(context,owner=account['owner'],identity=account['identity'])
+                account_data=self.account_dashboard(live,account['sites'])
+                for key in keys:data[key].extend(account_data[key])
+                for key,value in account_data['summary'].items():data['summary'][key]+=value
+            data['preview_limits']={}
+            for key in keys[1:]:
+                unique={}
+                for row in data[key]:unique[(row['owner'],row['identity'],str(row.get('id',row.get('job_id',json.dumps(row,sort_keys=True)))))]=row
+                rows=sorted(unique.values(),key=lambda row:row.get('created',0),reverse=True)
+                if len(rows)>500:data['preview_limits'][key]=500
+                data[key]=rows[:500]
+            from .website_permissions import WebsitePermissions
+            from .remediation import Remediation
+            data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context,server=True)
+            data['remediation_policy']=Remediation(self.settings,self.store,self.hestia).policy(context,server=True)
+        else:data=self.account_dashboard(context)
+        context=dict(context,view_scope='server' if server else 'account')
+        data.update(version=__version__,context=context,engines=self.engine_status(),rules=Rules(self.settings).status())
+        from .readiness import public_status
+        data['website_readiness']=public_status(Health(self.settings,self.store).status().get('website-coverage'),time.time())
+        data['rule_candidate']=RuleManager(self.settings).candidate()
+        data['schedule_defaults']=Scheduler(self.settings,self.store,self.hestia).defaults(context,server=server)
+        if context['admin']:
+            from .resources import Resources
+            from .spamassassin import SpamAssassinControls
+            from .mail_adapter import MailAdapter
+            from .mail_integration import MailIntegration
+            data.update(resources=Resources(self.settings).status(),rule_manager=RuleManager(self.settings).status(),
+                        providers=Providers(self.settings).public(),health=Health(self.settings,self.store).status(),
+                        signatures=Signatures(self.settings).status(),spamassassin=SpamAssassinControls(self.settings).status(),
+                        mail_adapter=MailAdapter(self.settings).status(),mail_integration=MailIntegration(self.settings,self.store,self.hestia).status(),
+                        maintenance=self.store.list_tasks(self.hestia.authorize(context['actor'],context['actor'])),
+                        accounts=[dict(owner=a['owner'],role=a['role'],suspended=a['suspended'],sites=len(a['sites'])) for a in inventory])
+        return data
 
     def generation(self):
         return current_generation(self.settings)
