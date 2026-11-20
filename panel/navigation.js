@@ -6,7 +6,7 @@
   const groupOf=page=>Object.keys(map).find(group=>map[group].includes(page));
   function stored(){try{return sessionStorage.getItem('clamshield-tab');}catch{return null;}}
   function select(group,page,writeHash=true){
-    if(!map[group])group='dashboard';
+    if(!Object.hasOwn(map,group))group='dashboard';
     if(!map[group].includes(page))page=remembered.get(group)||map[group][0];
     remembered.set(group,page);
     document.querySelectorAll('[data-page]').forEach(section=>section.hidden=section.dataset.page!==page);
@@ -29,6 +29,8 @@
   }));
   function fromHash(){
     const [group,page]=location.hash.slice(1).split('/');
+    const legacy={results:'findings',exceptions:'exceptions',quarantine:'quarantine',history:'history'};
+    if(Object.hasOwn(legacy,group)){select('review',map.review.includes(page)?page:legacy[group]);return;}
     if(group){select(group,page,false);return;}
     const saved=stored();select(pages.has(saved)?groupOf(saved):'dashboard',saved,false);
   }

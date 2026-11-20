@@ -4,11 +4,8 @@ $cs_navigation = [
     'email'=>['Email Shield', ['mail'=>'Email policies', 'spamassassin'=>'SpamAssassin']],
     'scan'=>['On-demand Scan', ['sites'=>'Websites', 'jobs'=>'Scan progress', 'wordpress'=>'WordPress integrity', 'wordpress-recovery'=>'WordPress recovery']],
     'scheduled'=>['Scheduled Scanner', ['scheduled'=>'Schedules and monitoring']],
-    'results'=>['Results', ['findings'=>'Findings', 'repairs'=>'Repairs and cleaning']],
-    'exceptions'=>['Exceptions', ['exceptions'=>'Website exceptions']],
-    'quarantine'=>['Quarantine', ['quarantine'=>'Website quarantine']],
+    'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Repairs and cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'history'=>'History']],
     'updates'=>['Updates', ['rules'=>'YARA rules', 'providers'=>'Signature providers']],
-    'history'=>['History', ['history'=>'Activity and retention']],
     'settings'=>['Settings', ['automatic'=>'Automatic actions', 'notifications'=>'Notifications', 'resources'=>'Resources', 'permissions'=>'Website permissions']],
 ];
 if (!$data['context']['admin']) {

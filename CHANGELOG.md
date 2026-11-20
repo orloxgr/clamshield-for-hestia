@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.7.2
+
+- Group Results, Repairs and cleaning, Exceptions, Quarantine and History under
+  the Review main tab. Preserve native active-tab styling, saved selections and
+  old Results/Exceptions/Quarantine/History bookmarks.
+
 ## 1.7.1
 
 - Align Dashboard Manage and View queue links to the right edge of their cards,

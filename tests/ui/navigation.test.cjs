@@ -36,7 +36,7 @@ function fixture(options={}){
   return {w,requests,timers,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
-const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
+const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
 const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',trials:'Rule comparisons',other:'Other notifications'};
 const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
 const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});
@@ -239,7 +239,7 @@ test('tenant scan permission and failed account discovery cannot enable scanning
     assert.match(failed.document.getElementById('cs-scan-target-status').textContent,/Fixture API unavailable/);
   }finally{await failed.close();}
 });
-test('full panel opens Dashboard and keeps the ten native menu links while navigating every view',async()=>{
+test('full panel opens Dashboard and keeps the seven native menu links while navigating every view',async()=>{
   const f=fixture();try{
     assert.deepEqual(f.visible(),['dashboard']);const menu=f.document.getElementById('cs-main-navigation');
     assert.deepEqual([...menu.children].map(link=>link.textContent),labels);
@@ -255,7 +255,7 @@ test('Manage links select the right group, preserve leaf refresh state and load 
     f.click('#cs-dashboard [data-tab=rules]');assert.deepEqual(f.visible(),['rules']);assert.equal(f.w.location.hash,'#updates');
     f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard [data-focus-provider=securiteinfo]');
     assert.deepEqual(f.visible(),['providers']);assert.equal(f.document.activeElement.id,'cs-provider-securiteinfo');
-    f.click('[data-main-tab=email]');f.click('[data-main-tab=history]');
+    f.click('[data-main-tab=email]');f.click('[data-main-tab=review]');f.click('[data-subnav=review] [data-tab=history]');
     await new Promise(resolve=>setImmediate(resolve));
     assert.ok(f.requests.some(request=>request.action==='mail-dashboard'));assert.ok(f.requests.some(request=>request.action==='history-retention-get'));
     assert.equal(f.w.sessionStorage.getItem('clamshield-tab'),'history');
@@ -266,7 +266,36 @@ test('direct links, old saved leaf tabs and unavailable administrator views have
     const f=fixture(options);try{assert.deepEqual(f.visible(),[page]);}finally{await f.close();}
   }
 });
-test('tenant retains all ten sections without privileged forms or navigation targets',async()=>{
+
+test('Review groups existing review tools and remembers the selected child while both navigation levels stay active',async()=>{
+  const f=fixture();try{
+    f.click('[data-main-tab=review]');assert.deepEqual(f.visible(),['findings']);
+    const review=f.document.querySelector('[data-subnav=review]');
+    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','History']);
+    for(const page of ['findings','repairs','exceptions','quarantine','history']){
+      f.click('[data-subnav=review] [data-tab='+page+']');assert.deepEqual(f.visible(),[page]);
+      assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');
+      assert.equal(review.querySelector('[data-tab='+page+']').getAttribute('aria-current'),'page');
+    }
+    f.click('[data-main-tab=dashboard]');f.click('[data-main-tab=review]');assert.deepEqual(f.visible(),['history']);
+    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard [data-tab=findings]');assert.deepEqual(f.visible(),['findings']);assert.equal(f.w.location.hash,'#review');
+    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard [data-tab=quarantine]');assert.deepEqual(f.visible(),['quarantine']);assert.equal(f.w.location.hash,'#review/quarantine');
+  }finally{await f.close();}
+});
+
+test('Review retains old bookmarks and saved selections after consolidating the menu',async()=>{
+  for(const [options,page,hash] of [
+    [{hash:'#results'},'findings','#review'],[{hash:'#results/repairs'},'repairs','#review/repairs'],
+    [{hash:'#exceptions'},'exceptions','#review/exceptions'],[{hash:'#quarantine'},'quarantine','#review/quarantine'],
+    [{hash:'#history'},'history','#review/history'],[{hash:'#history/retired'},'history','#review/history'],
+    [{hash:'#review/history'},'history','#review/history'],[{saved:'repairs'},'repairs',''],
+    [{admin:false,saved:'exceptions'},'exceptions',''],
+  ]){
+    const f=fixture(options);try{assert.deepEqual(f.visible(),[page]);assert.equal(f.w.location.hash,hash);assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');}finally{await f.close();}
+  }
+  const unknown=fixture({hash:'#__proto__'});try{assert.deepEqual(unknown.visible(),['dashboard']);}finally{await unknown.close();}
+});
+test('tenant retains all seven sections without privileged forms or navigation targets',async()=>{
   const f=fixture({admin:false});try{
     assert.deepEqual([...f.document.querySelector('#cs-main-navigation').children].map(link=>link.textContent),labels);
     for(const page of ['providers','resources','permissions','spamassassin'])assert.equal(f.document.querySelector('[data-page="'+page+'"],[data-tab="'+page+'"]'),null);

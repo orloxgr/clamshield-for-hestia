@@ -33,7 +33,9 @@ setup steps in the summary and check readiness in Hestia.
 ## Panel structure
 
 The persistent main menu contains Dashboard, Email Shield, On-demand Scan,
-Scheduled Scanner, Results, Exceptions, Quarantine, Updates, History and Settings.
+Scheduled Scanner, Review, Updates and Settings. **Review** groups Results,
+Repairs and cleaning, Exceptions, Quarantine and History. Existing bookmarks
+and saved selections continue to select their matching view.
 Secondary links retain access to all website and server tools. Dashboard Manage
 links select the matching secondary view. Tenants retain the same primary menu;
 server-wide forms remain administrator-only and backend authorization is unchanged.
@@ -131,19 +133,19 @@ the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results
 are retained when ClamAV fails, and vice versa.
 
-**Results → Findings** records engine/source/rule/signature, severity, file identity and
+**Review → Results** records engine/source/rule/signature, severity, file identity and
 the scanning generation. Hosting heuristics, website spam matches and software
 advisories require review. A match alone does not establish that an entire
 site is compromised. Rule candidates should be evaluated against relevant clean
 CMS/plugin/theme files and malware samples before activation.
 
-**Quarantine** retains an original outside the public root. Restore preserves
+**Review → Quarantine** retains an original outside the public root. Restore preserves
 the recorded metadata and refuses to overwrite changed destinations. A moved,
 removed, suspended or recreated site/account can make historical operations
 unavailable while preserving their evidence.
 
 **On-demand Scan → WordPress integrity** discovers installations and checks core/plugin/theme integrity
-where reliable references exist. **Results → Repairs and cleaning** can prepare a nonmutating diff from
+where reliable references exist. **Review → Repairs and cleaning** can prepare a nonmutating diff from
 a verified reference or selected backup member. Review the preview before
 applying it. Changes retain the original or its absence, recheck the published
 file and support undo. Targeted cleaning handles its recognized definitions;

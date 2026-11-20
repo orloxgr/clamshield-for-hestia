@@ -34,9 +34,9 @@ $cs_providers=$data['providers']??[]; $cs_sa=$data['spamassassin']??[];
 <h3 id="cs-activity-heading"><i class="fas fa-chart-line" aria-hidden="true"></i> Activity overview</h3>
 <dl>
 <div class="cs-activity-row"><dt><i class="fas fa-globe" aria-hidden="true"></i> Websites</dt><dd><a href="#scan" data-tab="sites">View websites</a><strong><?=count($data['sites'])?></strong></dd></div>
-<div class="cs-activity-row"><dt><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Open findings</dt><dd><a href="#results" data-tab="findings">View results</a><strong><?=$data['summary']['open_findings']?></strong></dd></div>
+<div class="cs-activity-row"><dt><i class="fas fa-exclamation-triangle" aria-hidden="true"></i> Open findings</dt><dd><a href="#review" data-tab="findings">View results</a><strong><?=$data['summary']['open_findings']?></strong></dd></div>
 <div class="cs-activity-row"><dt><i class="fas fa-tasks" aria-hidden="true"></i> Active scans</dt><dd><a href="#scan/jobs" data-tab="jobs">View progress</a><strong id="cs-active-scans"><?=$data['summary']['active_scans']?></strong></dd></div>
-<div class="cs-activity-row"><dt><i class="fas fa-archive" aria-hidden="true"></i> Quarantined</dt><dd><a href="#quarantine" data-tab="quarantine">View files</a><strong><?=$data['summary']['quarantined']?></strong></dd></div>
+<div class="cs-activity-row"><dt><i class="fas fa-archive" aria-hidden="true"></i> Quarantined</dt><dd><a href="#review/quarantine" data-tab="quarantine">View files</a><strong><?=$data['summary']['quarantined']?></strong></dd></div>
 </dl></article>
 <?php $coverage=$data['website_readiness']??['state'=>'unknown','message'=>'Website readiness has not been verified yet.','checked'=>null]; ?>
 <p id="cs-website-coverage" class="notice alert <?=$coverage['state']==='healthy'?'alert-success':($coverage['state']==='checking'?'alert-info':'alert-warning')?>" role="status"><?=$escape($coverage['message'])?><?php if($coverage['checked']!==null): ?><br><small>Last checked: <?=$escape($cs_date($coverage['checked']))?></small><?php endif ?></p>
