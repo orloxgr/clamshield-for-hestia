@@ -20,7 +20,6 @@ from .wordpress import WordPress
 from .repairs import Repairs
 from .rule_manager import RuleManager
 from .rule_updates import RuleUpdates
-from .rule_trials import RuleTrials
 from .mail_policy import MailPolicies
 from .mail_custody import MailCustody
 
@@ -224,10 +223,6 @@ class Application:
             server=scope=='server' or scope=='auto' and context['admin']
             if server and not context['admin']:raise AccessDenied('Administrator access required')
             return self.dashboard(context,server=server)
-        if action=='rules-trial':
-            return {'jobs':[RuleTrials(self.settings,self.store,self.hestia).queue(context,request.get('domain'),request.get('path',''),request.get('generation'))]}
-        if action=='rules-trial-report':
-            return RuleTrials(self.settings,self.store,self.hestia).report(context,request.get('job_id'),request.get('offset',0))
         if action == 'repair-preview':
             return {'plan_id': Repairs(self.settings, self.store, self.hestia).queue(context, request.get('finding_id')), 'queued': True}
         if action=='cleanup-preview':
@@ -405,8 +400,7 @@ class Application:
                   findings=self.store.list_findings(context),quarantine=Quarantine(self.settings,self.store,self.hestia).list(context),
                   history=self.store.history(context),exceptions=Exceptions(self.store).list(context),
                   notifications=self.store.notifications(context),wordpress=WordPress(self.settings,self.store,self.hestia).list(context),
-                  repairs=Repairs(self.settings,self.store,self.hestia).list(context),
-                  rule_trials=RuleTrials(self.settings,self.store,self.hestia).list(context))
+                  repairs=Repairs(self.settings,self.store,self.hestia).list(context))
         from .website_permissions import WebsitePermissions
         from .remediation import Remediation
         data['website_permissions']=WebsitePermissions(self.settings,self.store,self.hestia).get(context)
@@ -416,7 +410,7 @@ class Application:
         remediation.site_policies(context,sites)
         from .website_availability import WebsiteAvailability
         WebsiteAvailability(context,sites).annotate(data)
-        for key in ('jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','rule_trials','remediation_history'):
+        for key in ('jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','remediation_history'):
             data[key]=[dict(row,owner=row.get('owner',context['owner']),identity=row.get('identity',context['identity'])) for row in data[key]]
         return data
 
@@ -425,7 +419,7 @@ class Application:
         if server:
             context=self.hestia.authorize(context['actor'],context['actor'])
             if not context['admin']:raise AccessDenied('Administrator access required')
-            keys=('sites','jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','rule_trials','remediation_history')
+            keys=('sites','jobs','findings','quarantine','history','exceptions','notifications','wordpress','repairs','remediation_history')
             data={key:[] for key in keys};data['summary']=dict(open_findings=0,active_scans=0,quarantined=0)
             for account in inventory:
                 live=dict(context,owner=account['owner'],identity=account['identity'])

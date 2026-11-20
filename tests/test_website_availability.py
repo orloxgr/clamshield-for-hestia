@@ -55,13 +55,13 @@ class WebsiteHistoryRendering(unittest.TestCase):
 
     def data(self):
         capabilities = dict.fromkeys(('scan', 'schedule', 'quarantine', 'restore', 'repair',
-            'cleanup', 'exceptions', 'automatic', 'rule_trials'), True)
+            'cleanup', 'exceptions', 'automatic'), True)
         site = self.site | dict(policy=dict(watch=False, frequency='never', time='03:00', timezone='UTC',
             weekday=0, monthday=1, rescan_updates=True), remediation=dict(site=dict(mode='inherit'), effective=dict(mode='report')))
         data = dict(context=self.context, sites=[site], findings=[self.record.copy()], jobs=[],
             summary=dict(open_findings=1,active_scans=0,quarantined=0),
             repairs=[], quarantine=[], remediation_history=[], history=[], wordpress=[], exceptions=[],
-            notifications=[], rule_trials=[], rule_candidate=None, rules=dict(configured=False),
+            notifications=[], rule_candidate=None, rules=dict(configured=False),
             engines=dict(clamav=dict(available=False, error='fixture'), yara=dict(available=False,
                 error='fixture', rules_available=False)), website_permissions=dict(effective=capabilities, labels=capabilities),
             remediation_policy=dict(account=dict(mode='report')))

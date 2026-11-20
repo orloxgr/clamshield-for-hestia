@@ -10,7 +10,6 @@ from clamshield.errors import AccessDenied,ClamShieldError,Conflict,EngineError
 from clamshield.rule_catalog import analyze
 from clamshield.rule_manager import RuleManager,revision
 from clamshield.rule_updates import RuleUpdates
-from clamshield.rule_trials import RuleTrials
 from clamshield.settings import Settings
 from clamshield.store import Store
 from clamshield.worker import Worker
@@ -276,57 +275,3 @@ class ManagedRules(unittest.TestCase):
         self.source('two',content='rule Other {condition:true}');second=self.manager.build();self.manager.activate(second['generation'])
         self.manager.activate(second['generation']);self.manager.rollback()
         self.assertEqual(first['generation'],self.manager.rules.status()['generation'])
-
-
-@unittest.skipUnless(AVAILABLE,'Ubuntu YARA and plyara integration')
-class ScopedRuleTrials(unittest.TestCase):
-    def setUp(self):
-        self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup)
-        self.base=Path(self.temp.name);self.root=self.base/'site';self.root.mkdir()
-        self.settings=Settings(state=self.base/'state');self.settings.prepare();self.store=Store(self.settings.database)
-        self.context=dict(actor='alice',owner='alice',identity='generation',admin=False)
-        self.site=dict(owner='alice',identity='generation',domain='site.test',root=str(self.root),suspended=False)
-        self.hestia=Mock();self.hestia.sites.return_value=[self.site];self.hestia.authorize.return_value=self.context
-        self.manager=RuleManager(self.settings)
-        self.manager.save_source(dict(id='local',name='Local',version='1',license='MIT',content='rule Old {condition:false}'))
-        self.active=self.manager.build();self.manager.activate(self.active['generation'])
-        self.manager.save_source(dict(id='extra',name='Extra',version='1',license='MIT',content='rule New {strings:$a="RuleTestMarker" condition:$a}'))
-        self.candidate=self.manager.build()
-        (self.root/'clean.php').write_text('<?php echo "Hello";')
-        (self.root/'fixture.txt').write_text('RuleTestMarker')
-        self.trials=RuleTrials(self.settings,self.store,self.hestia)
-
-    def test_trial_compares_actual_ubuntu_engines_without_live_findings_or_activation(self):
-        job_id=self.trials.queue(self.context,'site.test')
-        Worker(self.settings,self.store,self.hestia).once()
-        job=self.store.job(self.context,job_id)
-        self.assertEqual('completed',job['status']);self.assertEqual(2,job['counters']['scanned'])
-        self.assertEqual(1,job['counters']['new_signatures']);self.assertEqual(0,job['counters']['infected'])
-        self.assertEqual(self.candidate['generation'],job['generation'])
-        self.assertEqual(self.active['generation'],self.manager.rules.status()['generation'])
-        self.assertEqual([],self.store.list_findings(self.context))
-        report=self.trials.report(self.context,job_id)
-        self.assertEqual(2,len(report['files']));self.assertGreater(job['counters']['candidate_seconds'],0)
-        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM observations').fetchone()[0])
-
-    def test_trial_reports_and_paths_are_owner_generation_scoped(self):
-        job_id=self.trials.queue(self.context,'site.test')
-        foreign=self.context|dict(owner='bob',identity='bob-generation')
-        self.assertEqual([],self.trials.list(foreign))
-        with self.assertRaises(AccessDenied):self.trials.report(foreign,job_id)
-        with self.assertRaises(AccessDenied):self.trials.queue(self.context,'site.test','../outside')
-        with self.assertRaises(AccessDenied):self.trials.queue(self.context,'foreign.test')
-
-    def test_trial_symlink_is_partial_instead_of_clean(self):
-        (self.root/'link').symlink_to('/etc/passwd');job_id=self.trials.queue(self.context,'site.test')
-        Worker(self.settings,self.store,self.hestia).once()
-        self.assertEqual('partial',self.store.job(self.context,job_id)['status'])
-        self.assertEqual(1,self.store.job(self.context,job_id)['counters']['skipped'])
-
-    def test_admin_can_compare_retained_generations_but_tenant_requires_published_choice(self):
-        self.manager.activate(self.candidate['generation'])
-        self.manager.save_source(dict(id='latest',name='Latest',version='1',license='MIT',content='rule Latest {condition:false}'))
-        self.manager.build()
-        with self.assertRaises(AccessDenied):self.trials.queue(self.context,'site.test',name=self.active['generation'])
-        job_id=self.trials.queue(self.context|{'admin':True},'site.test',name=self.active['generation'])
-        self.assertEqual(self.active['generation'],self.store.job(self.context,job_id)['generation'])

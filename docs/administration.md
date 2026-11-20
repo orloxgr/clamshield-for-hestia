@@ -122,7 +122,7 @@ Changing the profile dropdown alone does not change the installed profile.
 Additional PHP/web/custom sources retain their separate staging controls.
 
 **Advanced rule tools** retains staging, per-source/per-rule selections, receipts,
-comparison trials, manual candidate activation and rollback. Those controls are
+manual candidate activation and rollback. Those controls are
 optional for normal Forge installation. Managed PHP/web hosting sources retain
 their review-only defaults. Engine binaries still come from Ubuntu APT.
 Rule data is compiled by Ubuntu's `yarac`, without building an engine.

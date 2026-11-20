@@ -120,8 +120,7 @@ establish active scanning coverage or access to a public blocklist.
   available, retained provenance and previous-data rollback.
 - YARA Forge Core, Extended and Full; managed PHP/web hosting sources and local
   or additional sources, with license/version/dependency receipts.
-- Candidate trials, performance reports, duplicate handling, source/rule
-  toggles and advanced activation/rollback controls.
+- Duplicate handling, source/rule toggles and advanced activation/rollback controls.
 
 SecuriteInfo requires the administrator's own provider account/key and its
 entitlements. Paid data and credentials are not distributed with this project.

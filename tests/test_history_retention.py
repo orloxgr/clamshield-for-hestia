@@ -149,8 +149,7 @@ class HistoryRetentionTests(unittest.TestCase):
 
     def test_report_read_racing_with_prune_never_reports_empty_clean_details(self):
         from clamshield.wordpress import WordPress
-        from clamshield.rule_trials import RuleTrials
-        for source,reporter in (('wordpress-integrity',WordPress),('yara-trial',RuleTrials)):
+        for source,reporter in (('wordpress-integrity',WordPress),):
             job,_=self.job(source=source);self.save(scan_days=1)
             original=self.store.job(self.alice,job)
             self.history().once()

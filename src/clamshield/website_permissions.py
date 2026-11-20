@@ -11,16 +11,15 @@ from .errors import AccessDenied,ClamShieldError
 from .store import encode
 
 DEFAULTS=dict(scan=True,schedule=True,quarantine=True,restore=True,repair=True,
-              cleanup=True,exceptions=True,automatic=True,rule_trials=True)
+              cleanup=True,exceptions=True,automatic=True)
 LABELS=dict(scan='Run website and integrity scans',schedule='Change scan schedules and monitoring',
     quarantine='Quarantine detected website files',restore='Restore quarantined files and undo repairs',
     repair='Prepare and apply trusted or backup replacements',cleanup='Prepare and apply recognized infection cleaning',
-    exceptions='Manage website detection exceptions',automatic='Change automatic website actions',
-    rule_trials='Run YARA comparison trials')
+    exceptions='Manage website detection exceptions',automatic='Change automatic website actions')
 ACTIONS={'scan':'scan','wordpress-scan':'scan','policy-save':'schedule','policy-reset':'schedule','policy-defaults-save':'schedule','policy-defaults-reset':'schedule','quarantine':'quarantine',
     'restore':'restore','repair-preview':'repair','repair-backup-preview':'repair','repair-hestia-preview':'repair',
     'cleanup-preview':'cleanup','repair-undo':'restore','exception-add':'exceptions','exception-remove':'exceptions',
-    'rules-trial':'rule_trials','remediation-policy-save':'automatic','repair-apply':None}
+    'remediation-policy-save':'automatic','repair-apply':None}
 ACTIONS['wordpress-recovery-analyze']='scan'
 MODE_REQUIREMENTS={'report':(), 'quarantine':('automatic','quarantine'),
     'cleanup':('automatic','cleanup'),'cleanup-or-quarantine':('automatic','cleanup','quarantine')}
@@ -50,6 +49,9 @@ class WebsitePermissions:
             if row is None and not server:row=db.execute("SELECT * FROM website_permissions WHERE owner='@server' AND identity=''").fetchone()
         if not row:return dict(permissions=dict(DEFAULTS),revision='default',updated=0)
         values=json.loads(row['settings'])
+        if 'rule_trials' in values:
+            if type(values['rule_trials']) is not bool:raise AccessDenied('Website permission data requires administrator review')
+            values.pop('rule_trials')  # Read legacy permissions without the retired capability.
         if set(values)!=set(DEFAULTS) or any(type(v) is not bool for v in values.values()):raise AccessDenied('Website permission data requires administrator review')
         return dict(permissions=values,revision=row['revision'],updated=row['updated'])
 

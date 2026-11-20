@@ -4,12 +4,12 @@ const path=require('node:path'),{spawnSync}=require('node:child_process');
 const {JSDOM}=require('jsdom');
 const root=path.resolve(__dirname,'../..');
 function data(admin=true){
-  const permissions=Object.fromEntries(['scan','schedule','quarantine','restore','repair','cleanup','exceptions','automatic','rule_trials'].map(key=>[key,true]));
+  const permissions=Object.fromEntries(['scan','schedule','quarantine','restore','repair','cleanup','exceptions','automatic'].map(key=>[key,true]));
   return {context:{owner:'alice',admin},accounts:[{owner:'alice'}],
     sites:[{domain:'site.test',root:'/home/alice/web/site.test/public_html',suspended:false,
       policy:{watch:false,frequency:'never',time:'03:00',timezone:'UTC',weekday:0,monthday:1,rescan_updates:true},
       remediation:{site:{mode:'inherit'},effective:{mode:'report'}}}],
-    summary:{open_findings:0,active_scans:0,quarantined:0},findings:[],jobs:[],repairs:[],quarantine:[],history:[],wordpress:[],exceptions:[],notifications:[],rule_trials:[],remediation_history:[],
+    summary:{open_findings:0,active_scans:0,quarantined:0},findings:[],jobs:[],repairs:[],quarantine:[],history:[],wordpress:[],exceptions:[],notifications:[],remediation_history:[],
     remediation_policy:{account:{mode:'report'}},website_permissions:{effective:permissions,permissions,labels:permissions},
     engines:{clamav:{available:true,version:'ClamAV fixture'},yara:{available:true,version:'YARA fixture',rules_available:true}},
     rules:{configured:true,provider:'managed',profile:'core',version:'fixture-release',sha256:'a'.repeat(64),enabled:42,rules:45,created:1},
@@ -37,6 +37,16 @@ function fixture(options={}){
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
+
+test('Trial scans and its permission/category are removed while ordinary YARA controls remain available',async()=>{
+  const f=fixture({hash:'#updates/rules',change:v=>{v.rule_trials=[{job_id:'retired-comparison-id',generation:'old-generation'}];}});
+  try{await settle();assert.equal(f.document.querySelector('[data-action="rules-trial"]'),null);
+    assert.equal(f.document.querySelector('[data-capability="rule_trials"]'),null);
+    assert.doesNotMatch(f.document.body.textContent,/Trial scans|Run comparison trial|retired-comparison-id/);
+    assert.ok(f.document.getElementById('cs-forge-install'));assert.ok(f.document.querySelector('[data-action="rules-activate"]'));
+    assert.equal(f.document.querySelector('[name="category"][value="trials"]'),null);
+  }finally{await f.close();}
+});
 
 test('provider schedule exposes per-provider intervals, minimums and timing with clean database labels',async()=>{
   const f=fixture({hash:'#updates/providers',change:v=>{
@@ -68,7 +78,7 @@ test('provider interval fields are sent as numbers while masked credentials and 
     assert.match(f.document.getElementById('cs-message').textContent,/no update performed/);
   }finally{await f.close();}
 });
-const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',trials:'Rule comparisons',other:'Other notifications'};
+const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',other:'Other notifications'};
 const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
 const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});
 

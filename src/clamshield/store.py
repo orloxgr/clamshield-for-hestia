@@ -58,10 +58,6 @@ CREATE TABLE IF NOT EXISTS repair_plans (
  owner TEXT NOT NULL, identity TEXT NOT NULL, actor TEXT NOT NULL,
  status TEXT NOT NULL, created REAL NOT NULL, metadata TEXT NOT NULL DEFAULT '{}', error TEXT
 );
-CREATE TABLE IF NOT EXISTS rule_trials (
- job_id TEXT PRIMARY KEY REFERENCES jobs(id), owner TEXT NOT NULL, identity TEXT NOT NULL,
- generation TEXT NOT NULL, baseline TEXT, result TEXT NOT NULL DEFAULT '{}'
-);
 CREATE INDEX IF NOT EXISTS repair_scope ON repair_plans(owner,identity,created);
 CREATE INDEX IF NOT EXISTS file_result_job ON file_results(job_id,id);
 CREATE TABLE IF NOT EXISTS audit (
@@ -231,6 +227,11 @@ class Store:
             if 'detail' not in {r['name'] for r in db.execute('PRAGMA table_info(findings)')}:
                 db.execute("ALTER TABLE findings ADD COLUMN detail TEXT NOT NULL DEFAULT '{}'")
             db.execute('CREATE UNIQUE INDEX IF NOT EXISTS job_dedup ON jobs(owner,identity,domain,source,target,dedup_key)')
+            retired=db.execute("""UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?,heartbeat=?,
+              error='Trial scans were removed; this comparison will not run'
+              WHERE source='yara-trial' AND status IN ('queued','running')""",(time.time(),time.time())).rowcount
+            if retired:self.audit(dict(actor='clamshield-upgrade',owner='@admin',identity=''),
+                'installation.trials_retired','server',{'cancelled':retired},db)
         self.path.chmod(0o600)
 
     @contextmanager

@@ -15,7 +15,7 @@
     if(event.startsWith('maintenance.')||event.startsWith('installation.'))return 'maintenance';
     if(event.startsWith('mail.'))return 'mail';
     if(['automatic.','repair.','cleanup.','quarantine.'].some(prefix=>event.startsWith(prefix)))return 'actions';
-    return event.startsWith('rules.trial')?'trials':'other';
+    return 'other';
   }
   function filter(){
     let shown=0,unread=0;

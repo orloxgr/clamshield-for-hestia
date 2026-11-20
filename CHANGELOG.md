@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.9.2
+
+- Remove Trial scans, comparison APIs/execution, the delegated trial permission
+  and its notification category. Normal website scanning and YARA rule management
+  remain available.
+- Cancel queued/running legacy comparison jobs on upgrade and refuse late
+  comparison work without scanning files. Preserve recorded historical evidence
+  and read older permission/notification preferences without the retired options.
+
 ## 1.9.1
 
 - Add a Get a key link beside the SecuriteInfo account-key label, opening the

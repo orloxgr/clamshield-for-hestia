@@ -19,7 +19,6 @@ CATEGORIES = {
     'maintenance': 'Updates and maintenance',
     'mail': 'Email protection alerts',
     'actions': 'Quarantine, cleaning and repairs',
-    'trials': 'Rule comparisons',
     'other': 'Other notifications',
 }
 
@@ -32,7 +31,6 @@ def category(event):
     if event.startswith(('maintenance.', 'installation.')): return 'maintenance'
     if event.startswith('mail.'): return 'mail'
     if event.startswith(('automatic.', 'repair.', 'cleanup.', 'quarantine.')): return 'actions'
-    if event.startswith('rules.trial'): return 'trials'
     return 'other'
 
 
@@ -51,7 +49,7 @@ class NotificationPreferences:
                              (live['actor'], live['identity'])).fetchone()
         settings = dict(bell=False, categories=list(CATEGORIES), revision='default', last_sent=None, error=None)
         if row:
-            settings.update(bell=bool(row['bell']), categories=json.loads(row['categories']),
+            settings.update(bell=bool(row['bell']), categories=[key for key in json.loads(row['categories']) if key in CATEGORIES],
                             revision=row['revision'], last_sent=row['last_sent'], error=row['error'])
         return dict(settings=settings, categories=CATEGORIES, account=live['actor'], server=live['admin'])
 

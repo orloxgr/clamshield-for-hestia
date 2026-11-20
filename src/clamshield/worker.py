@@ -32,13 +32,14 @@ class Worker:
         self.worker_id = f'{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}'
 
     def validate(self, job):
+        if job['source']=='yara-trial':raise Conflict('Trial scans were removed')
         context = self.hestia.authorize(job['owner'], job['owner'])
         if context['identity'] != job['identity']:
             raise Conflict('Account was replaced after this scan was queued')
         site = next((s for s in self.hestia.sites(job['owner']) if s['domain'] == job['domain']), None)
         if not site or site['root'] != job['root'] or site['suspended']:
             raise Conflict('Site configuration changed after this scan was queued')
-        capability={'manual':'scan','wordpress-integrity':'scan','yara-trial':'rule_trials'}.get(job['source'])
+        capability={'manual':'scan','wordpress-integrity':'scan'}.get(job['source'])
         if job['source']=='wordpress-recovery':capability='scan'
         if job['source']=='repair-preview':
             from .repairs import Repairs
@@ -76,7 +77,7 @@ class Worker:
                 return False
             # Pin one concrete rules generation for the entire job. A data
             # update cannot silently change policy between two files in a scan.
-            if job['source']!='yara-trial' and any(isinstance(engine, (ClamAV, Yara)) for engine in self.engines):
+            if any(isinstance(engine, (ClamAV, Yara)) for engine in self.engines):
                 job['generation'] = current_generation(self.settings)
                 with self.store.connection() as db:
                     db.execute('UPDATE jobs SET generation=? WHERE id=?', (job['generation'], job['id']))
@@ -96,11 +97,14 @@ class Worker:
             return True
 
     def run(self, job):
+        if job['source']=='yara-trial':
+            self.store.finish(job,'cancelled',job['counters'],'Trial scans were removed; this comparison will not run')
+            return
         try:
             self.validate(job)
             with ExitStack() as stack:
                 engines = self.engines; errors = 0
-                if job['source'] not in ('yara-trial', 'wordpress-integrity', 'repair-absence-recheck'):
+                if job['source'] not in ('wordpress-integrity', 'repair-absence-recheck'):
                     from .website_generation import pinned
                     engines = []
                     for engine in self.engines:
@@ -139,10 +143,6 @@ class Worker:
                 from .missing_files import MissingFiles
                 from .repairs import Repairs
                 MissingFiles(Repairs(self.settings,self.store,self.hestia)).recheck(job)
-                return
-            if job['source']=='yara-trial':
-                from .rule_trials import RuleTrials
-                RuleTrials(self.settings,self.store,self.hestia).run(job)
                 return
             if job['source'] == 'repair-preview':
                 from .repairs import Repairs

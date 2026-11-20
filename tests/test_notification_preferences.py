@@ -159,5 +159,5 @@ class NativeBellCommand(unittest.TestCase):
     def test_category_selection_covers_existing_events_without_treating_integrity_as_malware(self):
         for event,expected in [('scan.malware_found','detections'),('scan.repeated_detection','detections'),('wordpress.integrity_issues','integrity'),
             ('scan.update_interrupted','scan_problems'),('health.recovered','health'),('maintenance.completed','maintenance'),
-            ('mail.refreshed','mail'),('automatic.failed','actions'),('cleanup.verified','actions'),('rules.trial_finished','trials'),('new.event','other')]:
+            ('mail.refreshed','mail'),('automatic.failed','actions'),('cleanup.verified','actions'),('rules.trial_finished','other'),('new.event','other')]:
             self.assertEqual(expected,category(event))
