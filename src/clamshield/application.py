@@ -113,10 +113,13 @@ class Application:
                 from .history_retention import validate
                 validate(request.get('policy'))
             return history.get(context,request.get('policy') if action=='history-retention-preview' else None)
-        if action in ('resources-status','resources-save','website-engine-start','website-engine-stop','resources-recover'):
+        if action in ('resources-status','resources-save','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
             if not context['admin']:raise AccessDenied('Administrator access required')
             from .resources import Resources,validate as validate_resources
             if action=='resources-status':return Resources(self.settings).status()
+            if action=='website-engine-status':
+                task_context=self.hestia.authorize(context['actor'],context['actor'])
+                return {**self.store.website_engine_status(task_context),'engine':self.engine_status()['clamav']}
             payload={'policy':validate_resources(request.get('policy'))} if action=='resources-save' else {}
             task_context=self.hestia.authorize(context['actor'],context['actor'])
             task=self.store.enqueue_task(task_context,action,payload)

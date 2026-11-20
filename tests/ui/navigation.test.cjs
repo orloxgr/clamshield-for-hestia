@@ -561,3 +561,50 @@ test('revoked scan permission keeps integrity starts disabled while recorded res
     row.querySelector('form').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.requests.length,0);
   }finally{await f.close();}
 });
+
+
+test('dashboard shows unavailable website ClamAV with an admin Enable control and preserves engine/provider rows',async()=>{
+  const f=fixture({change:v=>{v.engines.clamav={available:false,error:'Internal socket details'};}});
+  const tenant=fixture({admin:false,change:v=>{v.engines.clamav={available:false};}});
+  const healthy=fixture();
+  try{
+    const dashboard=f.document.getElementById('cs-dashboard');assert.match(dashboard.textContent,/ClamAV version.*ClamAV is unavailable/s);
+    assert.equal(f.document.getElementById('cs-dashboard-clamav-enable').hidden,false);assert.equal(f.document.getElementById('cs-dashboard-clamav-enable').textContent,'Enable');
+    assert.doesNotMatch(dashboard.textContent,/Internal socket details/);
+    for(const title of ['ClamAV signatures','YARA engine','YARA scanning','YARA rules','SecuriteInfo','SaneSecurity'])assert.ok([...dashboard.querySelectorAll('dt')].some(node=>node.textContent===title));
+    assert.equal(tenant.document.getElementById('cs-dashboard-clamav-enable'),null);
+    assert.equal(healthy.document.getElementById('cs-dashboard-clamav-enable').hidden,true);
+  }finally{await f.close();await tenant.close();await healthy.close();}
+});
+
+test('dashboard Enable queues one global startup and follows verification without reload or repeated clicks',async()=>{
+  let resolveStart,index=0;
+  const f=fixture({change:v=>{v.engines.clamav={available:false};v.context.view_scope='server';},api:async body=>{
+    if(body.action==='website-engine-start')return new Promise(resolve=>{resolveStart=()=>resolve({ok:true,json:async()=>({ok:true,queued:true,task_id:'private-task'})});});
+    if(body.action==='website-engine-status')return {ok:true,json:async()=>index++===0?({ok:true,pending:true,latest:{action:'website-engine-start',status:'running'},engine:{available:false}}):({ok:true,pending:false,latest:{action:'website-engine-start',status:'completed'},engine:{available:true,version:'ClamAV verified fixture'}})};
+    return {ok:false,json:async()=>({ok:false,error:'Unused operation'})};
+  }});
+  try{const button=f.document.getElementById('cs-dashboard-clamav-enable');for(let i=0;i<50;i++)button.click();
+    assert.equal(f.requests.filter(r=>r.action==='website-engine-start').length,1);assert.equal(button.disabled,true);
+    assert.equal(f.requests[0].token,'fixture-token');assert.equal(f.requests[0].owner,'alice');
+    resolveStart();await settle();assert.match(f.document.getElementById('cs-dashboard-clamav-status').textContent,/Starting.*checking signatures/);
+    assert.equal(button.disabled,true);await f.tick();assert.equal(button.hidden,true);assert.equal(f.timers.size,0);
+    assert.equal(f.document.getElementById('cs-dashboard-clamav-version').textContent,'ClamAV verified fixture');assert.deepEqual(f.visible(),['dashboard']);
+  }finally{await f.close();}
+});
+
+test('dashboard startup failures remain readable plain text and allow retry',async()=>{
+  const f=fixture({change:v=>{v.engines.clamav={available:false};},api:async body=>({ok:true,json:async()=>body.action==='website-engine-start'?({ok:true,queued:true}):({ok:true,pending:false,latest:{status:'failed',error:'<b>Signatures not ready</b>'},engine:{available:false}})})});
+  try{f.click('#cs-dashboard-clamav-enable');await settle();const output=f.document.getElementById('cs-dashboard-clamav-status');
+    assert.match(output.textContent,/Could not complete.*<b>Signatures not ready<\/b>/);assert.equal(output.children.length,0);
+    assert.equal(f.document.getElementById('cs-dashboard-clamav-enable').disabled,false);assert.equal(f.timers.size,0);
+  }finally{await f.close();}
+});
+
+test('dashboard pending startup checks pause outside Dashboard and resume when opened',async()=>{
+  const f=fixture({hash:'#updates/rules',change:v=>{v.engines.clamav={available:false};v.maintenance=[{action:'website-engine-start',status:'running',created:1,result:null,error:null}];},api:async()=>({ok:true,json:async()=>({ok:true,pending:true,latest:{action:'website-engine-start',status:'running'},engine:{available:false}})})});
+  try{await settle();assert.equal(f.requests.some(r=>r.action==='website-engine-status'),false);
+    f.click('[data-main-tab=dashboard]');await settle();assert.equal(f.requests.filter(r=>r.action==='website-engine-status').length,1);assert.equal(f.timers.size,1);
+    f.click('[data-main-tab=settings]');assert.equal(f.timers.size,0);
+  }finally{await f.close();}
+});

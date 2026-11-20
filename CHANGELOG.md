@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.10.4
+
+- Show unavailable website ClamAV clearly on Dashboard, with an administrator-only
+  Enable button that follows startup and signature verification without reloading.
+  Retain the saved Start choice through the existing owned service controls.
+
 ## 1.10.3
 
 - Refresh PHP's realpath cache before loading the current panel release after

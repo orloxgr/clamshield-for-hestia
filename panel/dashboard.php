@@ -2,13 +2,15 @@
 $cs_date=static fn($value)=>is_numeric($value)?gmdate('Y-m-d H:i:s',(int)$value).' UTC':'Not recorded';
 $cs_rules=$data['rules']; $cs_admin=$data['context']['admin'];
 $cs_providers=$data['providers']??[]; $cs_sa=$data['spamassassin']??[];
+$cs_engine_pending=(bool)array_filter($data['maintenance']??[],static fn($task)=>in_array($task['action'],['website-engine-start','website-engine-stop'],true)&&in_array($task['status'],['queued','running'],true));
 ?>
 <section data-page="dashboard" id="cs-dashboard">
 <h2>Dashboard</h2>
 <div class="cs-dashboard-panels">
 <article class="card"><h3>Engine info</h3><dl class="cs-engine-info">
 <?php foreach(['clamav'=>'ClamAV version','yara'=>'YARA engine'] as $engine=>$title): $info=$data['engines'][$engine]; ?>
-<dt><?=$escape($title)?></dt><dd><?=$escape($info['available']?$info['version']:($info['error']??'Unavailable'))?></dd>
+<dt><?=$escape($title)?></dt><dd class="cs-dashboard-value"><span><?php if($engine==='clamav'): ?><span id="cs-dashboard-clamav-version"><?=$escape($info['available']?$info['version']:'ClamAV is unavailable')?></span><?php if($cs_admin): ?><small id="cs-dashboard-clamav-status" role="status" aria-live="polite"><?=$cs_engine_pending?'Waiting for website ClamAV service changes…':''?></small><?php endif ?><?php else: ?><?=$escape($info['available']?$info['version']:($info['error']??'Unavailable'))?><?php endif ?></span>
+<?php if($engine==='clamav'&&$cs_admin): ?><button class="button" id="cs-dashboard-clamav-enable" type="button" data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-pending="<?=$cs_engine_pending?'true':'false'?>" <?=$info['available']&&!$cs_engine_pending?'hidden':''?> <?=$cs_engine_pending?'disabled':''?>><?=$cs_engine_pending?'Enabling…':'Enable'?></button><?php endif ?></dd>
 <?php if($engine==='clamav'): ?>
 <dt>ClamAV signatures</dt><dd class="cs-dashboard-value"><?php if($cs_admin): ?><span><?=$escape($cs_date($cs_providers['status']['official']['last_success']??null))?></span><a href="#updates/providers" data-tab="providers">Manage</a><?php else: ?>Managed by administrator<?php endif ?></dd>
 <?php endif; endforeach ?>
@@ -43,3 +45,4 @@ $cs_providers=$data['providers']??[]; $cs_sa=$data['spamassassin']??[];
 <p id="cs-website-coverage" class="notice alert <?=$coverage['state']==='healthy'?'alert-success':($coverage['state']==='checking'?'alert-info':'alert-warning')?>" role="status"><?=$escape($coverage['message'])?><?php if($coverage['checked']!==null): ?><br><small>Last checked: <?=$escape($cs_date($coverage['checked']))?></small><?php endif ?></p>
 <?php if($cs_admin): ?><a href="#settings/resources" data-tab="resources">Manage scanner services and resources</a><?php endif ?>
 </section>
+<?php if($cs_admin): ?><script><?php readfile(__DIR__.'/dashboard.js'); ?></script><?php endif ?>

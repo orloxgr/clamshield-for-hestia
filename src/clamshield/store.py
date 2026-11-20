@@ -522,6 +522,14 @@ class Store:
             db.execute("UPDATE maintenance SET result=? WHERE id=? AND worker=? AND status='running'",
                        (encode({'phase':phase}), task['id'], task['worker']))
 
+    def website_engine_status(self, context):
+        with self.connection() as db:
+            db.execute('BEGIN')
+            actions="action IN ('website-engine-start','website-engine-stop')"
+            pending=db.execute("SELECT 1 FROM maintenance WHERE owner=? AND identity=? AND "+actions+" AND status IN ('queued','running') LIMIT 1",self.scope(context)).fetchone()
+            row=db.execute("SELECT id,action,status,error FROM maintenance WHERE owner=? AND identity=? AND "+actions+" ORDER BY created DESC,id DESC LIMIT 1",self.scope(context)).fetchone()
+        return {'pending':bool(pending),'latest':dict(row) if row else None}
+
     def mail_protection_status(self, context):
         with self.connection() as db:
             db.execute('BEGIN')

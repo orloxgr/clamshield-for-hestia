@@ -184,7 +184,7 @@ class ResourceControlsTests(unittest.TestCase):
         context=dict(actor='alice',owner='alice',identity='generation',admin=False)
         hestia=Mock();hestia.authorize.return_value=context;site=dict(owner='alice',identity='generation',domain='site.test',root=str(self.root),suspended=False)
         app=Application(self.settings,self.store,hestia)
-        for action in ('resources-status','resources-save','website-engine-start','website-engine-stop','resources-recover'):
+        for action in ('resources-status','resources-save','website-engine-status','website-engine-start','website-engine-stop','resources-recover'):
             with self.assertRaises(AccessDenied):app.dispatch(dict(actor='alice',action=action,policy=self.policy))
         job_id=self.store.enqueue(context,site);write_json(self.controls.journal,{'pending':True})
         self.assertFalse(Worker(self.settings,self.store,hestia,[]).once());self.assertEqual('queued',self.store.job(context,job_id)['status'])
@@ -195,3 +195,21 @@ class ResourceControlsTests(unittest.TestCase):
         task=self.store.claim_task('fixture');self.assertEqual(result['task_id'],task['id']);self.assertEqual({'policy':self.policy},task['payload'])
         self.assertTrue(any(row['action']=='resources.queued' for row in self.store.history(context)))
         self.assertFalse(any(row['action']=='resources.queued' for row in self.store.history(context|{'admin':False})))
+
+    def test_dashboard_engine_status_uses_native_admin_scope_and_reads_live_engine(self):
+        context=dict(actor='alice',owner='selected',identity='selected-generation',admin=True)
+        own=dict(context,owner='alice',identity='admin-generation')
+        hestia=Mock();hestia.authorize.side_effect=[context,own,context,own]
+        app=Application(self.settings,self.store,hestia)
+        foreign=self.store.enqueue_task(context,'website-engine-start',{})
+        task_id=self.store.enqueue_task(own,'website-engine-start',{})
+        with patch.object(app,'engine_status',return_value={'clamav':{'available':False}}):
+            result=app.dispatch(dict(actor='alice',owner='selected',action='website-engine-status'))
+        self.assertTrue(result['pending']);self.assertFalse(result['engine']['available'])
+        self.assertEqual(task_id,result['latest']['id']);self.assertNotEqual(foreign,result['latest']['id'])
+        foreign_task=self.store.claim_task('fixture');self.store.finish_task(foreign_task,{})
+        task=self.store.claim_task('fixture');self.store.finish_task(task,{'verified':True})
+        with patch.object(app,'engine_status',return_value={'clamav':{'available':True,'version':'ClamAV fixture'}}):
+            result=app.dispatch(dict(actor='alice',owner='selected',action='website-engine-status'))
+        self.assertFalse(result['pending']);self.assertEqual('completed',result['latest']['status'])
+        self.assertEqual('ClamAV fixture',result['engine']['version'])
