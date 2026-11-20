@@ -470,7 +470,7 @@ class Application:
         data.update(version=__version__,context=context,engines=self.engine_status(),rules=Rules(self.settings).status())
         from .readiness import public_status,next_actions
         data['website_readiness']=public_status(Health(self.settings,self.store).status().get('website-coverage'),time.time())
-        data['readiness_actions']=next_actions(data['website_readiness'],data['engines']['clamav']['available'])
+        data['readiness_actions']=next_actions(data['website_readiness'],data['engines'].get('clamav',{}).get('available',False))
         data['rule_candidate']=RuleManager(self.settings).candidate()
         data['schedule_defaults']=Scheduler(self.settings,self.store,self.hestia).defaults(context,server=server)
         if context['admin']:
