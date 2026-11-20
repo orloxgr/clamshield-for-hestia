@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.8.0
+
+- Show per-provider update intervals, minimums, last attempt/success and next
+  permitted checks. Allow longer intervals with a backend-enforced hourly floor;
+  SecuriteInfo permits one download per hour, while ClamAV/SaneSecurity retain a
+  conservative hourly floor. Manual and automatic checks share the same gate.
+- Preserve legacy provider selections/credentials and use configured intervals
+  in the scheduler. Retain longer Freshclam cooldown deadlines without exposing
+  credential-bearing diagnostics, including across retries or preference changes.
+- Repair corrupted database-label separators and other affected panel messages.
+
 ## 1.7.2
 
 - Group Results, Repairs and cleaning, Exceptions, Quarantine and History under

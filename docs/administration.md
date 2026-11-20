@@ -69,6 +69,28 @@ retains the saved credential. Subscription entitlement is decided by the provide
 Updates validate candidates, authenticate feeds where supported and retain
 previous data for rollback. Review the maintenance result and provider health.
 
+**Update schedule** lists each provider's interval in minutes, minimum, last
+attempt, last success and next permitted check, with timestamps in UTC. The
+default is 60 minutes; choose any whole-minute interval from 60 to 525600 and
+save provider settings. The Automatic provider updates switch controls background
+checks. Manual updates use the same interval gate; cached validation/activation
+does not download anything. Due now means eligible for the background worker,
+not that a download has already completed. Disabled providers are labelled.
+
+[SecuriteInfo explicitly permits one download per hour for its signatures](https://www.securiteinfo.com/clamav-antivirus/faq-clamav-unofficial-signatures_en.shtml).
+ClamShield also enforces a conservative hourly floor for official ClamAV and
+SaneSecurity. [ClamAV's guidance](https://docs.clamav.net/faq/faq-troubleshoot.html)
+discusses DNS-based checks and CDN limits; [SaneSecurity's guidance](https://sanesecurity.com/usage/linux-scripts/)
+prohibits excessive mirror requests without publishing a single numeric minimum.
+The SaneSecurity floor is ClamShield's conservative policy, not a claimed
+provider-published hourly restriction. Existing settings acquire the defaults
+without changing selected databases, credentials, enablement or automatic mode.
+
+When Freshclam reports a longer cooldown, ClamShield retains its parsed UTC
+deadline and displays it. Increasing/decreasing an interval or restarting workers
+cannot shorten that cooldown. Credential-bearing Freshclam output stays private;
+only the validated deadline and safe error text are kept in public status.
+
 In **Updates → YARA rules**, choose Core, Extended or Full in the dropdown and
 click **Install rules** or **Update rules**. The same asynchronous task downloads,
 validates and activates the selected rules. Progress refreshes automatically,

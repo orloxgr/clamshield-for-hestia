@@ -3,12 +3,14 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from clamshield.errors import ClamShieldError, EngineError
 from clamshield.provider_catalog import SANE_FINGERPRINT
 from clamshield.provider_fetch import Fetch, regular_copy
-from clamshield.providers import Providers
+from clamshield.providers import Providers, DEFAULTS, UPDATE_POLICIES
 from clamshield.settings import Settings
 from clamshield.signatures import Signatures
 
@@ -50,6 +52,68 @@ class ProviderConfiguration(unittest.TestCase):
                 self.providers.save_local(name, 'fixture')
         self.providers.save_local('hosting.hdb', 'fixture')
         self.assertEqual(['hosting.hdb'], self.providers.public()['local']['files'])
+
+    def test_interval_validation_never_accepts_a_faster_provider_check(self):
+        for name in UPDATE_POLICIES:
+            for value in (0, 59, -1, True, 60.0, '60', 525601):
+                with self.subTest(name=name,value=value), self.assertRaises(ClamShieldError):
+                    self.providers.save({name:{'interval_minutes':value}})
+            self.providers.save({name:{'interval_minutes':90}})
+            self.assertEqual(90,self.providers.public()[name]['interval_minutes'])
+        for plan in ('basic','professional','gold','reseller'):
+            self.providers.save({'securiteinfo':{'plan':plan,'interval_minutes':60}})
+            self.assertEqual(60,self.providers.public()['schedule']['securiteinfo']['minimum_minutes'])
+
+    def test_legacy_settings_gain_intervals_without_losing_key_database_selection_or_switches(self):
+        self.settings.prepare();old=json.loads(json.dumps(DEFAULTS))
+        for name in UPDATE_POLICIES:old[name].pop('interval_minutes')
+        old['automatic']=False;old['securiteinfo'].update(key='b'*128,plan='professional',databases=['securiteinfo.ign2','securiteinfo0hour.hdb'])
+        self.providers.path.write_text(json.dumps(old))
+        value=self.providers.public();self.assertFalse(value['automatic'])
+        self.assertEqual(['securiteinfo.ign2','securiteinfo0hour.hdb'],value['securiteinfo']['databases'])
+        self.assertEqual('b'*128,self.providers.read()['securiteinfo']['key']);self.assertNotIn('b'*128,json.dumps(value))
+        self.assertTrue(all(value[name]['interval_minutes']==60 for name in UPDATE_POLICIES))
+
+    def test_next_allowed_uses_saved_interval_last_success_and_longer_upstream_cooldown(self):
+        self.providers.save({'securiteinfo':{'interval_minutes':120}})
+        self.providers.status('securiteinfo',last_attempt=1000,last_success=1100)
+        self.assertFalse(self.providers.due('securiteinfo',8299));self.assertTrue(self.providers.due('securiteinfo',8300))
+        self.providers.status('securiteinfo',retry_after=20000)
+        self.providers.save({'securiteinfo':{'interval_minutes':60}})
+        self.assertFalse(self.providers.due('securiteinfo',19999));self.assertTrue(self.providers.due('securiteinfo',20000))
+        self.assertEqual(20000,self.providers.public()['schedule']['securiteinfo']['next_allowed'])
+
+    def test_invalid_persisted_interval_fails_closed(self):
+        self.settings.prepare();value=json.loads(json.dumps(DEFAULTS));value['official']['interval_minutes']=1
+        self.providers.path.write_text(json.dumps(value))
+        with self.assertRaises(ClamShieldError):self.providers.due('official')
+
+    def test_concurrent_manual_updates_share_the_persisted_interval_gate(self):
+        manager=Signatures(self.settings);manager.seed_official=Mock();manager.stage=Mock(return_value=(None,{'generation':'fixture'}))
+        manager.fetch.freshclam=Mock()
+        with ThreadPoolExecutor(max_workers=4) as pool:list(pool.map(lambda _:manager.update(provider='official'),range(8)))
+        self.assertEqual(1,manager.fetch.freshclam.call_count)
+        restarted=Fetch(self.settings,Providers(self.settings));restarted.freshclam=Mock()
+        self.assertTrue(restarted.refresh('official',self.providers.read()['official'])['used_cache'])
+        restarted.freshclam.assert_not_called()
+
+    def test_interrupted_download_still_consumes_the_interval(self):
+        fetch=Fetch(self.settings,self.providers);fetch.freshclam=Mock(side_effect=KeyboardInterrupt())
+        with self.assertRaises(KeyboardInterrupt):fetch.refresh('official',DEFAULTS['official'])
+        fetch.freshclam=Mock();self.assertTrue(fetch.refresh('official',DEFAULTS['official'])['used_cache']);fetch.freshclam.assert_not_called()
+
+    def test_freshclam_cooldown_is_persisted_without_exposing_credential_output(self):
+        self.providers.save({'securiteinfo':{'key':'c'*128,'plan':'professional'}})
+        fetch=Fetch(self.settings,self.providers);cache=Path(self.temp.name)/'cache';cache.mkdir();fetch.cache=Mock(return_value=cache)
+        raw=b'private https://www.securiteinfo.com/'+b'c'*128+b'\nWARNING: You are still on cool-down until after: 2099-01-02 03:04:05\n'
+        with patch('clamshield.provider_fetch.subprocess.run',return_value=Mock(returncode=17,stdout=raw,stderr=b'')) as run:
+            with self.assertRaises(ClamShieldError) as error:fetch.refresh('securiteinfo',self.providers.read()['securiteinfo'])
+        self.assertNotIn('c'*128,str(error.exception));self.assertEqual('UTC',run.call_args.kwargs['env']['TZ'])
+        deadline=datetime(2099,1,2,3,4,5,tzinfo=timezone.utc).timestamp()
+        self.assertEqual(deadline,self.providers.public()['schedule']['securiteinfo']['next_allowed'])
+        self.assertNotIn('c'*128,json.dumps(self.providers.public()));self.assertNotIn('https:',json.dumps(self.providers.public()['status']))
+        self.providers.save({'securiteinfo':{'interval_minutes':60}})
+        fetch.freshclam=Mock();self.assertTrue(fetch.refresh('securiteinfo',self.providers.read()['securiteinfo'])['used_cache']);fetch.freshclam.assert_not_called()
 
 
 class Verification(unittest.TestCase):

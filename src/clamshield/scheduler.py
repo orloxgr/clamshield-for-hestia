@@ -135,7 +135,7 @@ class Scheduler:
         providers = Providers(self.settings).public()
         if providers['automatic']:
             enabled = [name for name in ('official', 'securiteinfo', 'sanesecurity') if providers[name]['enabled']]
-            stale = any(now.timestamp() - providers['status'].get(name, {}).get('last_attempt', 0) >= 3600 for name in enabled)
+            stale = any(now.timestamp() >= providers['schedule'][name]['next_allowed'] for name in enabled)
             admin = next((a for a in inventory if a['role'] == 'admin' and not a['suspended']), None)
             if stale and admin:
                 admin_context = dict(actor=admin['owner'], owner=admin['owner'], identity=admin['identity'])

@@ -1,5 +1,6 @@
 """Upstream-specific acquisition; never downloads SecuriteInfo using a custom HTTP client."""
 import hashlib
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
@@ -64,8 +65,7 @@ class Fetch:
         return path
 
     def due(self, name):
-        value = self.providers.public()['status'].get(name, {})
-        return time.time() - value.get('last_attempt', 0) >= 3600
+        return self.providers.due(name)
 
     def freshclam_config(self, name, config, cache):
         lines = ['# Managed by clamshield', 'DatabaseOwner clamav',
@@ -95,9 +95,18 @@ class Fetch:
         if apparmor.exists() and apparmor.read_text().strip() == 'Y':
             argv = ['/usr/bin/aa-exec', '-p', 'clamshield-freshclam', '--', *argv]
         result = subprocess.run(argv, capture_output=True, timeout=600,
-                                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8'})
+                                env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin', 'LANG': 'C.UTF-8', 'TZ': 'UTC'})
         # Freshclam diagnostics can contain credential-bearing URLs. Do not
         # return, log, persist or attach raw stdout/stderr to an exception.
+        # Retain only a strictly parsed UTC deadline; raw output may contain keys.
+        output = (result.stdout or b'') + b'\n' + (result.stderr or b'')
+        deadlines = []
+        for value in re.findall(rb'cool-down until after: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})', output):
+            try: deadlines.append(datetime.strptime(value.decode('ascii'), '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
+            except ValueError: pass
+        if deadlines and max(deadlines) > time.time():
+            self.providers.status(name, retry_after=max(deadlines))
+            raise ClamShieldError('Freshclam postponed the update until its provider cooldown expires')
         if result.returncode:
             raise ClamShieldError('Freshclam update failed; check provider credentials, entitlement and network access')
         return cache
@@ -170,7 +179,7 @@ class Fetch:
 
     def refresh(self, name, config):
         if not self.due(name):
-            return {'provider': name, 'used_cache': True}
+            return {'provider': name, 'used_cache': True, 'next_allowed': self.providers.public()['schedule'][name]['next_allowed']}
         self.providers.status(name, last_attempt=time.time(), state='updating', error=None)
         try:
             if name in ('official', 'securiteinfo'):
@@ -179,7 +188,7 @@ class Fetch:
                 self.sane(config)
             else:
                 raise ClamShieldError('Unknown provider')
-            self.providers.status(name, last_success=time.time(), state='downloaded', error=None)
+            self.providers.status(name, last_success=time.time(), state='downloaded', error=None, retry_after=None)
             return {'provider': name, 'used_cache': False}
         except (OSError, subprocess.SubprocessError, ClamShieldError) as exc:
             message = str(exc) if isinstance(exc, ClamShieldError) else 'Provider update failed or timed out'

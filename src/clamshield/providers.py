@@ -11,11 +11,36 @@ from .provider_catalog import SI, SI_BASIC, SANE, SANE_REQUIRED, catalog
 
 DEFAULTS = {
     'automatic': True,
-    'official': {'enabled': True},
-    'securiteinfo': {'enabled': False, 'plan': 'basic', 'key': '', 'databases': list(SI_BASIC)},
-    'sanesecurity': {'enabled': False, 'databases': list(SANE_REQUIRED) + ['phish.ndb', 'rogue.hdb']},
+    'official': {'enabled': True, 'interval_minutes': 60},
+    'securiteinfo': {'enabled': False, 'plan': 'basic', 'key': '', 'databases': list(SI_BASIC), 'interval_minutes': 60},
+    'sanesecurity': {'enabled': False, 'databases': list(SANE_REQUIRED) + ['phish.ndb', 'rogue.hdb'], 'interval_minutes': 60},
     'local': {'enabled': True},
 }
+UPDATE_POLICIES = {
+    'official': {'minimum_minutes': 60, 'note': 'Conservative hourly floor for ClamAV CDN access',
+                 'url': 'https://docs.clamav.net/faq/faq-troubleshoot.html'},
+    'securiteinfo': {'minimum_minutes': 60, 'note': 'Provider permits one download per hour, for all plans',
+                    'url': 'https://www.securiteinfo.com/clamav-antivirus/faq-clamav-unofficial-signatures_en.shtml'},
+    'sanesecurity': {'minimum_minutes': 60, 'note': 'Conservative hourly floor; provider forbids excessive mirror requests',
+                    'url': 'https://sanesecurity.com/usage/linux-scripts/'},
+}
+
+
+def validate_interval(name, value):
+    minimum = UPDATE_POLICIES[name]['minimum_minutes']
+    if type(value) is not int or not minimum <= value <= 525600:
+        raise ClamShieldError(f'{name} update interval must be a whole number from {minimum} to 525600 minutes')
+    return value
+
+
+def timing(name, config, status):
+    interval = validate_interval(name, config[name].get('interval_minutes', 60))
+    record = status.get(name, {})
+    anchor = max(record.get('last_attempt') or 0, record.get('last_success') or 0)
+    permitted = max(anchor + interval*60 if anchor else 0, record.get('retry_after') or 0)
+    return dict(UPDATE_POLICIES[name], interval_minutes=interval, next_allowed=permitted,
+                last_attempt=record.get('last_attempt'), last_success=record.get('last_success'),
+                retry_after=record.get('retry_after'))
 LOCAL_SUFFIXES = ('.hdb', '.hsb', '.ndb', '.ldb', '.ign2', '.fp', '.sfp', '.ftm', '.cdb', '.mdb', '.pdb', '.wdb', '.yar', '.yara')
 
 
@@ -29,7 +54,14 @@ class Providers:
             raise ClamShieldError('Unexpected provider configuration path')
         if not self.path.exists():
             return deepcopy(DEFAULTS)
-        result = json.loads(self.path.read_text())
+        saved = json.loads(self.path.read_text())
+        if not isinstance(saved, dict): raise ClamShieldError('Invalid provider settings')
+        result = deepcopy(DEFAULTS)
+        result.update(saved)
+        for name in ('official', 'securiteinfo', 'sanesecurity', 'local'):
+            if not isinstance(saved.get(name, {}), dict): raise ClamShieldError('Invalid provider settings')
+            result[name] = deepcopy(DEFAULTS[name]) | saved.get(name, {})
+        for name in UPDATE_POLICIES: validate_interval(name, result[name]['interval_minutes'])
         return result
 
     def save(self, value):
@@ -53,6 +85,7 @@ class Providers:
                 for key, item in incoming.items():
                     if key == 'enabled' and type(item) is not bool:
                         raise ClamShieldError('Invalid provider toggle')
+                    if key == 'interval_minutes': validate_interval(name, item)
                     if key == 'key':
                         # Empty masked fields preserve the saved credential.
                         if item == '':
@@ -83,10 +116,16 @@ class Providers:
         result['securiteinfo']['has_key'] = bool(key)
         status_path = self.settings.state / 'provider-status.json'
         result['status'] = json.loads(status_path.read_text()) if status_path.exists() else {}
+        result['schedule'] = {name: timing(name, result, result['status']) for name in UPDATE_POLICIES}
         result['catalog'] = catalog()
         local = self.settings.state / 'local-signatures'
         result['local']['files'] = sorted(p.name for p in local.iterdir() if p.is_file() and not p.is_symlink()) if local.exists() else []
         return result
+
+    def due(self, name, now=None):
+        if name not in UPDATE_POLICIES: raise ClamShieldError('Unknown provider')
+        current = self.public()
+        return (time.time() if now is None else now) >= current['schedule'][name]['next_allowed']
 
     def save_local(self, name, content):
         if not isinstance(name, str) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,100}', name) or not name.endswith(LOCAL_SUFFIXES):

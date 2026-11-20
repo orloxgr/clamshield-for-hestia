@@ -37,6 +37,37 @@ function fixture(options={}){
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Review','Updates','Settings'];
+
+test('provider schedule exposes per-provider intervals, minimums and timing with clean database labels',async()=>{
+  const f=fixture({hash:'#updates/providers',change:v=>{
+    v.providers.automatic=true;v.providers.official={enabled:true,interval_minutes:180};v.providers.securiteinfo.interval_minutes=120;
+    v.providers.sanesecurity.interval_minutes=60;v.providers.catalog.securiteinfo=[{name:'securiteinfo.ign2',description:'Provider false-positive exceptions',paid:false}];
+    v.providers.catalog.sanesecurity=[{name:'phish.ndb',description:'Phishing and malware',risk:'low'}];
+    v.providers.schedule={securiteinfo:{minimum_minutes:60,next_allowed:4071000000,retry_after:4071000000}};
+  }});
+  try{const form=f.document.getElementById('cs-providers');
+    for(const [provider,value] of [['official',180],['securiteinfo',120],['sanesecurity',60]]){
+      const input=form.elements[provider+'_interval_minutes'];assert.equal(Number(input.value),value);assert.equal(input.min,'60');assert.equal(input.step,'1');
+      input.value='59';assert.equal(input.checkValidity(),false);input.value=String(value);assert.equal(input.checkValidity(),true);
+    }
+    const schedule=f.document.getElementById('cs-provider-schedule');assert.match(schedule.textContent,/Last attempt.*Last success.*Next permitted update/);
+    assert.match(schedule.textContent,/Freshclam provider cooldown/);assert.match(schedule.textContent,/2099-/);
+    assert.match(form.textContent,/securiteinfo.ign2 - Provider false-positive exceptions/);
+    assert.match(form.textContent,/phish.ndb - Phishing and malware/);
+    assert.doesNotMatch(form.textContent,/\u03b2\u20ac|\u0392\u00b7|\ufffd/);
+  }finally{await f.close();}
+});
+
+test('provider interval fields are sent as numbers while masked credentials and database selections retain their behavior',async()=>{
+  const f=fixture({hash:'#updates/providers',api:async()=>({ok:false,json:async()=>({ok:false,error:'Fixture: no update performed'})})});
+  try{const form=f.document.getElementById('cs-providers');form.elements.official_interval_minutes.value='180';form.elements.securiteinfo_interval_minutes.value='120';form.elements.sanesecurity_interval_minutes.value='90';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const request=f.requests.find(r=>r.action==='providers-save');assert.ok(request);const policy=JSON.parse(request.providers);
+    assert.equal(policy.official.interval_minutes,180);assert.equal(policy.securiteinfo.interval_minutes,120);assert.equal(policy.sanesecurity.interval_minutes,90);
+    assert.equal(policy.securiteinfo.key,'');assert.equal(typeof policy.automatic,'boolean');assert.ok(Array.isArray(policy.securiteinfo.databases));
+    assert.match(f.document.getElementById('cs-message').textContent,/no update performed/);
+  }finally{await f.close();}
+});
 const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',trials:'Rule comparisons',other:'Other notifications'};
 const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
 const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});

@@ -3,12 +3,13 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from clamshield.paths import attributes
 from clamshield.scheduler import DEFAULTS, Scheduler, schedule_slot, validate_policy
 from clamshield.settings import Settings
 from clamshield.store import Store
+from clamshield.providers import Providers
 
 
 class CalendarSchedules(unittest.TestCase):
@@ -87,3 +88,19 @@ class Monitoring(unittest.TestCase):
         job=self.store.job(self.context,ids[0])
         self.assertEqual('signature-update',job['source'])
         self.assertEqual('',job['target'])
+
+    def test_provider_timer_uses_provider_intervals_and_server_cooldowns_instead_of_an_hourly_constant(self):
+        providers=Providers(self.settings);providers.save({'official':{'interval_minutes':180}})
+        instant=datetime.now(timezone.utc);anchor=instant.timestamp()-7200
+        providers.status('official',last_attempt=anchor,last_success=anchor)
+        self.scheduler.hestia.inventory.return_value=[{'owner':'admin','identity':'admin-generation','role':'admin','suspended':False,'sites':[]}]
+        with patch('clamshield.scheduler.Health'):
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            providers.save({'official':{'interval_minutes':60}})
+            providers.status('official',retry_after=instant.timestamp()+3600)
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
+            providers.status('official',retry_after=None)
+            self.scheduler.tick(instant)
+            with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT COUNT(*) FROM maintenance').fetchone()[0])
