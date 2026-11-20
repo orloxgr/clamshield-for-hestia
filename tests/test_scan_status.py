@@ -1,7 +1,7 @@
 import json
 import time
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import test_mail_custody as fixtures
 from clamshield.application import Application
@@ -14,6 +14,17 @@ class ScanStatusTests(unittest.TestCase):
     request_for=fixtures.MailCustodyTests.request_for
 
     def scans(self):return ScanStatus(self.store,self.native)
+
+    def test_target_dropdown_uses_native_selected_account_authorization(self):
+        app=Application(self.settings,self.store,self.native)
+        sites=[dict(domain='bob.test',suspended=False,root='/private/root',identity='private-generation')]
+        with patch.object(self.native,'sites',return_value=sites) as inventory:
+            result=app.dispatch(dict(actor='admin',owner='bob',action='scan-targets'))
+            self.assertEqual({'sites':[dict(domain='bob.test',suspended=False)]},result)
+            inventory.assert_called_once_with('bob')
+            with self.assertRaises(AccessDenied):
+                app.dispatch(dict(actor='alice',owner='bob',action='scan-targets',admin=True))
+            self.assertEqual(1,inventory.call_count)
     def queue(self,context=None):
         context=context or self.alice
         return self.store.enqueue(context,dict(owner=context['owner'],identity=context['identity'],domain=context['owner']+'.test',root='/private/fixture-root'))

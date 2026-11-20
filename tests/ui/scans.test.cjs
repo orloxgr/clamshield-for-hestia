@@ -8,7 +8,7 @@ async function until(predicate){for(let n=0;n<100;n++){await new Promise(resolve
 async function fixture(options={}){
   const php=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',"$data=['context'=>['owner'=>'alice','admin'=>"+(options.admin?'true':'false')+"]];$data['jobs']=json_decode($argv[2],true);$_SESSION=['token'=>'fixture-token'];$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.join(root,'panel/scans.php'),JSON.stringify(options.initialJobs||[])],{encoding:'utf8'});
   assert.equal(php.status,0,php.stderr);
-  const dom=new JSDOM('<div id="cs-active-scans"></div>'+php.stdout,{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only',pretendToBeVisual:true});
+  const dom=new JSDOM('<div id="cs-active-scans"></div>'+php.stdout,{url:'https://panel.test/plugins/clamshield/'+(options.query||''),runScripts:'outside-only',pretendToBeVisual:true});
   const w=dom.window,requests=[],timers=new Map();let timerId=0,snapshot=0,cancelled=false,concurrent=0,maxConcurrent=0;
   w.setTimeout=(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;};w.clearTimeout=id=>timers.delete(id);
   w.fetch=async(_url,request)=>{
@@ -30,6 +30,12 @@ async function fixture(options={}){
   return {w,requests,timers,section,byId:id=>w.document.getElementById('cs-scans-'+id),maxConcurrent:()=>maxConcurrent,
     tick:async()=>{const [key,value]=timers.entries().next().value;timers.delete(key);await value.callback();await until(()=>!w.document.getElementById('cs-scans-refresh').disabled);},close:()=>w.close()};
 }
+
+test('progress links select server scope only when the native administrator option is present',async()=>{
+  for(const admin of [true,false]){const f=await fixture({admin,query:'?scan_scope=server'});try{
+    assert.equal(f.requests[0].scope,admin?'server':'account');
+  }finally{f.close();}}
+});
 
 test('visible scans poll current counters without replacing focused native controls',async()=>{
   const f=await fixture();try{

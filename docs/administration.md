@@ -85,7 +85,13 @@ account generation. **Settings → Website permissions** delegates specific tena
 The root bridge rechecks scope and authority for each operation, including
 asynchronous work. Recreated accounts do not inherit the old account's access.
 
-Use **On-demand Scan → Websites** for path/site/account scans.
+In **On-demand Scan → Websites**, choose **Scan account** and then a website,
+or **All websites in this account**, and press **Scan**. Administrators also have
+**Scan all**, which queues active websites across all accounts on the server.
+For a single site, **Scan a folder or file (optional)** accepts a path relative
+to its document root; blank means the whole website. Account/server scans ignore
+that path. Choosing an account/site alone does not start work. **View progress**
+opens the selected account or the server-wide queue as appropriate.
 **Scheduled Scanner** manages schedules and changed-file monitoring.
 **On-demand Scan → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files

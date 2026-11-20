@@ -105,8 +105,9 @@ class WebsiteHistoryRendering(unittest.TestCase):
     def test_suspended_site_disables_path_and_scan(self):
         data = self.data(); data['sites'][0]['suspended'] = True
         page = self.render(data)
-        self.assertIn('placeholder="Whole website" disabled', page)
-        self.assertIn('disabled title="Website is suspended" data-action="scan"', page)
+        self.assertIn('No active websites', page)
+        self.assertIn('disabled title="Website is suspended"', page)
+        self.assertIn('data-scope="account" disabled', page)
         self.assertNotIn('data-action="quarantine"', page)
 
     def test_moved_site_keeps_private_original_and_repair_history_without_restore_or_apply(self):

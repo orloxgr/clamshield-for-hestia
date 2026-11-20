@@ -31,17 +31,13 @@
 </style>
 <main class="container cs">
 <div class="row"><div><h1>ClamShield <small style="font-size:14px;font-weight:400">for Hestia</small></h1><p class="sub">Website malware scanning &amp; email protection</p></div>
-<?php if($data['context']['admin']): ?><label style="margin-left:auto">Account <select class="form-select" id="cs-owner"><?php foreach($data['accounts'] as $account): ?><option <?= $account['owner']===$data['context']['owner']?'selected':'' ?>><?= $escape($account['owner']) ?></option><?php endforeach ?></select></label><?php endif ?></div>
+<?php if($data['context']['admin']): ?><label style="margin-left:auto">Viewing account <select class="form-select" id="cs-owner"><?php foreach($data['accounts'] as $account): ?><option <?= $account['owner']===$data['context']['owner']?'selected':'' ?>><?= $escape($account['owner']) ?></option><?php endforeach ?></select></label><?php endif ?></div>
 <?php require __DIR__.'/navigation.php'; ?>
 <?php if(!$data['engines']['yara']['rules_available']): ?><p id="cs-yara-warning" class="notice alert alert-warning">Website scans need active YARA rules for complete coverage. <a href="#updates/rules" data-tab="rules">Set up YARA rules</a></p><?php endif ?>
 <?php if(!$data['context']['admin'] && in_array(false,$data['website_permissions']['effective'],true)): ?><p class="notice alert alert-info">Some website actions are disabled by your administrator. Results and history remain available; disabled controls explain the required permission.</p><?php endif ?>
 <p id="cs-message" role="status" aria-live="polite"></p>
 <?php require __DIR__.'/dashboard.php'; ?>
-<section data-page="sites" hidden><div class="row"><h2>Websites</h2><button class="button" data-action="scan" data-scope="account">Scan account</button><?php if($data['context']['admin']): ?><button class="button" data-action="scan" data-scope="server">Scan all accounts</button><?php endif ?></div>
-<p>Scan a whole site or enter a path relative to its document root. Account and server scans skip suspended websites. Server scans also skip suspended accounts.</p><div class="scroll"><table><thead><tr><th>Website</th><th>Document root</th><th>Scan</th></tr></thead><tbody>
-<?php foreach($data['sites'] as $index=>$site): ?><tr><td><?=$escape($site['domain'])?> <?=$site['suspended']?'(suspended)':''?></td><td class="path"><?=$escape($site['root'])?></td><td><input class="form-control" aria-label="Relative path for <?=$escape($site['domain'])?>" id="path-<?=$index?>" placeholder="Whole website" <?=$site['suspended']?'disabled':''?>><button class="button" <?=$site['suspended']?'disabled title="Website is suspended"':''?> data-action="scan" data-scope="site" data-domain="<?=$escape($site['domain'])?>" data-path-input="path-<?=$index?>">Scan</button></td></tr>
-<?php endforeach ?>
-</tbody></table></div></section>
+<?php require __DIR__.'/on_demand.php'; ?>
 <?php require __DIR__.'/scheduled.php'; ?>
 <section data-page="wordpress" hidden><h2>WordPress integrity</h2><p>Discover installations and compare core, plugin and theme files with WordPress.org references. An integrity difference requires review; it does not establish a malware infection. Components without an available reference are marked unverified.</p>
 <?php foreach($data['sites'] as $index=>$site): if($site['suspended']) continue; ?><p><strong><?=$escape($site['domain'])?></strong> <input class="form-control" aria-label="WordPress discovery path" id="wp-path-<?=$index?>" placeholder="Whole website"><button class="button" data-action="wordpress-scan" data-domain="<?=$escape($site['domain'])?>" data-path-input="wp-path-<?=$index?>">Discover and verify</button></p><?php endforeach ?>
@@ -124,6 +120,7 @@
  document.querySelectorAll('[data-capability]').forEach(container=>{if(websitePermissions[container.dataset.capability]!==false)return;container.title=websitePermissionLabels[container.dataset.capability]+' is disabled by the administrator';const controls=container.matches('button,input,select,textarea')?[container]:container.querySelectorAll('button,input,select,textarea');controls.forEach(control=>{control.disabled=true;control.setAttribute('aria-disabled','true');control.title=container.title;});});
  <?php readfile(__DIR__.'/navigation.js'); ?>
  <?php readfile(__DIR__.'/rule_updates.js'); ?>
+ <?php readfile(__DIR__.'/on_demand.js'); ?>
  document.getElementById('cs-refresh-repairs').addEventListener('click',()=>location.reload());
  document.querySelectorAll('.cs-native-backups').forEach(container=>{
   const list=container.querySelector('.cs-backup-list'),select=container.querySelector('select'),prepare=container.querySelector('.cs-backup-prepare'),status=container.querySelector('[role="status"]');

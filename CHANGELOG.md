@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.3.0
+
+- Replace per-website scan inputs with account/website dropdowns, an all-websites
+  account option and adjacent Scan/Scan all actions with explicit scope labels.
+- Put optional relative-path scanning behind a disclosure for a single website;
+  account/server scans never send a leftover single-site path.
+- Load website choices through native account authorization and keep suspended
+  websites unavailable. Failed account discovery cannot reuse earlier targets.
+- Link queued scans to the correct account or server progress view; retain website
+  root information in an expandable section and clarify the viewing account.
+
 ## 1.2.4
 
 - Add 12px bottom spacing below the dashboard panel grid.

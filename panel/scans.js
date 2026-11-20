@@ -5,6 +5,7 @@
   const body=document.getElementById('cs-scans-list'),status=document.getElementById('cs-scans-status');
   const checked=document.getElementById('cs-scans-checked'),refresh=document.getElementById('cs-scans-refresh');
   const prev=document.getElementById('cs-scans-prev'),next=document.getElementById('cs-scans-next');
+  if(new URL(location.href).searchParams.get('scan_scope')==='server'&&form.querySelector('option[value="server"]'))form.elements.scope.value='server';
   let offset=0,nextOffset=null,version=0,inFlight=false,dirty=false,timer=null,failures=0;
   const active=()=>!root.hidden&&document.visibilityState==='visible';
   function stop(){if(timer!==null)clearTimeout(timer);timer=null;}

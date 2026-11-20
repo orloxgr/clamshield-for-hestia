@@ -50,6 +50,9 @@ class Application:
 
     def _dispatch(self,request,context):
         action=request.get('action','dashboard')
+        if action=='scan-targets':
+            return {'sites':[{'domain':site['domain'],'suspended':site['suspended']}
+                             for site in self.hestia.sites(context['owner'])]}
         if action in ('scans-status','scan-cancel'):
             from .scan_status import ScanStatus
             scans=ScanStatus(self.store,self.hestia)

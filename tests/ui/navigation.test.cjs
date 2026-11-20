@@ -31,12 +31,48 @@ function fixture(options={}){
   const dom=new JSDOM(rendered.stdout,{url:'https://panel.test/plugins/clamshield/'+(options.hash||''),runScripts:'outside-only'});
   const w=dom.window,requests=[],timers=new Map();let timerId=0,statusIndex=0;if(options.saved)w.sessionStorage.setItem('clamshield-tab',options.saved);
   w.setTimeout=(callback,delay)=>{timers.set(++timerId,{callback,delay});return timerId;};w.clearTimeout=id=>timers.delete(id);
-  w.fetch=async(url,request)=>{const body=Object.fromEntries(request.body);requests.push(body);if(body.action==='rules-status'){const value=options.ruleSnapshots?.[Math.min(statusIndex++,options.ruleSnapshots.length-1)]??{pending:false,latest:null,active:values.rules};return {ok:true,json:async()=>({ok:true,...value})};}return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
+  w.fetch=async(url,request)=>{const body=Object.fromEntries(request.body);requests.push(body);if(body.action==='rules-status'){const value=options.ruleSnapshots?.[Math.min(statusIndex++,options.ruleSnapshots.length-1)]??{pending:false,latest:null,active:values.rules};return {ok:true,json:async()=>({ok:true,...value})};}if(options.api)return options.api(body);return options.response||{ok:false,json:async()=>({ok:false,error:'Fixture API unavailable'})};};
   for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
   return {w,requests,timers,tick:async()=>{const entry=timers.entries().next().value;assert.ok(entry);timers.delete(entry[0]);await entry[1].callback();await new Promise(resolve=>setImmediate(resolve));},document:w.document,close:async()=>{await new Promise(resolve=>setImmediate(resolve));w.close();},click:selector=>w.document.querySelector(selector).click(),
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
+const queuedScans=async body=>({ok:true,json:async()=>body.action==='scan-targets'?{ok:true,sites:[{domain:'bob.test',suspended:false},{domain:'suspended.test',suspended:true}]}:{ok:true,jobs:['scan-one','scan-two']}});
+test('scan dropdown chooses account and website without scanning until Scan is pressed',async()=>{
+  const f=fixture({hash:'#scan',change:values=>values.accounts.push({owner:'bob'}),api:queuedScans});
+  try{const form=f.document.getElementById('cs-scan-target');
+    assert.equal(form.elements.domain.value,'');assert.equal(form.elements.path.disabled,true);assert.equal(f.requests.length,0);
+    form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    assert.deepEqual(f.requests,[{token:'fixture-token',owner:'bob',action:'scan-targets'}]);
+    assert.equal(form.elements.domain.options[1].value,'bob.test');assert.equal(form.elements.domain.options[2].disabled,true);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests.at(-1),{token:'fixture-token',owner:'bob',action:'scan',scope:'account'});
+    const link=new URL(f.document.getElementById('cs-scan-target-progress').href);assert.equal(link.searchParams.get('owner'),'bob');assert.equal(link.hash,'#scan/jobs');
+    form.elements.domain.value='bob.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));
+    assert.equal(f.document.getElementById('cs-scan-path-options').hidden,false);assert.equal(form.elements.path.disabled,false);
+    form.elements.path.value='wp-content/uploads';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests.at(-1),{token:'fixture-token',owner:'bob',action:'scan',scope:'site',domain:'bob.test',path:'wp-content/uploads'});
+    form.elements.domain.value='';form.elements.domain.dispatchEvent(new f.w.Event('change'));assert.equal(form.elements.path.value,'');assert.equal(form.elements.path.disabled,true);
+  }finally{await f.close();}
+});
+test('Scan all queues server scope without a selected site or leftover path',async()=>{
+  const f=fixture({hash:'#scan',api:queuedScans});
+  try{const form=f.document.getElementById('cs-scan-target');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));form.elements.path.value='uploads';
+    f.click('#cs-scan-all');await settle();assert.deepEqual(f.requests.at(-1),{token:'fixture-token',owner:'alice',action:'scan',scope:'server'});
+    assert.equal(new URL(f.document.getElementById('cs-scan-target-progress').href).searchParams.get('scan_scope'),'server');
+  }finally{await f.close();}
+});
+test('tenant scan permission and failed account discovery cannot enable scanning',async()=>{
+  const tenant=fixture({admin:false,hash:'#scan',change:values=>values.website_permissions.effective.scan=false,api:queuedScans});
+  try{assert.equal(tenant.document.getElementById('cs-scan-all'),null);assert.equal(tenant.document.querySelector('#cs-scan-target select[name=owner]').disabled,true);
+    tenant.document.getElementById('cs-scan-target').dispatchEvent(new tenant.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(tenant.requests.length,0);
+  }finally{await tenant.close();}
+  const failed=fixture({hash:'#scan',change:values=>values.accounts.push({owner:'bob'})});
+  try{const form=failed.document.getElementById('cs-scan-target');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new failed.w.Event('change'));await settle();
+    assert.equal(failed.document.getElementById('cs-scan-start').disabled,true);assert.equal(form.elements.domain.disabled,true);assert.equal(form.elements.domain.options.length,1);
+    assert.match(failed.document.getElementById('cs-scan-target-status').textContent,/Fixture API unavailable/);
+  }finally{await failed.close();}
+});
 test('full panel opens Dashboard and keeps the ten native menu links while navigating every view',async()=>{
   const f=fixture();try{
     assert.deepEqual(f.visible(),['dashboard']);const menu=f.document.getElementById('cs-main-navigation');
