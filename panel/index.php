@@ -105,8 +105,12 @@ if ($_SERVER['REQUEST_METHOD']==='POST' || ($_GET['format']??'')==='json') {
     exit;
 }
 if ($status!==0 || empty($data['ok'])) $respond(403,['ok'=>false,'error'=>$data['error']??'Access denied.']);
+// A root install can replace this symlink while PHP-FPM retains its old target.
+clearstatcache(true);
+$view = realpath('/opt/clamshield/panel/view.php');
+if ($view===false || !is_readable($view)) $respond(503,['ok'=>false,'error'=>'ClamShield panel files are unavailable. Rerun the installer.']);
 $escape = static fn($value) => htmlspecialchars((string)$value, ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
 require $root . '/web/templates/header.php';
 top_panel($_SESSION['user'] ?? '', 'WEB');
-require '/opt/clamshield/panel/view.php';
+require $view;
 require $root . '/web/templates/footer.php';

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.3
+
+- Refresh PHP's realpath cache before loading the current panel release after
+  reinstall/update. Report unavailable panel files before rendering the header.
+
 ## 1.10.2
 
 - Fix reinstall after completed removal when the old code directory is absent.
