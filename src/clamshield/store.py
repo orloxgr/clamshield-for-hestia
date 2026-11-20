@@ -123,6 +123,8 @@ CREATE TABLE IF NOT EXISTS notifications (
  subject TEXT NOT NULL, detail TEXT NOT NULL, created REAL NOT NULL, read_at REAL,
  dedup_key TEXT, UNIQUE(owner,identity,event,dedup_key)
 );
+CREATE INDEX IF NOT EXISTS notifications_created ON notifications(created);
+CREATE INDEX IF NOT EXISTS notifications_scope_created ON notifications(owner,identity,created);
 CREATE TABLE IF NOT EXISTS notification_preferences (
  actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
  categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,

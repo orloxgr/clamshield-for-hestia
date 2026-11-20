@@ -157,7 +157,7 @@ class NotificationPreferences:
                 rows = [dict(row) for row in db.execute('''SELECT n.* FROM notifications n
                   LEFT JOIN notification_bell_deliveries d ON d.notification_id=n.id AND d.actor=? AND d.identity=?
                   WHERE n.created>? AND (d.status IS NULL OR (d.status NOT IN ('sent','skipped') AND d.attempted<?))'''
-                  +scope+' ORDER BY n.rowid LIMIT ?', (*args, budget))]
+                  +scope+' ORDER BY n.created,n.id LIMIT ?', (*args, budget))]
             for notice in rows:
                 budget -= 1
                 with self.store.connection() as db:
@@ -173,6 +173,9 @@ class NotificationPreferences:
                     # A previous process may have stopped after the native append.
                     # The stable link correlates that append before any retry.
                     native = self.hestia.call('v-list-user-notifications', pref['actor'], 'json')
+                    if any(not isinstance(value,dict) or not isinstance(value.get('TOPIC'),str) or
+                           not isinstance(value.get('NOTICE'),str) for value in native.values()):
+                        raise ClamShieldError('Native Bell list could not be verified')
                     marker = 'notice='+notice['id']
                     found = next((str(key) for key, value in native.items()
                                   if value.get('TOPIC', '').startswith('ClamShield: ') and marker in value.get('NOTICE', '')), None)

@@ -99,6 +99,11 @@ class PersonalBell(unittest.TestCase):
         self.retry_now();self.hestia.add_notification.side_effect=self.append
         self.assertEqual(1,self.preferences.once()['bell_sent']);self.assertIsNone(self.preferences.get(self.accounts['alice'])['settings']['error'])
 
+    def test_unverifiable_native_list_never_triggers_a_blind_resend(self):
+        self.save();self.notify();self.hestia.call.side_effect=lambda *args:{'1':None}
+        self.assertEqual(1,self.preferences.once()['bell_failed'])
+        self.assertEqual([],self.sent);self.hestia.add_notification.assert_not_called()
+
     def test_disable_or_revoked_administrator_authority_stops_pending_delivery(self):
         self.save('admin');self.notify('bob')
         def disable(command,owner,format):self.save('admin',bell=False);return {}
