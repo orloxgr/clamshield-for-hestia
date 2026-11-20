@@ -21,7 +21,7 @@ class FixtureInstallation(Installation):
     def __init__(self,*args,**kwargs):super().__init__(*args,**kwargs);self.calls=[]
     def system(self,*args,**kwargs):
         self.calls.append(args)
-        output=b'inactive\n'*len(CONTROLLERS) if args[:3]==('show','--property=ActiveState','--value') else b''
+        output=b'inactive\n'*len(args[3:]) if args[:3]==('show','--property=ActiveState','--value') else b''
         return subprocess.CompletedProcess(args,0,output,b'')
     def detach_mail(self):self.calls.append(('detach-mail',))
     def recover_operations(self):self.calls.append(('recover-operations',))
