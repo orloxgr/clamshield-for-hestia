@@ -17,4 +17,3 @@ ProtectHome=true
 ReadWritePaths=/var/lib/clamshield /usr/local/hestia/data/users /usr/local/hestia/log
 PrivateTmp=true
 TimeoutStartSec=60
-
