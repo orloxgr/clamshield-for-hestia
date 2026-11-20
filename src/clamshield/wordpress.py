@@ -265,6 +265,8 @@ class WordPress:
         result={key:job[key] for key in fields}
         result.update(report_ready=bool(row) and not job['counters'].get('history_expired',False),
                       discovery_complete=bool(row and row['complete']))
+        from .scan_queue import ScanQueue
+        ScanQueue(self.settings,self.store).describe([result],admin=context['admin'])
         return {'job':result}
 
     def report(self, context, job_id, offset=0):

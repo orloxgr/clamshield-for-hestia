@@ -477,3 +477,25 @@ notices remain with downloaded data and historical evidence. The panel uses
 short source references, including technical views; full third-party licenses
 are not embedded in the interface. Settings → Support Us provides the supplied
 PayPal, SaneSecurity and SecuriteInfo links plus upstream acknowledgements.
+
+
+### Scan queue waiting reasons
+
+Website scans share one worker across the server, including manual, WordPress
+integrity and automatic scans after signature updates. Queued rows show their
+position in that shared FIFO queue and elapsed wait. A scan already in progress
+continues to completion; reading queue status does not interrupt or restart it.
+
+The live status identifies a busy scan, held scanner lock, pending signature or
+resource activation/recovery, website ClamAV service control, stopped/missing
+worker timer, failed worker or an unclaimed delayed job. An administrator can see
+the blocking scan's account, website and source even when viewing a different
+account; hosting users receive only a generic shared-worker explanation. Queue
+position is independent of search, account filters and pagination.
+
+A Type=oneshot worker service normally remains activating (start) while it runs
+a scan. This state alone does not indicate a startup hang. The status probe checks
+the actual worker lock and recorded jobs as well as bounded read-only systemd
+properties; a leftover lock filename alone is not considered busy. Pending
+activation links open Review / History for administrators. Unknown service or
+lock state is reported explicitly rather than presented as normal waiting.

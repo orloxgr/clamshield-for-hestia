@@ -667,6 +667,14 @@ test('hidden rule views stop polling and resume after navigation',async()=>{
 
 const integrityJob=(status,extra={})=>({id:'integrity-one',owner:'alice',domain:'site.test',root:'/home/alice/web/site.test/public_html',target:'',source:'wordpress-integrity',created:1,started:null,finished:null,heartbeat:null,cancel_requested:false,status,counters:{seen:0,scanned:0,installations:0},error:null,report_ready:false,discovery_complete:false,...extra});
 
+test('queued integrity checks show the shared scanner blocker and position while remaining queued',async()=>{
+  const job=integrityJob('queued',{queue:{code:'scan-running',position:3,wait_seconds:142,message:'Waiting for automatic scan after signature updates: bob / bob.test.'}});
+  const f=fixture({hash:'#scan/wordpress',change:values=>values.jobs=[job],api:async()=>({ok:true,json:async()=>({ok:true,job})})});
+  try{await settle();const row=f.document.querySelector('.cs-integrity-row');assert.match(row.querySelector('.cs-integrity-status').textContent,/Queued · position 3 · 2m 22s.*automatic scan/);
+    assert.equal(row.querySelector('.cs-integrity-start').disabled,true);assert.equal(f.requests[0].action,'wordpress-status');assert.equal(f.requests.some(r=>r.action==='wordpress-scan'),false);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('integrity table explains the optional folder and one click follows queued/running/completed work',async()=>{
   let completeQueue,statusIndex=0;
   const snapshots=[integrityJob('running',{counters:{seen:100,scanned:20,installations:1}}),integrityJob('completed',{finished:2,report_ready:true,discovery_complete:true,counters:{seen:120,scanned:40,installations:1,modified:1}})];

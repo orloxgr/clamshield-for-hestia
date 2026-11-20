@@ -21,9 +21,9 @@ async function fixture(options={}){
     if(index===0&&options.wait)await options.wait;
     concurrent--;
     if(index===1&&options.refreshError)throw new Error(options.refreshError);
-    const job={id:'a'.repeat(32),owner:'alice',domain:options.domain||'alice.test',target:'',source:'manual',status:cancelled?'running':'running',
-      cancel_requested:cancelled?1:0,created:1,heartbeat:2,counters:{seen:10,scanned:7+index,errors:1,skipped:2,...options.counters},error:null,can_cancel:!cancelled};
-    return {ok:true,json:async()=>({ok:true,jobs:[job],scope:body.scope,total:1,summary:{recorded:1,queued:0,running:1},account_active:1,checked:3+index,next_offset:options.nextOffset??null})};
+    const job={id:'a'.repeat(32),owner:'alice',domain:options.domain||'alice.test',target:'',source:'manual',status:cancelled?'running':options.jobStatus||'running',
+      queue:options.queue,cancel_requested:cancelled?1:0,created:1,heartbeat:2,counters:{seen:10,scanned:7+index,errors:1,skipped:2,...options.counters},error:null,can_cancel:!cancelled};
+    return {ok:true,json:async()=>({ok:true,jobs:[job],scope:body.scope,total:1,summary:{recorded:1,queued:job.status==='queued'?1:0,running:job.status==='running'?1:0},account_active:1,checked:3+index,next_offset:options.nextOffset??null})};
   };
   const section=w.document.getElementById('cs-scans');section.hidden=false;w.sessionStorage.setItem('clamshield-tab','jobs');w.eval(source);
   if(!options.wait)await until(()=>section.querySelector('tbody tr'));
@@ -35,6 +35,21 @@ test('progress links select server scope only when the native administrator opti
   for(const admin of [true,false]){const f=await fixture({admin,query:'?scan_scope=server'});try{
     assert.equal(f.requests[0].scope,admin?'server':'account');
   }finally{f.close();}}
+});
+
+test('queued scans show the actual blocker, global position and elapsed wait without extra actions',async()=>{
+  const f=await fixture({admin:true,jobStatus:'queued',queue:{code:'scan-running',position:2,wait_seconds:83,message:'Waiting for automatic scan after signature updates: bob / bob.test.'}});try{
+    const cell=f.byId('list').querySelector('tr').children[1];assert.match(cell.textContent,/Queue position: 2.*Waiting: 1m 23s/);assert.match(cell.textContent,/automatic scan after signature updates: bob/);
+    assert.equal(f.requests.length,1);assert.equal(f.requests[0].action,'scans-status');assert.equal([...f.timers.values()][0].delay,5000);
+    await f.tick();assert.match(cell.textContent,/Queue position: 2/);assert.equal(f.byId('list').querySelector('button').disabled,false);
+  }finally{f.close();}
+});
+
+test('queue failures render as text and maintenance blockers link to the canonical History tab',async()=>{
+  const f=await fixture({admin:true,jobStatus:'queued',queue:{code:'signature-activation',position:1,wait_seconds:6,message:'Waiting <img src=x> for signature activation.',action:'history'}});try{
+    const cell=f.byId('list').querySelector('tr').children[1];assert.equal(cell.querySelector('img'),null);assert.match(cell.textContent,/Waiting <img src=x>/);
+    assert.equal(cell.querySelector('a').getAttribute('href'),'#review/history');assert.equal(cell.querySelector('a').dataset.tab,'history');
+  }finally{f.close();}
 });
 
 test('visible scans poll current counters without replacing focused native controls',async()=>{

@@ -7,7 +7,10 @@ from .errors import AccessDenied,ClamShieldError
 
 
 class ScanStatus:
-    def __init__(self,store,hestia):self.store,self.hestia=store,hestia
+    def __init__(self,store,hestia,settings=None):
+        from .settings import Settings
+        self.store,self.hestia=store,hestia
+        self.settings=settings or Settings(state=store.path.parent)
 
     def context(self,context,scope):
         live=self.hestia.authorize(context['actor'],context['owner'])
@@ -33,6 +36,8 @@ class ScanStatus:
             rows=db.execute('''SELECT id,owner,domain,target,source,status,cancel_requested,created,started,finished,
               heartbeat,counters,error FROM jobs'''+filtered+" ORDER BY CASE status WHEN 'running' THEN 0 WHEN 'queued' THEN 1 ELSE 2 END,created DESC,id LIMIT 100 OFFSET ?",(*params,offset)).fetchall()
         jobs=[dict(row)|dict(counters=json.loads(row['counters']),can_cancel=row['status'] in ('queued','running') and not row['cancel_requested']) for row in rows]
+        from .scan_queue import ScanQueue
+        ScanQueue(self.settings,self.store).describe(jobs,admin=context['admin'])
         return dict(jobs=jobs,total=total,summary=summary,account_active=account_active,scope=scope,
                     next_offset=offset+len(rows) if offset+len(rows)<total else None,checked=time.time())
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.4
+
+- Explain queued scans with their global FIFO position, elapsed wait and observed
+  blocker, including automatic scans after signature updates.
+- Distinguish busy scans, held scanner locks, pending activation/recovery,
+  stopped timers, failed workers and delayed unclaimed jobs without changing
+  service state. Show the same queue reason in WordPress integrity checks.
+- Keep other accounts' active website and scan source visible only to admins.
+
 ## 1.11.3
 
 - Combine Global Email stored messages and decisions into one recipient list,

@@ -28,7 +28,7 @@
     text(state,'.cs-integrity-time',new Date((job.finished||job.created)*1000).toISOString().replace('T',' ').replace(/\.\d{3}Z$/,' UTC'));
     let label;
     if(job.cancel_requested&&pending(state))label='Cancellation requested; waiting for the worker.';
-    else if(job.status==='queued')label='Queued. Waiting for the scanner; you can leave this page.';
+    else if(job.status==='queued')label=job.queue?('Queued'+(job.queue.position?' · position '+job.queue.position:'')+' · '+Math.floor(job.queue.wait_seconds/60)+'m '+job.queue.wait_seconds%60+'s. '+job.queue.message):'Queued. Waiting for the scanner; you can leave this page.';
     else if(job.status==='running')label=c.installations?'Checking WordPress files against official releases…':'Discovering WordPress installations…';
     else if(job.status==='completed'&&job.discovery_complete&&c.installations===0)label='Completed — no WordPress installation found.';
     else if(job.status==='completed')label=(c.modified||c.missing||c.additional)?'Completed — differences need review.':job.discovery_complete?'Completed — checked files match their references.':'Completed — see retained coverage below.';

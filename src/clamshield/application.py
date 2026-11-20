@@ -89,7 +89,7 @@ class Application:
                              for site in self.hestia.sites(context['owner'])]}
         if action in ('scans-status','scan-cancel'):
             from .scan_status import ScanStatus
-            scans=ScanStatus(self.store,self.hestia)
+            scans=ScanStatus(self.store,self.hestia,self.settings)
             if action=='scan-cancel':return scans.cancel(context,request.get('job_id'),request.get('scope','account'))
             return scans.list(context,request.get('scope','account'),request.get('search',''),request.get('kind','all'),request.get('offset',0))
         if action in ('server-history-get','server-history-preview','server-history-save','server-history-reset'):
