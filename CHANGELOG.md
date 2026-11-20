@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.6.3
+
+- Keep individual website accordions closed by default in Scheduled Scanner.
+
 ## 1.6.2
 
 - Organize WordPress integrity into a website table with immediate queue feedback,
