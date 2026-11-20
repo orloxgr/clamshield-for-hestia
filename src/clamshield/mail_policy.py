@@ -397,6 +397,11 @@ class MailPolicies:
             parent = defaults | self._saved(context, target['domain'], '', db)
             old = self._saved(context, target['domain'], mailbox, db)
             check_revision(revision, parent, old)
+            # Legacy per-domain activation remains an administrator decision
+            # until the server master switch is configured. Omitting the field
+            # or resetting handling settings must not let a customer change it.
+            legacy_activation=not context['admin'] and 'enabled' not in defaults and 'enabled' in old
+            if legacy_activation:value['enabled']=old['enabled']
             proposed = effective(parent, value) if mailbox else effective(defaults | value)
             if not context['admin'] and not permissions['manage_exceptions'] and old.get('exceptions') != value.get('exceptions'):
                 raise AccessDenied('Mail exception changes are disabled for this account')
@@ -405,7 +410,7 @@ class MailPolicies:
                 for row in db.execute('SELECT settings FROM mail_policies WHERE owner=? AND identity=? AND domain=? AND mailbox<>\'\'',
                                       (*self.store.scope(context), target['domain'])):
                     effective(defaults | value, validate(json.loads(row['settings'])))
-            if reset:
+            if reset and not legacy_activation:
                 db.execute('DELETE FROM mail_policies WHERE owner=? AND identity=? AND domain=? AND mailbox=?',
                            (*self.store.scope(context), target['domain'], mailbox))
             else:

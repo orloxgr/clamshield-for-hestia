@@ -92,6 +92,20 @@ class MailPolicyTests(unittest.TestCase):
         self.assertEqual({},value['overrides']);self.assertTrue(value['effective']['enabled'])
         self.assertEqual(5,value['effective']['spam_threshold'])
 
+    def test_tenant_handling_edits_and_resets_cannot_change_legacy_admin_activation(self):
+        admin=self.native.authorize('admin','alice')
+        for mailbox in ('','first'):
+            for enabled in (True,False):
+                self.mail.save(admin,'alice.test',mailbox,dict(enabled=enabled))
+                edited=self.mail.save(self.context,'alice.test',mailbox,dict(spam_threshold=6))
+                self.assertEqual(enabled,edited['effective']['enabled'])
+                reset=self.mail.save(self.context,'alice.test',mailbox,None,reset=True)
+                self.assertEqual({'enabled':enabled},reset['overrides'])
+                self.assertEqual(enabled,reset['effective']['enabled'])
+        self.mail.enable_server_defaults(self.native.authorize('admin'))
+        reset=self.mail.save(self.context,'alice.test','',None,reset=True)
+        self.assertEqual({},reset['overrides']);self.assertTrue(reset['effective']['enabled'])
+
     def verdict(self, result=None, **policy):
         return evaluate(self.policy(**policy), result or scan(), sender='sender@remote.test', sha256='a' * 64, now=100)
 
