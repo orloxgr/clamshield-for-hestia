@@ -14,7 +14,8 @@ from clamshield.store import Store
 class MailProtectionTests(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
-        self.settings=Settings(state=Path(temp.name)/'state');self.store=Store(self.settings.database)
+        self.settings=Settings(state=Path(temp.name)/'state',rules=Path(temp.name)/'rules/current/rules.yarac')
+        self.store=Store(self.settings.database)
         self.context=dict(actor='admin',owner='admin',identity='generation',admin=True)
         self.native=Mock();self.native.authorize.return_value=self.context
         self.protection=MailProtection(self.settings,self.store,self.native)
