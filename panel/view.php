@@ -85,17 +85,11 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <?php require __DIR__.'/wordpress_recovery.php'; ?>
 <?php require __DIR__.'/rules.php'; ?>
 <?php if($data['context']['admin']): $providers=$data['providers']; ?>
-<section data-page="providers" hidden><h2>Signature updates</h2>
-<p>Website and email scanners load their own selected databases. Updates download shared data once, validate both selections and activate them together.</p>
-<p>Active generation: <span class="path"><?=$escape($data['signatures']['generation']??'Ubuntu official database directory')?></span></p>
-<div class="row"><button class="button" id="cs-signature-update" data-action="signatures-update" data-provider="all">Update selected providers</button><button class="button" data-action="signatures-activate">Validate and activate cached data</button><button class="button" data-action="signatures-rollback">Roll back databases</button></div>
-</section><section data-page="provider-settings" hidden><h2>Signature provider settings</h2>
+<?php require __DIR__.'/provider_updates.php'; ?>
+<section data-page="provider-settings" hidden><h2>Signature provider settings</h2>
 <p>Choose databases independently for website files and email. Risk labels use the provider's published ratings; Not rated means no per-database rating is published.</p>
 <form id="cs-providers">
 <div class="row"><button type="button" class="button" id="cs-provider-recommended">Recommended defaults</button><span id="cs-provider-recommended-status" role="status">Presets exclude High risk and PUA. Existing saved selections remain until you save.</span></div>
-<?php require __DIR__.'/provider_schedule.php'; ?>
-<h3>Official ClamAV</h3><p>Required · updated with Ubuntu freshclam.</p>
-<?php foreach(['official','securiteinfo','sanesecurity','activation'] as $provider): $status=$providers['status'][$provider]??[]; ?><p><strong><?=$escape($provider)?></strong>: <?=$escape($status['state']??'Not checked')?> <?=$escape($status['error']??'')?><?php if(isset($status['last_success'])): ?> · Last success <?= $escape(gmdate('Y-m-d H:i:s',(int)$status['last_success']))?> UTC<?php endif ?></p><?php endforeach ?>
 <h3 id="cs-provider-securiteinfo" tabindex="-1">SecuriteInfo</h3>
 <div class="row"><label><input type="checkbox" name="si_enabled" <?=$providers['securiteinfo']['enabled']?'checked':''?>> Enabled</label><label>Plan <select class="form-select" name="si_plan"><?php foreach(['basic','professional','gold','reseller'] as $plan): ?><option <?=$providers['securiteinfo']['plan']===$plan?'selected':''?>><?=$plan?></option><?php endforeach ?></select></label><div><div class="row"><label for="cs-si-key">Account key</label><a href="https://www.securiteinfo.com/clients/customers/account?src=clamshield" target="_blank" rel="noopener noreferrer">Get a key</a></div><input class="form-control" id="cs-si-key" type="password" name="si_key" autocomplete="new-password" placeholder="<?=$providers['securiteinfo']['has_key']?'Saved; leave empty to keep':'Account installation key'?>"></div></div>
 <p>Use your provider account's installation key. Basic and paid plans provide different database access.</p>

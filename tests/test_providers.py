@@ -93,6 +93,20 @@ class ProviderConfiguration(unittest.TestCase):
                 with self.subTest(key=key, invalid=invalid), self.assertRaises(ClamShieldError):
                     self.providers.save({'securiteinfo': {key: invalid}})
 
+    def test_separate_update_and_provider_forms_preserve_each_others_saved_fields(self):
+        self.providers.save({'automatic':False,'official':{'interval_minutes':180},
+                             'securiteinfo':{'interval_minutes':120},'sanesecurity':{'interval_minutes':90}})
+        self.providers.save({'securiteinfo':{'plan':'professional','key':'a'*128,'enabled':True,
+            'website_databases':['javascript.ndb'],'mail_databases':['spam_marketing.ndb']}})
+        value=self.providers.read()
+        self.assertFalse(value['automatic']);self.assertEqual(120,value['securiteinfo']['interval_minutes'])
+        choices=value['securiteinfo'].copy()
+        self.providers.save({'automatic':True,'official':{'interval_minutes':60},'securiteinfo':{'interval_minutes':240}})
+        after=self.providers.read()
+        self.assertTrue(after['automatic']);self.assertEqual(240,after['securiteinfo']['interval_minutes'])
+        choices['interval_minutes']=240
+        self.assertEqual(choices,after['securiteinfo']);self.assertEqual(90,after['sanesecurity']['interval_minutes'])
+
     def test_catalog_does_not_invent_risk_ratings(self):
         catalog = self.providers.public()['catalog']
         self.assertTrue(all(row['risk'] in ('not-rated', 'not-applicable') for row in catalog['securiteinfo']))

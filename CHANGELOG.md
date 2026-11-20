@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.12.2
+
+- Show provider state, activation status, update timing and automatic-update
+  preferences only in Updates, with a provider list and individual update actions.
+- Keep credentials and database selection in Settings with separate partial Save
+  requests; saving either form preserves the other form and its saved settings.
+- Refresh displayed saved timing, enabled state and database counts after Save.
+
 ## 1.12.1
 
 - Show Saving, saved and retryable error feedback next to Save provider settings,

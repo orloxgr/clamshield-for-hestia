@@ -109,34 +109,77 @@ test('Trial scans and its permission/category are removed while ordinary YARA co
 });
 
 test('provider schedule exposes per-provider intervals, minimums and timing with clean database labels',async()=>{
-  const f=fixture({hash:'#settings/provider-settings',change:v=>{
+  const f=fixture({hash:'#updates/providers',change:v=>{
     v.providers.automatic=true;v.providers.official={enabled:true,interval_minutes:180};v.providers.securiteinfo.interval_minutes=120;
     v.providers.sanesecurity.interval_minutes=60;v.providers.catalog.securiteinfo=[{name:'securiteinfo.ign2',description:'Provider false-positive exceptions',paid:false}];
     v.providers.catalog.sanesecurity=[{name:'phish.ndb',description:'Phishing and malware',risk:'low'}];
     v.providers.schedule={securiteinfo:{minimum_minutes:60,next_allowed:4071000000,retry_after:4071000000}};
   }});
-  try{const form=f.document.getElementById('cs-providers');
+  try{const form=f.document.getElementById('cs-provider-update-settings');
+    assert.equal(form.closest('[data-page]').dataset.page,'providers');
     for(const [provider,value] of [['official',180],['securiteinfo',120],['sanesecurity',60]]){
       const input=form.elements[provider+'_interval_minutes'];assert.equal(Number(input.value),value);assert.equal(input.min,'60');assert.equal(input.step,'1');
       input.value='59';assert.equal(input.checkValidity(),false);input.value=String(value);assert.equal(input.checkValidity(),true);
     }
     const schedule=f.document.getElementById('cs-provider-schedule');assert.match(schedule.textContent,/Last attempt.*Last success.*Next permitted update/);
     assert.match(schedule.textContent,/Freshclam provider cooldown/);assert.match(schedule.textContent,/2099-/);
-    assert.match(form.textContent,/securiteinfo.ign2 - Provider false-positive exceptions/);
-    assert.match(form.textContent,/phish.ndb - Phishing and malware/);
+    const settings=f.document.getElementById('cs-providers');
+    assert.match(settings.textContent,/securiteinfo.ign2 - Provider false-positive exceptions/);
+    assert.match(settings.textContent,/phish.ndb - Phishing and malware/);
     assert.doesNotMatch(form.textContent,/\u03b2\u20ac|\u0392\u00b7|\ufffd/);
   }finally{await f.close();}
 });
 
-test('provider interval fields are sent as numbers while masked credentials and database selections retain their behavior',async()=>{
+test('update schedule saves only timing fields while provider settings retain database and credential ownership',async()=>{
   const f=fixture({hash:'#settings/provider-settings',api:async()=>({ok:false,json:async()=>({ok:false,error:'Fixture: no update performed'})})});
-  try{const form=f.document.getElementById('cs-providers');form.elements.official_interval_minutes.value='180';form.elements.securiteinfo_interval_minutes.value='120';form.elements.sanesecurity_interval_minutes.value='90';
+  try{const form=f.document.getElementById('cs-provider-update-settings');form.elements.official_interval_minutes.value='180';form.elements.securiteinfo_interval_minutes.value='120';form.elements.sanesecurity_interval_minutes.value='90';
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     const request=f.requests.find(r=>r.action==='providers-save');assert.ok(request);const policy=JSON.parse(request.providers);
     assert.equal(policy.official.interval_minutes,180);assert.equal(policy.securiteinfo.interval_minutes,120);assert.equal(policy.sanesecurity.interval_minutes,90);
-    assert.equal(policy.securiteinfo.key,'');assert.equal(typeof policy.automatic,'boolean');
-    for(const provider of ['securiteinfo','sanesecurity'])for(const profile of ['website','mail'])assert.ok(Array.isArray(policy[provider][profile+'_databases']));
-    assert.match(f.document.getElementById('cs-provider-save-status').textContent,/no update performed/);
+    assert.equal(typeof policy.automatic,'boolean');
+    for(const provider of ['official','securiteinfo','sanesecurity'])assert.deepEqual(Object.keys(policy[provider]),['interval_minutes']);
+    assert.match(f.document.getElementById('cs-provider-update-save-status').textContent,/no update performed/);
+  }finally{await f.close();}
+});
+test('provider state, automatic updates and all timing controls live only in Updates, with per-provider actions',async()=>{
+  const f=fixture({hash:'#updates/providers',change:v=>{
+    v.providers.sanesecurity.enabled=true;
+    v.providers.status.activation={state:'active',last_success:5};
+    v.providers.status.securiteinfo={state:'downloaded',error:'<img src=x> fixture failure',last_success:3};
+    v.providers.schedule={securiteinfo:{minimum_minutes:60,next_allowed:4071000000,retry_after:4071000000}};
+  }});
+  try{
+    const updates=f.document.querySelector('[data-page=providers]'),settings=f.document.querySelector('[data-page=provider-settings]');
+    assert.ok(updates.querySelector('[name=automatic]'));assert.equal(settings.querySelector('[name=automatic],[name$="_interval_minutes"]'),null);
+    assert.match(updates.textContent,/Database activation: active.*Last success/);assert.match(updates.textContent,/Required · updated with Ubuntu freshclam/);
+    assert.doesNotMatch(settings.textContent,/Required · updated with Ubuntu freshclam|Last success|Provider guidance|Database activation/);
+    const rows=updates.querySelectorAll('#cs-provider-schedule tr[data-provider]');assert.equal(rows.length,3);
+    assert.match(updates.textContent,/Official ClamAV/);assert.match(updates.textContent,/SecuriteInfo/);assert.match(updates.textContent,/SaneSecurity/);
+    assert.equal(updates.querySelector('[data-provider=securiteinfo] button').disabled,true);
+    assert.equal(updates.querySelector('[data-provider=sanesecurity] button').disabled,false);
+    assert.equal(updates.querySelector('img'),null);assert.match(updates.textContent,/<img src=x> fixture failure/);
+    updates.querySelector('[data-provider=sanesecurity] button').click();await settle();
+    const request=f.requests.find(r=>r.action==='signatures-update');assert.equal(request.provider,'sanesecurity');
+    assert.ok(settings.querySelector('[name=si_key]'));assert.ok(settings.querySelector('[name=si_enabled]'));
+  }finally{await f.close();}
+});
+test('saving an update schedule keeps settings drafts, updates saved timing and shows a local receipt',async()=>{
+  let finish;const f=fixture({hash:'#updates/providers',api:()=>new Promise(resolve=>finish=resolve)});
+  try{
+    const settings=f.document.getElementById('cs-providers'),form=f.document.getElementById('cs-provider-update-settings');
+    settings.elements.si_key.value='unsaved-credential';form.elements.official_interval_minutes.value='180';form.elements.automatic.checked=true;
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    assert.equal(form.querySelector('[type=submit]').textContent,'Saving…');assert.equal(settings.elements.si_key.disabled,false);
+    finish({ok:true,json:async()=>({ok:true,providers:{automatic:true,official:{enabled:true},status:{official:{state:'downloaded'}},schedule:{official:{next_allowed:4071000000}}}})});await settle();
+    assert.equal(f.document.getElementById('cs-provider-update-save-status').textContent,'Update schedule saved.');
+    assert.equal(settings.elements.si_key.value,'unsaved-credential');assert.equal(form.querySelector('[type=submit]').disabled,false);
+    const row=f.document.querySelector('#cs-provider-schedule [data-provider=official]');
+    assert.match(row.querySelector('[data-provider-next]').textContent,/2099-/);assert.equal(row.querySelector('button').disabled,true);
+    assert.equal(row.querySelector('[data-provider-automatic-off]').hidden,true);
+    settings.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    const saved=JSON.parse(f.requests.filter(r=>r.action==='providers-save').at(-1).providers);
+    assert.equal(saved.automatic,undefined);assert.equal(saved.official,undefined);assert.equal(saved.securiteinfo.interval_minutes,undefined);
+    finish({ok:true,json:async()=>({ok:true})});await settle();
   }finally{await f.close();}
 });
 test('provider Save shows nearby pending and saved states, prevents duplicates and links to the actual update action',async()=>{
@@ -164,14 +207,14 @@ test('provider Save failures remain beside the button as escaped text and allow 
     {ok:true,json:async()=>({ok:true})}});
   try{
     const form=f.document.getElementById('cs-providers'),button=form.querySelector('[type="submit"]'),status=f.document.getElementById('cs-provider-save-status');
-    form.elements.si_key.value='draft-key';form.elements.securiteinfo_interval_minutes.value='180';
+    form.elements.si_key.value='draft-key';form.elements.si_plan.value='professional';
     const submit=()=>form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
     submit();await settle();assert.match(status.textContent,/Could not confirm.*Invalid account key/);
     assert.equal(status.querySelector('img'),null);assert.equal(button.disabled,false);assert.equal(status.className,'error');
-    assert.equal(form.elements.si_key.value,'draft-key');assert.equal(form.elements.securiteinfo_interval_minutes.value,'180');
+    assert.equal(form.elements.si_key.value,'draft-key');assert.equal(form.elements.si_plan.value,'professional');
     assert.equal(f.document.getElementById('cs-provider-activate-link').hidden,true);
     submit();await settle();assert.match(status.textContent,/Provider settings saved/);assert.equal(status.className,'');
-    form.elements.securiteinfo_interval_minutes.value='240';form.elements.securiteinfo_interval_minutes.dispatchEvent(new f.w.Event('input',{bubbles:true}));
+    form.elements.si_plan.value='gold';form.elements.si_plan.dispatchEvent(new f.w.Event('input',{bubbles:true}));
     assert.equal(status.textContent,'Unsaved changes.');assert.equal(f.document.getElementById('cs-provider-activate-link').hidden,true);
   }finally{await f.close();}
 });
@@ -202,7 +245,7 @@ test('recommended provider defaults are an explicit unsaved draft and preserve i
     const form=f.document.getElementById('cs-providers'),input=(prefix,profile,name)=>form.querySelector(`input[name="${prefix}_${profile}_databases"][value="${name}"]`);
     assert.equal(input('si','website',pua).checked,true);assert.equal(input('sane','mail','high.ndb').checked,true);
     assert.match(form.textContent,/False-positive risk/);assert.match(form.textContent,/Not rated/);assert.match(form.textContent,/High/);
-    const interval=form.elements.securiteinfo_interval_minutes;interval.value='180';const enabled=form.elements.si_enabled.checked;
+    const interval=f.document.getElementById('cs-provider-update-settings').elements.securiteinfo_interval_minutes;interval.value='180';const enabled=form.elements.si_enabled.checked;
     f.click('#cs-provider-recommended');assert.equal(f.requests.length,0);
     assert.equal(input('si','website','spam_marketing.ndb').checked,false);assert.equal(input('si','mail','spam_marketing.ndb').checked,true);
     assert.equal(input('si','website',pua).checked,false);assert.equal(input('sane','mail','high.ndb').checked,false);

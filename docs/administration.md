@@ -75,10 +75,10 @@ retains the saved credential. Subscription entitlement is decided by the provide
 Updates validate candidates, authenticate feeds where supported and retain
 previous data for rollback. Review the maintenance result and provider health.
 
-**Update schedule** lists each provider's interval in minutes, minimum, last
+**Updates → Signature providers → Update schedule** lists each provider's interval in minutes, minimum, last
 attempt, last success and next permitted check, with timestamps in UTC. The
 default is 60 minutes; choose any whole-minute interval from 60 to 525600 and
-save provider settings. The Automatic provider updates switch controls background
+choose **Save update schedule**. The Automatic provider updates switch controls background
 checks. Manual updates use the same interval gate; cached validation/activation
 does not download anything. Due now means eligible for the background worker,
 not that a download has already completed. Disabled providers are labelled.
