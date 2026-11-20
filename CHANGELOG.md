@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.12.1
+
+- Show Saving, saved and retryable error feedback next to Save provider settings,
+  prevent duplicate submissions and bound confirmation waits to 30 seconds.
+- Link saved database choices directly to their update action without reloading
+  or starting an update, and distinguish later unsaved edits from saved settings.
+
 ## 1.12.0
 
 - Separate website and email database selections and loaded ClamAV directories,

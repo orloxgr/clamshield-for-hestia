@@ -136,7 +136,53 @@ test('provider interval fields are sent as numbers while masked credentials and 
     assert.equal(policy.official.interval_minutes,180);assert.equal(policy.securiteinfo.interval_minutes,120);assert.equal(policy.sanesecurity.interval_minutes,90);
     assert.equal(policy.securiteinfo.key,'');assert.equal(typeof policy.automatic,'boolean');
     for(const provider of ['securiteinfo','sanesecurity'])for(const profile of ['website','mail'])assert.ok(Array.isArray(policy[provider][profile+'_databases']));
-    assert.match(f.document.getElementById('cs-message').textContent,/no update performed/);
+    assert.match(f.document.getElementById('cs-provider-save-status').textContent,/no update performed/);
+  }finally{await f.close();}
+});
+test('provider Save shows nearby pending and saved states, prevents duplicates and links to the actual update action',async()=>{
+  let finish;const f=fixture({hash:'#settings/provider-settings',api:()=>new Promise(resolve=>finish=resolve)});
+  try{
+    const form=f.document.getElementById('cs-providers'),button=form.querySelector('[type="submit"]'),status=f.document.getElementById('cs-provider-save-status');
+    form.elements.si_key.value='a'.repeat(128);
+    const submit=()=>form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    submit();assert.equal(button.textContent,'Saving…');assert.equal(button.disabled,true);
+    assert.equal(form.getAttribute('aria-busy'),'true');assert.match(status.textContent,/Saving provider settings/);
+    submit();assert.equal(f.requests.filter(r=>r.action==='providers-save').length,1);
+    finish({ok:true,json:async()=>({ok:true,providers:{securiteinfo:{has_key:true}}})});await settle();
+    assert.equal(button.disabled,false);assert.equal(button.textContent,'Save provider settings');
+    assert.equal(form.getAttribute('aria-busy'),'false');assert.match(status.textContent,/Provider settings saved/);
+    assert.equal(status.className,'');assert.equal(form.elements.si_key.value,'');assert.match(form.elements.si_key.placeholder,/Saved/);
+    assert.equal(f.document.getElementById('cs-provider-activate-link').hidden,false);
+    assert.deepEqual(f.visible(),['provider-settings']);
+    f.click('#cs-provider-activate-link');assert.deepEqual(f.visible(),['providers']);
+    assert.equal(f.document.activeElement.id,'cs-signature-update');assert.equal(f.requests.length,1);
+  }finally{await f.close();}
+});
+test('provider Save failures remain beside the button as escaped text and allow retry without losing the draft',async()=>{
+  let attempt=0;const f=fixture({hash:'#settings/provider-settings',api:async()=>++attempt===1?
+    {ok:false,json:async()=>({ok:false,error:'<img src=x onerror=bad()> Invalid account key'})}:
+    {ok:true,json:async()=>({ok:true})}});
+  try{
+    const form=f.document.getElementById('cs-providers'),button=form.querySelector('[type="submit"]'),status=f.document.getElementById('cs-provider-save-status');
+    form.elements.si_key.value='draft-key';form.elements.securiteinfo_interval_minutes.value='180';
+    const submit=()=>form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    submit();await settle();assert.match(status.textContent,/Could not confirm.*Invalid account key/);
+    assert.equal(status.querySelector('img'),null);assert.equal(button.disabled,false);assert.equal(status.className,'error');
+    assert.equal(form.elements.si_key.value,'draft-key');assert.equal(form.elements.securiteinfo_interval_minutes.value,'180');
+    assert.equal(f.document.getElementById('cs-provider-activate-link').hidden,true);
+    submit();await settle();assert.match(status.textContent,/Provider settings saved/);assert.equal(status.className,'');
+    form.elements.securiteinfo_interval_minutes.value='240';form.elements.securiteinfo_interval_minutes.dispatchEvent(new f.w.Event('input',{bubbles:true}));
+    assert.equal(status.textContent,'Unsaved changes.');assert.equal(f.document.getElementById('cs-provider-activate-link').hidden,true);
+  }finally{await f.close();}
+});
+test('provider Save timeout releases the form without claiming the server failed to save',async()=>{
+  const f=fixture({hash:'#settings/provider-settings'});
+  try{
+    f.w.fetch=(_url,request)=>new Promise((_resolve,reject)=>request.signal.addEventListener('abort',()=>reject(new Error('Aborted'))));
+    const form=f.document.getElementById('cs-providers');form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    assert.ok([...f.timers.values()].some(v=>v.delay===30000));await f.tick();
+    assert.match(f.document.getElementById('cs-provider-save-status').textContent,/confirmation timed out.*check whether the settings were saved/);
+    assert.equal(form.querySelector('[type="submit"]').disabled,false);assert.equal(form.getAttribute('aria-busy'),'false');
   }finally{await f.close();}
 });
 test('recommended provider defaults are an explicit unsaved draft and preserve installed custom choices',async()=>{

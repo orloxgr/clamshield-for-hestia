@@ -88,7 +88,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <section data-page="providers" hidden><h2>Signature updates</h2>
 <p>Website and email scanners load their own selected databases. Updates download shared data once, validate both selections and activate them together.</p>
 <p>Active generation: <span class="path"><?=$escape($data['signatures']['generation']??'Ubuntu official database directory')?></span></p>
-<div class="row"><button class="button" data-action="signatures-update" data-provider="all">Update selected providers</button><button class="button" data-action="signatures-activate">Validate and activate cached data</button><button class="button" data-action="signatures-rollback">Roll back databases</button></div>
+<div class="row"><button class="button" id="cs-signature-update" data-action="signatures-update" data-provider="all">Update selected providers</button><button class="button" data-action="signatures-activate">Validate and activate cached data</button><button class="button" data-action="signatures-rollback">Roll back databases</button></div>
 </section><section data-page="provider-settings" hidden><h2>Signature provider settings</h2>
 <p>Choose databases independently for website files and email. Risk labels use the provider's published ratings; Not rated means no per-database rating is published.</p>
 <form id="cs-providers">
@@ -103,7 +103,8 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <h3 id="cs-provider-sanesecurity" tabindex="-1">SaneSecurity</h3><p><label><input type="checkbox" name="sane_enabled" <?=$providers['sanesecurity']['enabled']?'checked':''?>> Enabled · rsync downloads with pinned GPG verification</label></p>
 <p>Mixed databases can contain several threat types. Email classification uses the verified source and documented signature groups; unknown mixed matches keep the malware policy.</p>
 <?php $cs_provider_name='sanesecurity'; $cs_provider_title='SaneSecurity'; $cs_provider_prefix='sane'; require __DIR__.'/provider_databases.php'; ?>
-<p><label><input type="checkbox" name="local_enabled" <?=$providers['local']['enabled']?'checked':''?>> Enable local signatures</label></p><button type="submit" class="button">Save provider settings</button>
+<p><label><input type="checkbox" name="local_enabled" <?=$providers['local']['enabled']?'checked':''?>> Enable local signatures</label></p>
+<div class="row"><button type="submit" class="button" aria-describedby="cs-provider-save-status">Save provider settings</button><span id="cs-provider-save-status" role="status" aria-live="polite"></span><a id="cs-provider-activate-link" href="#updates/providers" data-tab="providers" data-focus-id="cs-signature-update" hidden>Update signature databases</a></div>
 </form>
 <h3>Local signatures</h3><?php if(!$providers['local']['files']): ?><p>No local signature files.</p><?php endif ?><?php foreach($providers['local']['files'] as $file): ?><p><?=$escape($file)?> <button class="button" data-action="signature-local-delete" data-name="<?=$escape($file)?>">Remove from selected data</button></p><?php endforeach ?>
 <form id="cs-local-signatures"><div class="row"><label>Filename <input class="form-control" name="name" placeholder="hosting.hdb" required></label></div><p><textarea class="form-control" name="content" rows="5" style="width:100%" maxlength="45000" aria-label="Local signature content" required></textarea></p><button class="button" type="submit">Save local signature file</button></form>
@@ -186,9 +187,10 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
    for(const input of form.querySelectorAll('input[name="'+prefix+'_'+profile+'_databases"]'))input.checked=selected.has(input.value);
   }
   for(const details of form.querySelectorAll('details'))details.open=true;
+  form.dispatchEvent(new Event('change',{bubbles:true}));
   document.getElementById('cs-provider-recommended-status').textContent='Recommended selections applied to this form. Review and save provider settings; provider switches, account key and update intervals are unchanged.';
  });
- document.getElementById('cs-providers')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.target);saveForm({action:'providers-save',providers:JSON.stringify({automatic:f.has('automatic'),official:{interval_minutes:Number(f.get('official_interval_minutes'))},securiteinfo:{enabled:f.has('si_enabled'),plan:f.get('si_plan'),key:f.get('si_key'),website_databases:f.getAll('si_website_databases'),mail_databases:f.getAll('si_mail_databases'),interval_minutes:Number(f.get('securiteinfo_interval_minutes'))},sanesecurity:{enabled:f.has('sane_enabled'),website_databases:f.getAll('sane_website_databases'),mail_databases:f.getAll('sane_mail_databases'),interval_minutes:Number(f.get('sanesecurity_interval_minutes'))},local:{enabled:f.has('local_enabled')}})});});
+ <?php readfile(__DIR__.'/provider_settings.js'); ?>
  document.getElementById('cs-local-signatures')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.target);saveForm({action:'signature-local-save',name:f.get('name'),content:f.get('content')});});
 })();
 </script>
