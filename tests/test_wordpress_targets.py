@@ -8,6 +8,7 @@ from clamshield.errors import AccessDenied,ClamShieldError
 
 class WordPressTargets(unittest.TestCase):
     setUp=fixtures.ReviewTests.setUp
+    call=fixtures.ReviewTests.call
 
     def test_account_checks_skip_suspended_sites_and_reuse_pending_jobs(self):
         site=dict(owner='alice',identity=self.ids['alice'],domain='alice.test',root=str(self.base/'alice'),suspended=False)
