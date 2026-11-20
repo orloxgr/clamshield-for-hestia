@@ -85,7 +85,7 @@ class WordPressIntegrity(unittest.TestCase):
         expected=manifests['plugin']['files']['example.php'];expected['digest']=['0'*64,expected['digest']]
         self.references.manifest.side_effect=lambda component:manifests[component['kind']]
         job,_=self.run_job();self.assertEqual(0,job['counters']['modified'])
-        self.write('blog/wp-content/plugins/example/example.php','<?php /* Plugin Name: Example\nVersion: 1.2\n*/ changed')
+        self.write('blog/wp-content/plugins/example/example.php','<?php\n/*\nPlugin Name: Example\nVersion: 1.2\n*/ changed')
         job,_=self.run_job();self.assertEqual(1,job['counters']['modified'])
 
     def test_single_file_plugin_explains_unsupported_comparison_without_mapping_jargon(self):
