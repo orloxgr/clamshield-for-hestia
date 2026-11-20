@@ -2,6 +2,8 @@ from copy import deepcopy
 import json
 import os
 from pathlib import Path
+import pwd
+import shutil
 import tempfile
 import fcntl
 import unittest
@@ -73,6 +75,39 @@ class SpamAssassinControlsTests(unittest.TestCase):
                      'dns_query_restriction deny zen.spamhaus.org', 'score GTUBE 2.500000',
                      'use_pyzor 0', 'use_razor2 0', 'use_dcc 0'):
             self.assertIn(line, content.splitlines())
+
+    def test_missing_validation_helper_reports_reinstall_before_starting_parser(self):
+        missing_source = Path(self.temp.name) / 'incomplete/src/clamshield/spamassassin.py'
+        with patch('clamshield.spamassassin.__file__', str(missing_source)), \
+                patch('clamshield.spamassassin.subprocess.Popen') as parser:
+            with self.assertRaisesRegex(EngineError, 'validation helper is missing'):
+                SpamAssassinControls.inspect(self.controls, self.controls.active)
+        parser.assert_not_called()
+
+    def test_real_ubuntu_parser_checks_configuration_as_isolated_account(self):
+        if os.geteuid() != 0 or not shutil.which('perl') or not shutil.which('setpriv'):
+            self.skipTest('Requires root and Ubuntu SpamAssassin validation dependencies')
+        try:
+            pwd.getpwnam('debian-spamd')
+        except KeyError:
+            self.skipTest('Requires Ubuntu spamd account')
+        # Allow the isolated parser to traverse only this test's configuration tree.
+        Path(self.temp.name).chmod(0o755)
+        before = self.controls.active.read_bytes()
+        parsed = SpamAssassinControls.inspect(self.controls, self.controls.active)
+        self.assertEqual(5.0, parsed['required_score'])
+        self.assertEqual(0, parsed['skip_rbl_checks'])
+        self.assertEqual(0, parsed['skip_uribl_checks'])
+        self.assertIn('GTUBE', {rule['name'] for rule in parsed['rules']})
+        self.assertIn('CLAMSHIELD_CONFIG_' + revision(DEFAULTS)[:16],
+                      {rule['name'] for rule in parsed['rules']})
+        self.assertEqual(before, self.controls.active.read_bytes())
+        self.assertFalse(self.controls.metadata.exists())
+        self.assertFalse(self.controls.journal.exists())
+        invalid = self.controls.base / 'invalid.cf'
+        write(invalid, render(DEFAULTS) + 'clamshield_invalid_directive 1\n', 0o644)
+        with self.assertRaisesRegex(EngineError, 'configuration validation failed'):
+            SpamAssassinControls.inspect(self.controls, invalid)
 
     def test_unavailable_rule_is_rejected_before_mutation_or_service_change(self):
         before = self.controls.active.read_bytes()

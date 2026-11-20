@@ -97,9 +97,16 @@ def main(argv=None):
     return progress.execute(lambda: perform(args), version=__version__, json_output=args.json)
 
 
+def validate_source():
+    helper = SOURCE / 'tools/spamassassin-config.pl'
+    if not helper.is_file() or helper.is_symlink():
+        raise RuntimeError('ClamShield checkout is incomplete: tools/spamassassin-config.pl is missing; update the checkout and retry')
+
+
 def perform(args):
     if os.geteuid() != 0 or os.environ.get('SUDO_USER') == 'hestiaweb':
         raise PermissionError('Install from an administrator root shell')
+    validate_source()
     sys.path.insert(0,str(SOURCE/'src'))
     from clamshield.installation import Installation
     from clamshield.settings import Settings

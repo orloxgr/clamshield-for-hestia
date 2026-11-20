@@ -13,7 +13,8 @@ ROOT=Path(__file__).resolve().parents[1]
 def main():
     version=re.search(r'__version__ = "([0-9.]+)"',(ROOT/'src/clamshield/__init__.py').read_text(encoding='utf-8'))[1]
     prefix='clamshield-hestia-'+version
-    names=['README.md','LICENSE','pyproject.toml','entry.py','tools/install.py','tools/uninstall.py','tools/package.py']
+    names=['README.md','LICENSE','pyproject.toml','entry.py','tools/install.py','tools/uninstall.py','tools/package.py',
+           'tools/spamassassin-config.pl']
     for directory in ('src','panel','config','systemd','native','docs','tests'):
         for path in (ROOT/directory).rglob('*'):
             if {'__pycache__','node_modules'}.intersection(path.parts) or path.suffix=='.pyc':continue

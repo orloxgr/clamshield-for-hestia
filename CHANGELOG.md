@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.5.2
+
+- Restore the required SpamAssassin validation helper in the public checkout and
+  release archive, fixing first-time mail protection activation failures.
+- Reject incomplete checkouts before installation and report a missing validator
+  explicitly. Verify the distribution and actual Ubuntu SpamAssassin parser in tests.
+
 ## 1.5.1
 
 - Add 12px spacing below cards and between controls, disclosures and content

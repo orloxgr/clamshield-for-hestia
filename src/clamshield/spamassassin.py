@@ -210,6 +210,9 @@ class SpamAssassinControls:
         """Distro parser, default rules and plugins, then our supported include."""
         self._trusted(path)
         helper = Path(__file__).resolve().parents[2] / 'tools/spamassassin-config.pl'
+        if not helper.is_file():
+            raise EngineError('SpamAssassin validation helper is missing; update ClamShield and rerun the installer')
+        self._trusted(helper)
         command = ['/usr/bin/setpriv', '--reuid=debian-spamd', '--regid=debian-spamd',
                    '--init-groups', '--no-new-privs', '/usr/bin/prlimit', '--cpu=30', '--as=805306368',
                    '--fsize=4194304', '--', '/usr/bin/perl', str(helper), str(path)]
