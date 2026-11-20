@@ -235,6 +235,20 @@ class WordPressDatabase:
             rows = cursor.fetchall()
             if len(rows)!=1 or rows[0][0] is None: raise Conflict('Database row is no longer uniquely available')
             if self.schema(cursor,item['table'])!=item['schema']:raise Conflict('Database table definition changed; analyze again')
+            # A trigger can mutate unrelated/nontransactional rows. Do not run
+            # unknown database code while promising a reversible single-row edit.
+            cursor.execute('SHOW GRANTS')
+            database=db.db.decode() if isinstance(db.db,bytes) else db.db
+            can_inspect=False
+            for grant in cursor.fetchall():
+                value=grant[0].decode() if isinstance(grant[0],bytes) else grant[0]
+                match=re.match(r'GRANT (.+?) ON (.+?) TO ',value,re.I)
+                if match:
+                    scope=match[2].replace('`','').replace('\\_','_').replace('\\%','%')
+                    if scope in ('*.*',database+'.*') and ('ALL PRIVILEGES' in match[1].upper() or 'TRIGGER' in match[1].upper().split(', ')):can_inspect=True
+            if not can_inspect:raise Conflict('Database changes require native-user permission to inspect table triggers')
+            cursor.execute('SELECT count(*) FROM information_schema.TRIGGERS WHERE TRIGGER_SCHEMA=DATABASE() AND EVENT_OBJECT_TABLE=%s',(item['table'],))
+            if cursor.fetchone()[0]:raise Conflict('Database table has triggers; review them before applying row changes')
             current = bytes(rows[0][0])
             if current == after and not inspect_only: db.rollback();return 'already-applied'
             if current != before: raise Conflict('Database content changed; no row was overwritten')

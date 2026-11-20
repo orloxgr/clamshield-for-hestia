@@ -174,7 +174,9 @@ matches and administrator capabilities are review candidates, not automatic
 malware verdicts. Choose an exact find/replacement for each selected database
 value; there is no blanket SQL search-and-delete.
 
-Changes require a stable primary key/table definition and InnoDB. Exact original
+Changes require a stable primary key/table definition and InnoDB. Tables with
+triggers require manual review; the native user must have permission to inspect
+triggers so that hidden database code is not treated as absent. Exact original
 bytes, native configuration and row locks guard updates; trigger rewrites or
 changed content are refused/rolled back. PHP serialized string lengths are
 recalculated without instantiating PHP objects; serialized objects/references
