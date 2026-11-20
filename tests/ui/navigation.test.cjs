@@ -645,3 +645,22 @@ test('readiness failures remain plain text and retryable while tenant views have
     assert.equal(tenant.document.getElementById('cs-readiness-check'),null);
   }finally{await f.close();await tenant.close();}
 });
+
+
+test('website startup distinguishes queued work, scan wait, service start and signature verification',async()=>{
+  let index=0;
+  const stages=[
+    {pending:true,latest:{status:'queued'},blocking_action:'signatures-update',engine:{available:false}},
+    {pending:true,latest:{status:'running',phase:'waiting-scan'},engine:{available:false}},
+    {pending:true,latest:{status:'running',phase:'starting'},engine:{available:false}},
+    {pending:true,latest:{status:'running',phase:'verifying'},engine:{available:true,version:'ClamAV fixture'}},
+    {pending:false,latest:{status:'completed'},engine:{available:true,version:'ClamAV fixture'}}];
+  const f=fixture({change:v=>{v.engines.clamav={available:false};},api:async body=>({ok:true,json:async()=>body.action==='website-engine-start'?({ok:true,queued:true}):({ok:true,...stages[Math.min(index++,stages.length-1)]})})});
+  try{f.click('#cs-dashboard-clamav-enable');await settle();const button=f.document.getElementById('cs-dashboard-clamav-enable'),output=f.document.getElementById('cs-dashboard-clamav-status');
+    assert.equal(button.textContent,'Queued…');assert.match(output.textContent,/waiting for the current signature update/);assert.doesNotMatch(output.textContent,/Starting/);
+    await f.tick();assert.equal(button.textContent,'Waiting for scan…');assert.match(output.textContent,/current file to finish/);
+    await f.tick();assert.equal(button.textContent,'Starting…');assert.equal(output.textContent,'Starting website ClamAV…');
+    await f.tick();assert.equal(button.textContent,'Checking…');assert.match(output.textContent,/Checking loaded/);
+    await f.tick();assert.equal(button.hidden,true);assert.equal(f.timers.size,0);
+  }finally{await f.close();}
+});

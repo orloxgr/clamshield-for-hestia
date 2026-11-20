@@ -69,6 +69,7 @@ class Worker:
                 # The updater may have been killed while changing databases.
                 # Maintenance recovers its journal before new scans are claimed.
                 return False
+            if self.store.website_control_pending():return False
             with self.store.connection(True) as db:
                 abandoned = [dict(row) for row in db.execute("SELECT * FROM jobs WHERE status='running'").fetchall()]
             for stale in abandoned:
@@ -175,6 +176,7 @@ class Worker:
                 if self.store.cancelled(job['id']):
                     self.store.finish(job, 'cancelled', counters)
                     return
+                if self.store.yield_for_website_control(job,counters):return
                 counters['seen'] += 1
                 if state != 'regular':
                     counters['skipped' if state == 'skipped' else 'errors'] += 1

@@ -396,6 +396,30 @@ class Store:
             row = db.execute('SELECT cancel_requested FROM jobs WHERE id=?', (job_id,)).fetchone()
         return row is None or bool(row[0])
 
+    def website_control_pending(self):
+        with self.connection() as db:
+            return bool(db.execute("SELECT 1 FROM maintenance WHERE action IN ('website-engine-start','website-engine-stop') AND status IN ('queued','running') LIMIT 1").fetchone())
+
+    def yield_for_website_control(self, job, counters):
+        """At a file boundary, retain evidence and atomically queue a full rescan."""
+        if not self.website_control_pending():return False
+        with self.connection(True) as db:
+            row=db.execute("SELECT * FROM jobs WHERE id=? AND worker=? AND status='running' AND cancel_requested=0",(job['id'],job['worker'])).fetchone()
+            if (not row or row['source'] not in ('manual','scheduled','signature-update','watch-initial','watch') or
+                    not db.execute("SELECT 1 FROM maintenance WHERE action IN ('website-engine-start','website-engine-stop') AND status IN ('queued','running') LIMIT 1").fetchone()):return False
+            replacement=uuid.uuid4().hex;now=time.time()
+            db.execute('''INSERT INTO jobs(id,owner,identity,domain,root,target,source,actor,created,generation,dedup_key)
+              VALUES(?,?,?,?,?,?,?,?,?,?,?)''',(replacement,row['owner'],row['identity'],row['domain'],row['root'],row['target'],row['source'],row['actor'],now,'unknown','website-control:'+row['id']))
+            message='Scan paused for website ClamAV service control; coverage is incomplete. A full replacement scan is queued.'
+            db.execute("UPDATE jobs SET status='partial',finished=?,heartbeat=?,counters=?,error=? WHERE id=?",(now,now,encode(counters),message,row['id']))
+            context={key:row[key] for key in ('actor','owner','identity')}
+            detail=dict(domain=row['domain'],job_id=row['id'],replacement_job=replacement,counters=counters,error=message)
+            self.audit(context,'scan.partial',row['id'],detail,db)
+            self.audit(context,'scan.queued',replacement,dict(domain=row['domain'],target=row['target'],replaces=row['id']),db)
+            self.notify(row['owner'],row['identity'],'scan.partial',row['domain'],detail,row['id'],db)
+            if counters.get('infected'):self.notify(row['owner'],row['identity'],'scan.malware_found',row['domain'],detail,row['id'],db)
+        return True
+
     def progress(self, job_id, counters):
         with self.connection() as db:
             db.execute("UPDATE jobs SET counters=?,heartbeat=? WHERE id=? AND status='running'",
@@ -494,9 +518,10 @@ class Store:
         return [dict(row) | {'payload': json.loads(row['payload']),
                              'result': json.loads(row['result']) if row['result'] else None} for row in rows]
 
-    def claim_task(self, worker):
+    def claim_task(self, worker, *, prioritize_website=False):
         with self.connection(True) as db:
-            row = db.execute("SELECT * FROM maintenance WHERE status='queued' ORDER BY created,id LIMIT 1").fetchone()
+            priority="CASE WHEN action IN ('website-engine-start','website-engine-stop') THEN 0 ELSE 1 END," if prioritize_website else ''
+            row = db.execute("SELECT * FROM maintenance WHERE status='queued' ORDER BY "+priority+"created,id LIMIT 1").fetchone()
             if row is None:
                 return None
             db.execute("UPDATE maintenance SET status='running',worker=?,started=? WHERE id=?",
@@ -527,8 +552,11 @@ class Store:
             db.execute('BEGIN')
             actions="action IN ('website-engine-start','website-engine-stop')"
             pending=db.execute("SELECT 1 FROM maintenance WHERE owner=? AND identity=? AND "+actions+" AND status IN ('queued','running') LIMIT 1",self.scope(context)).fetchone()
-            row=db.execute("SELECT id,action,status,error FROM maintenance WHERE owner=? AND identity=? AND "+actions+" ORDER BY created DESC,id DESC LIMIT 1",self.scope(context)).fetchone()
-        return {'pending':bool(pending),'latest':dict(row) if row else None}
+            row=db.execute("SELECT id,action,status,error,result,created,started FROM maintenance WHERE owner=? AND identity=? AND "+actions+" ORDER BY created DESC,id DESC LIMIT 1",self.scope(context)).fetchone()
+            blocking=db.execute("SELECT action FROM maintenance WHERE status='running' AND action NOT IN ('website-engine-start','website-engine-stop') ORDER BY started LIMIT 1").fetchone()
+        latest=dict(row) if row else None
+        if latest:latest['phase']=(json.loads(latest.pop('result') or '{}') or {}).get('phase')
+        return {'pending':bool(pending),'latest':latest,'blocking_action':blocking['action'] if blocking else None}
 
     def mail_protection_status(self, context):
         with self.connection() as db:

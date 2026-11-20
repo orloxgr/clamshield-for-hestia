@@ -1,3 +1,4 @@
+import fcntl
 from copy import deepcopy
 import json
 import os
@@ -225,3 +226,17 @@ class ResourceControlsTests(unittest.TestCase):
         self.assertEqual(['enable','rules'],result['actions']);self.assertEqual(100,result['coverage']['checked'])
         self.assertFalse(result['engine']['available'])
         self.assertEqual([],self.store.list_tasks(context))
+
+    def test_website_control_reports_wait_start_and_verification_phases(self):
+        phases=[];self.controls.website(True,progress=phases.append)
+        self.assertEqual(['waiting-scan','starting','verifying'],phases)
+        phases=[];self.controls.website(False,progress=phases.append)
+        self.assertEqual(['waiting-scan','stopping'],phases)
+
+    def test_website_control_worker_wait_is_bounded_before_any_service_change(self):
+        path=self.settings.state/'worker.lock'
+        with path.open('a+b') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB)
+            with patch('clamshield.resources.time.monotonic',side_effect=[0,121]):
+                with self.assertRaisesRegex(EngineError,'timed out waiting for the active scan'):self.controls.website(True)
+        self.assertEqual([],self.controls.operations);self.assertFalse(self.controls.website_journal.exists())

@@ -79,11 +79,19 @@ class Resources:
             self.safe(path,private=True);fcntl.flock(lock,fcntl.LOCK_EX);yield
 
     @contextmanager
-    def worker_lock(self):
+    def worker_lock(self, *, timeout=None):
         path=self.settings.state/'worker.lock';fd=os.open(path,os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
         with os.fdopen(fd,'a+b') as lock:
             self.safe(path)
-            fcntl.flock(lock,fcntl.LOCK_EX);yield
+            if timeout is None:fcntl.flock(lock,fcntl.LOCK_EX)
+            else:
+                deadline=time.monotonic()+timeout
+                while True:
+                    try:fcntl.flock(lock,fcntl.LOCK_EX|fcntl.LOCK_NB);break
+                    except BlockingIOError:
+                        if time.monotonic()>=deadline:raise EngineError('Website scanner control timed out waiting for the active scan; review scan progress and retry') from None
+                        time.sleep(.1)
+            yield
 
     @staticmethod
     def safe(path,private=False,directory=False):
@@ -278,9 +286,10 @@ class Resources:
             else:self.put(self.website_metadata,saved['policy_before'])
         self.website_journal.unlink(missing_ok=True);sync_directory(self.settings.state)
 
-    def website(self,enabled):
+    def website(self,enabled, *, progress=lambda _phase:None):
         if type(enabled) is not bool:raise ClamShieldError('Invalid website service state')
-        with self.locked(),self.worker_lock():
+        progress('waiting-scan')
+        with self.locked(),self.worker_lock(timeout=120):
             self.prepare()
             if self.journal.exists() or (enabled and self.website_journal.exists()) or (self.settings.state/'signature-activation.json').exists():
                 raise Conflict('Scanner recovery is pending')
@@ -292,8 +301,10 @@ class Resources:
             if pending:saved['superseded']={'committed':pending['committed'],'target':pending['target']}
             write_json(self.website_journal,saved)
             try:
+                progress('starting' if enabled else 'stopping')
                 self.system('start' if enabled else 'stop',SERVICES['website_clamav'][0])
-                if enabled:self.website_ready()
+                if enabled:
+                    progress('verifying');self.website_ready()
                 self.system('enable' if enabled else 'disable',SERVICES['website_clamav'][0])
                 saved['committed']=True;write_json(self.website_journal,saved)
                 self.website_publish(saved)

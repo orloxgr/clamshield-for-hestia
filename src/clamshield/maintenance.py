@@ -42,7 +42,7 @@ class Maintenance:
                 SpamAssassinControls(self.settings).recover()
                 self.store.notify('@admin', '', 'maintenance.recovered', 'spamassassin',
                                   {'message': 'An interrupted SpamAssassin activation was rolled back'})
-            task = self.store.claim_task(self.worker)
+            task = self.store.claim_task(self.worker,prioritize_website=True)
             if resources.website_journal.exists() and not (task and task['action']=='website-engine-stop'):
                 try:
                     recovered=resources.recover_website()
@@ -74,7 +74,7 @@ class Maintenance:
                     result=resources.apply(task['payload']['policy'])
                     self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},'resources.applied','server',dict(result,policy=task['payload']['policy']))
                 elif task['action'] in ('website-engine-start','website-engine-stop'):
-                    result=resources.website(task['action']=='website-engine-start')
+                    result=resources.website(task['action']=='website-engine-start',progress=lambda phase:self.store.task_progress(task,phase))
                     self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},task['action'],'website-clamav',result)
                 elif task['action']=='resources-recover':
                     result={'limits':resources.recover_limits(),'website':resources.recover_website()}

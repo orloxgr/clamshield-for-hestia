@@ -51,6 +51,24 @@ class FileScanning(unittest.TestCase):
         self.assertEqual(0, job['counters']['scanned'])
         self.assertEqual(1, len(self.store.list_findings(self.context)))
 
+    def test_enable_preempts_at_file_boundary_retains_findings_and_restarts_full_scan(self):
+        (self.root/'one.php').write_text('fixture one');(self.root/'two.php').write_text('fixture two')
+        engine=Mock();engine.name='yara'
+        control=[]
+        def inspect(_path):
+            if not control:control.append(self.store.enqueue_task(self.context,'website-engine-start',{}))
+            return [dict(engine='yara',signature='Fixture',provider='local')]
+        engine.scan.side_effect=inspect
+        original=self.store.enqueue(self.context,self.site)
+        worker=Worker(self.settings,self.store,self.hestia,[engine]);self.assertTrue(worker.once())
+        old=self.store.job(self.context,original);self.assertEqual('partial',old['status']);self.assertEqual(1,old['counters']['scanned'])
+        self.assertEqual(1,len(self.store.list_findings(self.context)));self.assertEqual(1,engine.scan.call_count)
+        self.assertFalse(worker.once());self.assertEqual(1,engine.scan.call_count)
+        task=self.store.claim_task('maintenance');self.store.finish_task(task,{'verified':True})
+        self.assertTrue(worker.once());new=next(row for row in self.store.list_jobs(self.context) if row['id']!=original)
+        self.assertEqual('completed',new['status']);self.assertEqual(2,new['counters']['scanned']);self.assertEqual(3,engine.scan.call_count)
+        self.assertEqual('partial',self.store.job(self.context,original)['status'])
+
     def test_symlinks_and_oversize_files_never_count_as_clean_coverage(self):
         (self.root / 'large').write_bytes(b'x' * 4097)
         (self.root / 'link').symlink_to('/etc/passwd')

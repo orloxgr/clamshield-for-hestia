@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.10.7
+
+- Give website ClamAV service controls priority over queued maintenance and new
+  scans. Ordinary scans yield at a file boundary, retaining evidence and queuing
+  a complete replacement scan. Bound the wait for the worker lock.
+- Show queued, waiting-for-scan, starting and verifying states separately on
+  Dashboard, including signature updates that delay a queued startup.
+
 ## 1.10.6
 
 - Add Check now to website readiness, with direct links to the required scanner,

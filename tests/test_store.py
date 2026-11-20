@@ -116,6 +116,42 @@ class ScopedStore(unittest.TestCase):
         self.assertEqual('running',self.store.job(self.alice,original)['status'])
         self.assertEqual(1,len(self.store.list_jobs(self.alice)))
 
+    def test_service_control_yield_preserves_evidence_and_requeues_scoped_full_scan_once(self):
+        original=self.store.enqueue(self.alice,self.site,'uploads',source='manual',generation='old')
+        job=self.store.claim('worker');counters=dict(seen=8,scanned=7,infected=1,errors=1)
+        self.store.add_finding(job,'uploads/bad.php',{'sha256':'abc'},dict(engine='yara',signature='Fixture',provider='local'))
+        self.store.file_result(original,'uploads/bad.php','error',{'fixture':True})
+        self.store.enqueue_task(self.bob,'website-engine-start',{})
+        self.assertFalse(self.store.yield_for_website_control(job|{'worker':'foreign'},counters))
+        self.assertTrue(self.store.yield_for_website_control(job,counters))
+        self.assertFalse(self.store.yield_for_website_control(job,counters))
+        old=self.store.job(self.alice,original);self.assertEqual('partial',old['status']);self.assertEqual(counters,old['counters'])
+        new=next(row for row in self.store.list_jobs(self.alice) if row['id']!=original)
+        for key in ('owner','identity','actor','root','domain','target','source'):self.assertEqual(old[key],new[key])
+        self.assertEqual('queued',new['status']);self.assertEqual('unknown',new['generation']);self.assertEqual({},new['counters'])
+        self.assertEqual(1,len(self.store.list_findings(self.alice)));self.assertEqual([],self.store.list_jobs(self.bob))
+        with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT count(*) FROM file_results WHERE job_id=?',(original,)).fetchone()[0])
+
+    def test_service_yield_requeue_is_atomic_and_never_replays_repair_or_cancelled_work(self):
+        original=self.store.enqueue(self.alice,self.site);job=self.store.claim('worker')
+        self.store.enqueue_task(self.bob,'website-engine-stop',{})
+        with patch.object(self.store,'audit',side_effect=RuntimeError('Interrupted transaction')):
+            with self.assertRaises(RuntimeError):self.store.yield_for_website_control(job,{'seen':1})
+        self.assertEqual('running',self.store.job(self.alice,original)['status']);self.assertEqual(1,len(self.store.list_jobs(self.alice)))
+        self.store.cancel(self.alice,original);self.assertFalse(self.store.yield_for_website_control(job,{}))
+        repair=self.store.enqueue(self.alice,self.site,source='repair-preview');repair_job=self.store.claim('repair-worker')
+        self.assertEqual(repair,repair_job['id']);self.assertFalse(self.store.yield_for_website_control(repair_job,{}))
+
+    def test_service_tasks_have_priority_and_report_actual_phase_and_blocking_work(self):
+        update=self.store.enqueue_task(self.alice,'signatures-update',{})
+        control=self.store.enqueue_task(self.alice,'website-engine-start',{})
+        task=self.store.claim_task('maintenance',prioritize_website=True);self.assertEqual(control,task['id'])
+        self.store.task_progress(task,'waiting-scan')
+        status=self.store.website_engine_status(self.alice);self.assertEqual('waiting-scan',status['latest']['phase']);self.assertTrue(status['pending'])
+        self.store.finish_task(task,{'verified':True});running=self.store.claim_task('maintenance',prioritize_website=True)
+        self.assertEqual(update,running['id']);self.store.enqueue_task(self.alice,'website-engine-start',{})
+        status=self.store.website_engine_status(self.alice);self.assertEqual('queued',status['latest']['status']);self.assertEqual('signatures-update',status['blocking_action'])
+
     def test_dashboard_totals_include_rows_beyond_preview_limits_and_isolate_account_generation(self):
         old = self.store.enqueue(self.alice, self.site)
         with self.store.connection() as db:
