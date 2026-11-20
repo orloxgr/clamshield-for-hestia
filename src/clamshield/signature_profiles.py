@@ -53,6 +53,8 @@ def validate_selection(manifest):
         if (not isinstance(names, list) or any(not isinstance(n, str) or n not in files for n in names)
                 or names != sorted(set(names)) or not official <= set(names)):
             raise EngineError('Invalid signature profile selection')
+    if set().union(*map(set, profiles.values())) != set(files):
+        raise EngineError('Signature profile union differs from staged data')
 
 
 def materialize(stage, manifest):

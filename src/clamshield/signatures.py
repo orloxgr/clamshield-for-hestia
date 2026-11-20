@@ -128,9 +128,7 @@ class Signatures:
         (stage / 'clamshield-generation.hdb').chmod(0o644)
         manifest['canary'] = {'payload': payload.decode(), 'signature': signature_name}
         profiles.materialize(stage, manifest)
-        self.validate(stage, manifest)
-        for profile in manifest.get('profiles', {}):
-            self.validate(profiles.directory(stage, manifest, profile), dict(manifest, canary=profiles.canary(manifest, profile)))
+        self.validate_generation(stage, manifest)
         # Always validate freshly captured data with the installed engine. Only
         # the expensive name/catalog build can be reused, after verifying both
         # active data and its immutable catalog. Never mutate an old generation.
@@ -171,6 +169,12 @@ class Signatures:
             return self.complete_stage(target, rebuilt)
         except BaseException:
             shutil.rmtree(target); raise
+
+    def validate_generation(self, stage, manifest):
+        if 'profiles' not in manifest:
+            return self.validate(stage, manifest)
+        for profile in profiles.PROFILES:
+            self.validate(profiles.directory(stage, manifest, profile), dict(manifest, canary=profiles.canary(manifest, profile)))
 
     def validate(self, stage, manifest):
         clean, canary = stage / '.validation-clean', stage / '.validation-canary'
@@ -463,7 +467,7 @@ class Signatures:
             self.verify_data(stage, manifest)
             with SignatureCatalog(stage, manifest):
                 pass
-            self.validate(stage, manifest)
+            self.validate_generation(stage, manifest)
             return self.activate(stage, manifest)
 
     def recover(self):
