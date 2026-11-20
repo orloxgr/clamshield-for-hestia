@@ -98,7 +98,8 @@ class Worker:
 
     def run(self, job):
         if job['source']=='yara-trial':
-            self.store.finish(job,'cancelled',job['counters'],'Trial scans were removed; this comparison will not run')
+            counters=json.loads(job['counters']) if isinstance(job['counters'],str) else job['counters']
+            self.store.finish(job,'cancelled',counters,'Trial scans were removed; this comparison will not run')
             return
         try:
             self.validate(job)
