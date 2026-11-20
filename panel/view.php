@@ -4,7 +4,7 @@ $cs_owner=static fn($row)=>$row['owner']??$data['context']['owner'];
 $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']).' / ':'').($row['domain']??'');
 ?>
 <style>
-/* ClamShield layout only. Hestia owns control appearance and theme colors. */
+/* Hestia owns control appearance, including the active navigation accent. */
 .cs{margin:28px auto;padding:0 20px}
 .cs .sub{margin:2px 0 24px}
 .cs .card{padding:12px;margin-bottom:12px}.cs section{padding:20px 0;margin-bottom:20px}
@@ -25,6 +25,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs summary.cs-disclosure::-webkit-details-marker{display:none}
 .cs .cs-disclosure-icon{flex-shrink:0}.cs details[open]>summary.cs-disclosure>.cs-disclosure-icon{transform:rotate(90deg)}
 .cs nav{display:flex;gap:12px;flex-wrap:wrap;margin:24px 0}
+.cs #cs-main-navigation .button[aria-current="page"],.cs nav[data-subnav] .button[aria-current="page"]{border-bottom-color:var(--color-text-link-hover)}
 .cs table{width:100%;border-collapse:collapse}.cs td,.cs th{text-align:left;padding:10px;overflow-wrap:anywhere}
 .cs .row{display:flex;gap:12px;align-items:center;flex-wrap:wrap}.cs [hidden]{display:none}
 .cs .notice{display:block;margin:14px 0}.cs .path{font-family:monospace;overflow-wrap:anywhere}.cs .scroll{overflow:auto}

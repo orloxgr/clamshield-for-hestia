@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.6.1
+
+- Highlight both the active main tab and its active subtab with Hestia's
+  --color-text-link-hover bottom border, following the selected native theme.
+
 ## 1.6.0
 
 - Default native administrators to Global throughout the plugin. Aggregate live
