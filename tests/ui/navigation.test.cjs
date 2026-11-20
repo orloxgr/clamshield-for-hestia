@@ -428,7 +428,7 @@ test('notification preferences save selected types and Bell without reload while
 
 test('native Bell cleanup errors are visible as text in Review without retrying deletion',async()=>{
   const error='<b>Native deletion failed</b>. No automatic retry.';
-  const f=fixture({hash:'#review/notices',api:async body=>body.action==='review-list'?reviewResponse(body,{bell_cleanup_error:error,total:0}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  const f=fixture({hash:'#review/notices',api:async body=>body.action==='review-list'?reviewResponse(body,{bell_cleanup_error:error,total:0,html:''}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
   try{await settle();const status=f.document.querySelector('[data-review-pager=notices]').nextElementSibling;
     assert.match(status.textContent,/Native deletion failed.*No automatic retry/);assert.equal(status.querySelector('b'),null);
     const before=f.requests.filter(body=>body.action==='review-bulk-clear').length;
