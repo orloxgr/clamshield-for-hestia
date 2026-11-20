@@ -8,7 +8,7 @@ from urllib.parse import urlencode
 from .errors import Conflict
 from .paths import snapshot
 from .wordpress import header
-from .wordpress_sources import References, ReferenceUnavailable, archive_files, token
+from .wordpress_sources import References, ReferenceUnavailable, archive_files, token, checksum_matches
 
 
 class RecoveryReferences(References):
@@ -111,7 +111,7 @@ class RecoveryReferences(References):
                 self.archives[url]=archive_files(self.get(url,80*1024**2),'wordpress' if kind=='core' else slug)
                 self.budget()
             content=self.archives[url].get(path)
-            if content is None or hashlib.new(expected['algorithm'],content).hexdigest()!=expected['digest']:raise ReferenceUnavailable('Replacement differs from the official release checksum')
+            if content is None or not checksum_matches(expected,hashlib.new(expected['algorithm'],content).hexdigest()):raise ReferenceUnavailable('Replacement differs from the official release checksum')
             return content,dict(source=url,reference=manifest['source'],expected=expected,sha256=hashlib.sha256(content).hexdigest(),size=len(content))
         content=files.get(path)
         if content is None or hashlib.sha256(content).hexdigest()!=expected['digest']:raise Conflict('Vendor ZIP content no longer matches the analyzed package')

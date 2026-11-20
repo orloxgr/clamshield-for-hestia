@@ -64,14 +64,17 @@
     if(!append){list.replaceChildren();state.next=null;state.reportJob=id;}
     try{const value=await api(state,'wordpress-report',{job_id:id,offset:String(append?state.next||0:0)});if(state.job?.id!==id||state.reportJob!==id)return;
       for(const file of value.files){const entry=document.createElement('p'),title=document.createElement('strong');
-        title.textContent=({modified:'Modified',missing:'Missing',additional:'Additional file',unverified:'Unverified',errors:'Read error',error:'Read error',skipped:'Skipped'}[file.status]||file.status)+': '+file.path;
-        entry.append(title);if(file.detail.message)entry.append(document.createElement('br'),document.createTextNode(file.detail.message));
+        title.textContent=({modified:'Modified',missing:'Missing',additional:'Additional file',unverified:'Not compared',errors:'Read error',error:'Read error',skipped:'Skipped'}[file.status]||file.status)+': '+file.path;
+        let message=file.detail.message;
+        if(message==='Standalone plugin requires a trusted reference mapping')message='This plugin is a single PHP file. Automatic integrity comparison is not supported for this layout; compare it with the original plugin package.';
+        if(message==='WordPress.org checksum response is invalid')message='The official checksum data could not be read. Run a new check with the updated ClamShield checksum reader.';
+        entry.append(title);if(message)entry.append(document.createElement('br'),document.createTextNode(message));
         const component=file.detail.component;if(component)entry.append(document.createElement('br'),document.createTextNode([component.kind,component.slug,component.version].filter(Boolean).join(' · ')));
         list.append(entry);
       }
       state.next=value.next_offset;more.hidden=state.next===null;
-      const c=value.job.counters||{};status.textContent='Check '+value.job.status+' · '+(c.installations||0)+' WordPress installations · '+(c.scanned||0)+' files checked.'+
-        (!list.children.length?(value.job.status==='completed'?(c.installations===0?' No WordPress installation was found in the checked paths.':' No integrity differences were recorded in the checked paths.'):' Coverage is incomplete; no conclusion can be drawn from an empty report.'):' Differences and unverified entries require review.');
+      const c=value.job.counters||{};status.textContent='Check '+value.job.status+' · '+(c.installations||0)+' WordPress installations · '+(c.scanned||0)+' files checked. File differences: '+(c.modified||0)+' modified, '+(c.missing||0)+' missing, '+(c.additional||0)+' additional. Not compared: '+(c.unverified||0)+' components.'+
+        (!list.children.length?(value.job.status==='completed'?(c.installations===0?' No WordPress installation was found in the checked paths.':' No integrity differences were recorded in the checked paths.'):' Coverage is incomplete; no conclusion can be drawn from an empty report.'):c.unverified?' Components without references are not malware detections. Compare them with an original publisher package or your trusted copy of custom code.':' Review the listed file differences before choosing recovery.');
     }catch(error){status.textContent=error.message;}
     finally{state.reportBusy=false;more.disabled=false;}
   }

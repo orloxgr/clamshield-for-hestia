@@ -217,6 +217,19 @@ the recorded metadata and refuses to overwrite changed destinations. A moved,
 removed, suspended or recreated site/account can make historical operations
 unavailable while preserving their evidence.
 
+Integrity reports separate modified, missing and additional files from components
+that were **Not compared**. Inspected entries include discovered directories and
+files; checked files count actual comparisons. A missing reference is a coverage
+gap, not a malware detection or proof of altered code. Single-file plugins do not
+yet support automatic official comparison and need an original plugin copy.
+Custom components/child themes may need the publisher's original package or your
+own trusted baseline. Missing WordPress.org releases are distinguished from
+connection failures and rate limits when a fresh check retrieves the reference.
+Official checksum lists can contain several valid variants; each listed digest
+is accepted, while unlisted content remains a difference. This also applies to
+independently verified recovery downloads. Old reports retain their recorded
+coverage; run a fresh check to reassess previously unreadable references.
+
 **On-Demand Actions → WordPress integrity** discovers installations and checks core/plugin/theme integrity
 where reliable references exist. **Review → Repairs and cleaning** can prepare a nonmutating diff from
 a verified reference or selected backup member. Review the preview before

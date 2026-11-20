@@ -6,7 +6,7 @@ import re
 from .errors import AccessDenied, ClamShieldError, Conflict
 from .paths import absence, snapshot, walk
 from .store import encode
-from .wordpress_sources import References, ReferenceUnavailable, token
+from .wordpress_sources import References, ReferenceUnavailable, token, checksum_matches
 
 
 def joined(*parts):
@@ -94,7 +94,7 @@ class WordPress:
                 for path in sorted(files):
                     if path.startswith(prefix) and '/' not in path[len(prefix):] and path.endswith('.php') and not path.endswith('/index.php'):
                         yield dict(kind='plugin', path=path, slug=path[len(prefix):],
-                                   error='Standalone plugin requires a trusted reference mapping')
+                                   error='This plugin is a single PHP file. Automatic integrity comparison is not supported for this layout; compare it with the original plugin package.')
 
     def run(self, job, *, finish=True):
         counters = dict(seen=0, scanned=0, infected=0, detections=0, skipped=0, errors=0,
@@ -182,7 +182,7 @@ class WordPress:
             try:
                 with snapshot(job['root'], path, self.settings.snapshots, self.settings.max_file_bytes) as (copy, fingerprint):
                     digest = hashlib.new(expected['algorithm'], copy.read_bytes()).hexdigest()
-                    status = 'verified' if digest == expected['digest'] else 'modified'
+                    status = 'verified' if checksum_matches(expected,digest) else 'modified'
                     detail['sha256'] = fingerprint['sha256']
                     detail['actual_digest'] = digest
                     counters['scanned'] += 1

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.2
+
+- Accept WordPress.org's multiple official checksum variants for individual files
+  during integrity checks and verified recovery/replacement downloads.
+- Separate file differences from components not compared in integrity reports.
+  Explain unsupported single-file plugins without internal mapping terminology.
+- Distinguish missing release references, rate limits and connectivity failures.
+
 ## 1.13.1
 
 - Keep cancelled automatic website rechecks paused across signature/rule updates,

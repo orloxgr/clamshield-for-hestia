@@ -924,6 +924,21 @@ test('integrity status errors preserve pending state and an empty partial report
   }finally{await f.close();}
 });
 
+test('integrity report separates file differences from unverified components and explains old technical errors',async()=>{
+  const job=integrityJob('partial',{report_ready:true,discovery_complete:true,counters:{installations:1,seen:100,scanned:80,unverified:2}});
+  const f=fixture({hash:'#scan/wordpress',change:v=>v.jobs=[integrityJob('running')],api:async body=>({ok:true,json:async()=>body.action==='wordpress-status'?{ok:true,job}:{ok:true,job,files:[
+    {path:'wp-content/plugins/hello.php',status:'unverified',detail:{message:'Standalone plugin requires a trusted reference mapping'}},
+    {path:'<img src=x>',status:'unverified',detail:{message:'WordPress.org checksum response is invalid'}}
+  ],next_offset:null}})});
+  try{await settle();f.document.querySelector('.cs-integrity-show-report').click();await settle();
+    const report=f.document.querySelector('.cs-integrity-report-row'),summary=report.querySelector('.cs-integrity-report-status');
+    assert.match(summary.textContent,/File differences: 0 modified, 0 missing, 0 additional/);
+    assert.match(summary.textContent,/Not compared: 2 components/);assert.match(summary.textContent,/not malware detections/);
+    assert.match(report.textContent,/single PHP file/);assert.match(report.textContent,/Run a new check/);
+    assert.doesNotMatch(report.textContent,/trusted reference mapping|checksum response is invalid/);assert.equal(report.querySelector('img'),null);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('revoked scan permission keeps integrity starts disabled while recorded results remain readable',async()=>{
   const f=fixture({hash:'#scan/wordpress',admin:false,change:values=>values.website_permissions.effective.scan=false});
   try{const row=f.document.querySelector('.cs-integrity-row');assert.equal(row.querySelector('.cs-integrity-start').disabled,true);

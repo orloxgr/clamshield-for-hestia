@@ -4,7 +4,8 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
+from urllib.error import HTTPError
 import zipfile
 from concurrent.futures import ThreadPoolExecutor
 
@@ -77,6 +78,22 @@ class WordPressIntegrity(unittest.TestCase):
         self.assertTrue(missing['fingerprint']['missing'])
         self.assertEqual('wp-admin/missing.php', missing['fingerprint']['wordpress']['file'])
         self.assertIn('wordpress.integrity_issues', [n['event'] for n in self.store.notifications(self.context)])
+
+    def test_official_variants_accept_all_listed_hashes_but_detect_unlisted_content(self):
+        manifests={kind:self.reference(dict(kind=kind,path=path)) for kind,path in
+          [('core','blog'),('plugin','blog/wp-content/plugins/example'),('theme','blog/wp-content/themes/example')]}
+        expected=manifests['plugin']['files']['example.php'];expected['digest']=['0'*64,expected['digest']]
+        self.references.manifest.side_effect=lambda component:manifests[component['kind']]
+        job,_=self.run_job();self.assertEqual(0,job['counters']['modified'])
+        self.write('blog/wp-content/plugins/example/example.php','<?php /* Plugin Name: Example\nVersion: 1.2\n*/ changed')
+        job,_=self.run_job();self.assertEqual(1,job['counters']['modified'])
+
+    def test_single_file_plugin_explains_unsupported_comparison_without_mapping_jargon(self):
+        self.write('blog/wp-content/plugins/hello.php','<?php /* Plugin Name: Single file */')
+        job,report=self.run_job();self.assertEqual(1,job['counters']['unverified'])
+        component=next(c for c in report['report']['components'] if c['path'].endswith('hello.php'))
+        self.assertIn('single PHP file',component['error']);self.assertIn('original plugin package',component['error'])
+        self.assertNotIn('mapping',component['error'])
 
     def test_unavailable_reference_marks_partial_instead_of_verified(self):
         self.references.manifest.side_effect = ReferenceUnavailable('No official reference')
@@ -221,6 +238,40 @@ class WordPressReferences(unittest.TestCase):
             response = dict(plugin='other', version='1.2', files={'file.php': {'md5': 'a'*32}})
             references = References(settings, fetch=lambda *_: json.dumps(response).encode())
             with self.assertRaises(ReferenceUnavailable): references.manifest(component)
+
+    def test_plugin_variant_lists_are_validated_and_both_replacement_paths_check_membership(self):
+        from clamshield.recovery_references import RecoveryReferences
+        from clamshield.wordpress_recovery import options
+        content=b'official variant';digest=hashlib.sha256(content).hexdigest()
+        component=dict(kind='plugin',slug='example',version='1.2',path='wp-content/plugins/example')
+        response=dict(plugin='example',version='1.2',files={'file.php':{'md5':'0'*32,'sha256':['0'*64,digest]}})
+        for recovery in (False,True):
+            for good in (False,True):
+                with self.subTest(recovery=recovery,good=good),tempfile.TemporaryDirectory() as temp:
+                    archive=self.archive([('example/file.php',content if good else b'unlisted content')])
+                    fetch=lambda url,maximum:archive if url.endswith('.zip') else json.dumps(response).encode()
+                    settings=Settings(state=Path(temp))
+                    refs=RecoveryReferences(settings,temp,options({'release_policy':'installed'}),fetch=fetch) if recovery else References(settings,fetch)
+                    expected=refs.manifest(component)['files']['file.php']
+                    self.assertEqual('sha256',expected['algorithm']);self.assertIn(digest,expected['digest'])
+                    if good:self.assertEqual(content,refs.replacement(component,'file.php',expected)[0])
+                    else:
+                        with self.assertRaises(ReferenceUnavailable):refs.replacement(component,'file.php',expected)
+
+    def test_malformed_or_empty_checksum_variants_cannot_downgrade_to_md5(self):
+        component=dict(kind='plugin',slug='example',version='1.2')
+        for value in ([],[None],[['a'*64]],['short'],['a'*64,'invalid'],['a'*64]*1025):
+            with self.subTest(value=value[:2]),tempfile.TemporaryDirectory() as temp:
+                response=dict(plugin='example',version='1.2',files={'file.php':{'md5':'a'*32,'sha256':value}})
+                refs=References(Settings(state=Path(temp)),fetch=lambda *_:json.dumps(response).encode())
+                with self.assertRaises(ReferenceUnavailable):refs.manifest(component)
+
+    def test_reference_http_errors_explain_missing_release_separately_from_network_failure(self):
+        from clamshield.wordpress_sources import download
+        for code,message in [(404,'No WordPress.org reference'),(410,'No WordPress.org reference'),(429,'request limit'),(503,'HTTP 503')]:
+            with self.subTest(code=code),patch('clamshield.wordpress_sources.build_opener') as opener:
+                opener.return_value.open.side_effect=HTTPError('https://downloads.wordpress.org/fixture',code,'fixture',{},None)
+                with self.assertRaisesRegex(ReferenceUnavailable,message):download('https://downloads.wordpress.org/fixture',1000)
 
     def test_core_content_is_not_compared_against_bundled_plugin_versions(self):
         with tempfile.TemporaryDirectory() as temp:
