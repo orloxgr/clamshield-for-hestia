@@ -104,25 +104,27 @@ class Worker:
             return
         try:
             self.validate(job)
+            engines = self.engines
             if not self.custom_engines:
                 from .yara_settings import YaraSettings
                 policy = YaraSettings(self.settings).read()
                 # Repairs/recovery retain their independent validation contract.
                 ordinary = job['source'] in ('manual','scheduled','signature-update','watch-initial','watch')
                 if ordinary:
-                    self.engines = [engine for engine in self.engines if not isinstance(engine,Yara)]
+                    engines = [engine for engine in self.engines if not isinstance(engine,Yara)]
                     if policy['enabled']:
                         yara = Yara(self.settings.yara_binary,self.settings.rules,policy['timeout_seconds'])
                         yara.max_file_bytes = policy['max_file_mib'] * 1024**2
                         name = job['generation'].split('|',1)[0]
                         if name.startswith('generation-'):yara.rules=self.settings.state/'rules'/name/'rules.yarac'
-                        self.engines.append(yara)
+                        engines.append(yara)
             with ExitStack() as stack:
-                engines = self.engines; errors = 0
+                errors = 0
                 if job['source'] not in ('wordpress-integrity', 'repair-absence-recheck'):
                     from .website_generation import pinned
+                    selected_engines = engines
                     engines = []
-                    for engine in self.engines:
+                    for engine in selected_engines:
                         if isinstance(engine, ClamAV):
                             try:
                                 engine = stack.enter_context(pinned(self.settings, engine, job['generation']))

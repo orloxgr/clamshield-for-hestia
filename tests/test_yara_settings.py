@@ -81,5 +81,8 @@ class WebsiteYaraSettings(unittest.TestCase):
         job_id=self.store.enqueue(self.context,self.site,source='repair-recheck')
         job=self.store.claim('fixture');worker=Worker(self.settings,self.store,self.hestia)
         with patch.object(worker,'validate'),patch.object(worker,'_run') as run,patch('clamshield.website_generation.pinned',side_effect=lambda settings,engine,generation:nullcontext(engine)):
+            worker.run(job|{'source':'manual'})
+            self.assertEqual({'clamav'},{engine.name for engine in run.call_args.args[1]})
+            run.reset_mock()
             worker.run(job)
         self.assertEqual({'clamav','yara'},{engine.name for engine in run.call_args.args[1]})
