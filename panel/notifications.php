@@ -2,6 +2,7 @@
 $notification_labels = [
     'scan.malware_found'=>'Malware detected', 'scan.repeated_detection'=>'Detected again',
     'scan.failed'=>'Scan failed', 'scan.partial'=>'Incomplete scan',
+    'scan.update_interrupted'=>'Scan stopped for ClamShield update',
     'wordpress.integrity_issues'=>'WordPress integrity issues',
     'health.problem'=>'Service or scanning-data problem', 'health.recovered'=>'Service or scanning data recovered',
     'maintenance.completed'=>'Update or maintenance completed', 'maintenance.failed'=>'Update or maintenance failed',
@@ -39,8 +40,17 @@ $notification_counts = ['scanned'=>'Scanned files', 'infected'=>'Files with dete
     'modified'=>'Modified files', 'missing'=>'Missing files', 'additional'=>'Additional files',
     'candidate_matches'=>'Candidate matches', 'baseline_matches'=>'Active-rule matches'];
 ?>
-<section data-page="notifications" hidden><h2>Notifications</h2>
-<div class="scroll"><table><thead><tr><th>Time (UTC)</th><th>Event</th><th>Subject / details</th><th>Action</th></tr></thead><tbody>
+<section data-page="notifications" hidden id="cs-notifications" data-owner="<?=$escape($data['context']['owner'])?>" data-token="<?=$escape($_SESSION['token']??'')?>">
+<h2>Notifications</h2>
+<article class="card"><h3>My notification preferences</h3><p id="cs-notification-scope">Preferences belong to your signed-in account, including when you view another hosting account.</p>
+<form id="cs-notification-preferences"><fieldset id="cs-notification-choices" disabled><legend>Notify me about</legend><div id="cs-notification-categories" class="cs-notification-categories"></div>
+<p><label><input type="checkbox" name="bell"> Also notify me on Bell</label></p>
+<p>Bell uses Hestia's native notification menu. Changes apply to new Bell notifications; old events are not resent. ClamShield and Hestia keep their own read status.</p>
+<div class="row"><button class="button" type="submit">Save notification preferences</button></div></fieldset></form>
+<div class="row"><button class="button" type="button" id="cs-notification-refresh">Refresh preferences</button><p id="cs-notification-preference-status" role="status" aria-live="polite">Open Notifications to load your preferences.</p></div>
+</article>
+<div class="row cs-controls-row"><label>Type <select class="form-select" id="cs-notification-type"><option value="selected">My selected types</option><option value="all">All recorded types</option></select></label><label>Status <select class="form-select" id="cs-notification-state"><option value="all">Read and unread</option><option value="unread">Unread only</option><option value="read">Read only</option></select></label><p id="cs-notification-count" role="status" aria-live="polite"></p></div>
+<div class="scroll"><table><thead><tr><th>Time (UTC)</th><th>Event</th><th>Subject / details</th><th>Action</th></tr></thead><tbody id="cs-notification-list">
 <?php foreach($data['notifications'] as $notification):
     $detail = is_array($notification['detail']??null) ? $notification['detail'] : [];
     $parts = [];
@@ -49,7 +59,7 @@ $notification_counts = ['scanned'=>'Scanned files', 'infected'=>'Files with dete
     foreach(['path'=>'File', 'signature'=>'Detection', 'previous_detections'=>'Earlier detections'] as $field=>$label)
         if(isset($detail[$field]) && is_scalar($detail[$field])) $parts[]=$label.': '.$detail[$field];
     if(is_array($detail['counters']??null)) foreach($notification_counts as $field=>$label)
-        if(isset($detail['counters'][$field]) && is_numeric($detail['counters'][$field])) $parts[]=$label.': '.number_format((int)$detail['counters'][$field]);
+        if(isset($detail['counters'][$field]) && is_numeric($detail['counters'][$field]) && ($field==='scanned'||$detail['counters'][$field]>0)) $parts[]=$label.': '.number_format((int)$detail['counters'][$field]);
     $subject=(string)$notification['subject'];
     // Translate only known server components/operations; website and file
     // subjects retain their exact names even if they resemble an operation.
@@ -57,10 +67,11 @@ $notification_counts = ['scanned'=>'Scanned files', 'infected'=>'Files with dete
         $subject=$notification_subjects[$subject]??$subject;
     $title=$notification_labels[$notification['event']]??ucfirst(str_replace(['.','_'],' ',(string)$notification['event']));
 ?>
-<tr data-owner="<?=$escape($notification['owner']??$data['context']['owner'])?>"><td><?php if($cs_global): ?><?=$escape($notification['owner']??'Server')?><br><?php endif ?><?=$escape(gmdate('Y-m-d H:i:s',(int)$notification['created']))?></td>
+<tr data-owner="<?=$escape($notification['owner']??$data['context']['owner'])?>" data-notification="<?=$escape($notification['id'])?>" data-event="<?=$escape($notification['event'])?>" data-read="<?=$notification['read_at']?'true':'false'?>"><td><?php if($cs_global): ?><?=$escape(($notification['owner']??'@admin')==='@admin'?'Server':$notification['owner'])?><br><?php endif ?><?=$escape(gmdate('Y-m-d H:i:s',(int)$notification['created']))?></td>
 <td><?=$escape($title)?></td><td><?=$escape($subject)?>
 <?php foreach($parts as $part): ?><p><?=$escape($part)?></p><?php endforeach ?>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Technical details</summary><pre style="white-space:pre-wrap"><?=$escape(json_encode(['event'=>$notification['event'],'detail'=>$notification['detail']],JSON_PRETTY_PRINT))?></pre></details>
-</td><td><?php if(!$notification['read_at']): ?><button class="button" data-action="notification-read" data-notification_id="<?=$escape($notification['id'])?>">Mark read</button><?php else: ?>Read<?php endif ?></td></tr>
+</td><td><?php if(!$notification['read_at']): ?><button type="button" class="button cs-notification-read">Mark read</button><?php else: ?><span>Read</span><?php endif ?><p class="cs-notification-read-status" role="status" aria-live="polite"></p></td></tr>
 <?php endforeach ?>
-</tbody></table></div></section>
+</tbody></table></div><p id="cs-notification-empty" hidden>No notifications match these filters.</p></section>
+<script><?php readfile(__DIR__.'/notifications.js'); ?></script>

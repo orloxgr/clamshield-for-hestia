@@ -310,6 +310,27 @@ counts. **Technical details** starts closed and contains the original event,
 actor, references and recorded fields for troubleshooting. The presentation does
 not change stored audit evidence or turn partial scans into successful checks.
 
+**Settings → Notifications** has personal preferences for the signed-in native
+account, even while an administrator views a customer's account. Select the
+notification types you want to see. For detections only, keep **Website malware
+detections** checked and clear the other categories. This includes repeated
+detections; WordPress integrity differences are a separate category. **Type**
+and **Status** filter the list without a request. **All recorded types** still
+shows retained events excluded from your selections. **Mark read** updates its
+own row without reloading the panel and preserves the row on failure.
+
+**Also notify me on Bell** is off by default. It sends future selected events to
+your native Hestia Bell using the supported `v-add-user-notification` command;
+no vendor panel file is patched. An opted-in native administrator receives
+current-generation events across the server; tenants receive only their own.
+Changing selections or enabling Bell starts from that change, avoiding an old
+notification flood. ClamShield and Hestia keep independent read states.
+The owned `clamshield-notifications.timer` normally checks every 15 seconds.
+Its separate service uses the root runtime gate and stops for installation or
+removal. Failed/uncertain sends wait at least 60 seconds, check the native list
+for the same stable link before retrying, and expose a delivery warning in the
+personal preferences. No engine or mail services are exposed to tenant controls.
+
 Installer and component journals preserve interrupted operations. Repeat the
 same root installer to resume an incomplete installation; use the matching UI
 recovery controls for scanner/resource/mail transitions. Changed foreign files

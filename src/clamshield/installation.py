@@ -15,10 +15,11 @@ from .errors import ClamShieldError,Conflict
 UNITS=('clamshield-clamd.service','clamshield-mail-clamd.service','clamshield-mail-spamd.service',
     'clamshield-mail.service','clamshield-maintenance.service','clamshield-maintenance.timer',
     'clamshield-monitor.service','clamshield-monitor.timer','clamshield-recovery.service',
-    'clamshield-recovery.timer','clamshield-worker.service','clamshield-worker.timer')
+    'clamshield-recovery.timer','clamshield-worker.service','clamshield-worker.timer',
+    'clamshield-notifications.service','clamshield-notifications.timer')
 PROFILES=('clamshield-clamd','clamshield-freshclam','clamshield-mail-clamd')
 TIMERS=tuple(name for name in UNITS if name.endswith('.timer'))
-CONTROLLERS=('clamshield-worker.service','clamshield-monitor.service','clamshield-maintenance.service','clamshield-recovery.service')
+CONTROLLERS=('clamshield-worker.service','clamshield-monitor.service','clamshield-maintenance.service','clamshield-recovery.service','clamshield-notifications.service')
 
 
 class Installation:

@@ -11,7 +11,8 @@ import time
 from .errors import AccessDenied, ClamShieldError
 
 COMMANDS = frozenset(('v-list-user', 'v-list-users', 'v-list-web-domain',
-                      'v-list-web-domains', 'v-list-mail-domains', 'v-list-mail-accounts', 'v-list-user-backups'))
+                      'v-list-web-domains', 'v-list-mail-domains', 'v-list-mail-accounts', 'v-list-user-backups',
+                      'v-list-user-notifications'))
 
 
 def account_name(value):
@@ -30,6 +31,20 @@ class Hestia:
         if self.deadline is not None:value=min(value,self.deadline-time.monotonic())
         if value<=0:raise ClamShieldError('Native Hestia request time budget is exhausted')
         return value
+
+    def add_notification(self, owner, topic, notice):
+        """Only the Bell worker composes messages; no browser-supplied commands."""
+        owner=account_name(owner)
+        if (not isinstance(topic,str) or not topic.startswith('ClamShield: ') or len(topic)>200 or
+            not isinstance(notice,str) or len(notice)>6000 or any(c in topic+notice for c in ('\0','\n','\r'))):
+            raise AccessDenied('Invalid ClamShield Bell message')
+        try:
+            result=subprocess.run([str(self.root/'bin/v-add-user-notification'),owner,topic,notice,'info'],
+                capture_output=True,text=True,timeout=self.remaining(10),
+                env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HESTIA':str(self.root),'LANG':'C.UTF-8'})
+        except (OSError,subprocess.SubprocessError) as exc:
+            raise ClamShieldError('Native Bell delivery is unavailable or timed out') from exc
+        if result.returncode:raise ClamShieldError('Native Bell delivery is unavailable')
 
     def call(self, command, *args):
         if command not in COMMANDS or any(not isinstance(a, str) or '\0' in a for a in args):

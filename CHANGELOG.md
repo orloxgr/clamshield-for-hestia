@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.7.0
+
+- Add personal notification-type selections, type/read-state filters and AJAX
+  Mark read without reloading the panel. Keep all recorded types accessible.
+- Add opt-in Also notify me on Bell through native Hestia notification commands.
+  A separate owned timer delivers new selected events, respects current native
+  roles/account generations and recovers interrupted appends using stable links.
+- Keep Bell disabled by default, avoid resending old events, and retain original
+  ClamShield notifications and independent native read states.
+
 ## 1.6.5
 
 - Align scan target and scan search controls along their bottom edge. Add a

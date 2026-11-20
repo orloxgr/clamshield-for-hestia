@@ -14,7 +14,7 @@ from .store import Store
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='ClamShield for Hestia')
-    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'tick', 'inventory', 'engines'))
+    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'notifications', 'tick', 'inventory', 'engines'))
     args = parser.parse_args(argv)
     try:
         if os.geteuid() != 0:
@@ -52,6 +52,11 @@ def execute(args,settings):
     elif args.command == 'maintenance':
         from .maintenance import Maintenance
         value = Maintenance(settings, store, hestia).once()
+    elif args.command == 'notifications':
+        import time
+        from .notification_preferences import NotificationPreferences
+        hestia=Hestia(settings.hestia,timeout=10,deadline=time.monotonic()+45)
+        value=NotificationPreferences(settings,store,hestia).once()
     elif args.command == 'recover':
         from .repairs import Repairs
         from .mail_custody import MailCustody

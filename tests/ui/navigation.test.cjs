@@ -37,6 +37,61 @@ function fixture(options={}){
     visible:()=>[...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page)};
 }
 const labels=['Dashboard','Email Shield','On-demand Scan','Scheduled Scanner','Results','Exceptions','Quarantine','Updates','History','Settings'];
+const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',trials:'Rule comparisons',other:'Other notifications'};
+const notificationSettings=(extra={})=>({account:'alice',server:false,categories:notificationKinds,settings:{bell:false,categories:Object.keys(notificationKinds),revision:'preferences-one',last_sent:null,error:null,...extra}});
+const notice=(event,id='notice-one',extra={})=>({id,event,owner:'alice',subject:'site.test',created:1,read_at:null,detail:{counters:{scanned:20,infected:1,errors:0}},...extra});
+
+test('notification preferences save selected types and Bell without reload while filters retain access to recorded events',async()=>{
+  const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found'),notice('scan.partial','notice-two'),notice('wordpress.integrity_issues','notice-three')],api:async body=>({ok:true,json:async()=>({ok:true,...notificationSettings(body.action==='notification-settings-save'?JSON.parse(body.policy):{})})})});
+  try{await settle();const form=f.document.getElementById('cs-notification-preferences');assert.equal(form.elements.bell.checked,false);
+    for(const input of form.querySelectorAll('[name=category]'))input.checked=input.value==='detections';form.elements.bell.checked=true;
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const saved=f.requests.find(body=>body.action==='notification-settings-save');assert.deepEqual(JSON.parse(saved.policy),{bell:true,categories:['detections']});assert.equal(saved.revision,'preferences-one');
+    const rows=[...f.document.querySelectorAll('#cs-notification-list tr')];assert.deepEqual(rows.map(r=>r.hidden),[false,true,true]);
+    assert.match(f.document.getElementById('cs-notification-preference-status').textContent,/saved/);
+    const type=f.document.getElementById('cs-notification-type');type.value='integrity';type.dispatchEvent(new f.w.Event('change'));assert.deepEqual(rows.map(r=>r.hidden),[true,true,false]);
+    type.value='all';type.dispatchEvent(new f.w.Event('change'));assert.equal(rows.filter(r=>!r.hidden).length,3);
+    assert.equal(f.document.querySelector('[data-main-tab=settings]').getAttribute('aria-current'),'page');
+  }finally{await f.close();}
+});
+
+test('AJAX Mark read queues once, uses each Global row owner and immediately updates unread filters',async()=>{
+  let finish;
+  const f=fixture({hash:'#settings/notifications',change:v=>{v.context.view_scope='server';v.notifications=[notice('scan.malware_found','bob-notice',{owner:'bob'}),notice('health.problem','server-notice',{owner:'@admin'})];},api:body=>body.action==='notification-read'?new Promise(resolve=>{finish=()=>resolve({ok:true,json:async()=>({ok:true,read:true})});}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  try{await settle();const state=f.document.getElementById('cs-notification-state');state.value='unread';state.dispatchEvent(new f.w.Event('change'));
+    const row=f.document.querySelector('#cs-notification-list tr'),button=row.querySelector('.cs-notification-read');assert.equal(button.hasAttribute('data-action'),false);
+    button.click();button.click();assert.equal(button.disabled,true);assert.equal(button.textContent,'Marking read…');assert.equal(f.requests.filter(b=>b.action==='notification-read').length,1);
+    assert.deepEqual(f.requests.at(-1),{token:'fixture-token',owner:'bob',action:'notification-read',notification_id:'bob-notice'});
+    finish();await settle();assert.equal(row.dataset.read,'true');assert.equal(row.hidden,true);assert.equal(row.querySelector('.cs-notification-read'),null);
+    f.document.querySelectorAll('#cs-notification-list tr')[1].querySelector('button').click();assert.equal(f.requests.at(-1).owner,'alice');finish();await settle();
+    assert.equal(f.document.getElementById('cs-notification-empty').hidden,false);assert.match(f.document.getElementById('cs-notification-count').textContent,/0 shown/);
+  }finally{await f.close();}
+});
+
+test('notification read failures remain escaped, visible and retryable without marking the row read',async()=>{
+  let failed=true;
+  const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found')],api:async body=>body.action==='notification-read'?{ok:!failed,json:async()=>failed?{ok:false,error:'<b>Request unavailable</b>'}:{ok:true,read:true}}:{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  try{await settle();const row=f.document.querySelector('#cs-notification-list tr');row.querySelector('button').click();await settle();
+    assert.equal(row.dataset.read,'false');assert.equal(row.querySelector('button').disabled,false);assert.match(row.querySelector('.cs-notification-read-status').textContent,/Request unavailable/);assert.equal(row.querySelector('.cs-notification-read-status b'),null);
+    failed=false;row.querySelector('button').click();await settle();assert.equal(row.dataset.read,'true');
+  }finally{await f.close();}
+});
+
+test('personal notification preferences explain administrator scope and failed saves preserve the draft',async()=>{
+  const f=fixture({hash:'#settings/notifications',change:v=>{v.context.owner='bob';},api:async body=>body.action==='notification-settings-save'?{ok:false,json:async()=>({ok:false,error:'Preferences changed; refresh and retry'})}:{ok:true,json:async()=>({ok:true,...notificationSettings(),account:'admin',server:true})}});
+  try{await settle();assert.match(f.document.getElementById('cs-notification-scope').textContent,/Personal preferences for admin.*all server accounts/);
+    const form=f.document.getElementById('cs-notification-preferences');form.elements.bell.checked=true;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(form.elements.bell.checked,true);assert.equal(f.document.getElementById('cs-notification-choices').disabled,false);assert.match(f.document.getElementById('cs-notification-preference-status').textContent,/Preferences changed/);
+  }finally{await f.close();}
+});
+
+test('notification preference loading failures allow AJAX reading and can be retried explicitly',async()=>{
+  let failed=true;
+  const f=fixture({hash:'#settings/notifications',change:v=>v.notifications=[notice('scan.malware_found')],api:async body=>body.action==='notification-settings-get'&&failed?{ok:false,json:async()=>({ok:false,error:'Settings unavailable'})}:{ok:true,json:async()=>body.action==='notification-read'?{ok:true,read:true}:{ok:true,...notificationSettings()}}});
+  try{await settle();assert.equal(f.document.getElementById('cs-notification-choices').disabled,true);f.document.querySelector('.cs-notification-read').click();await settle();assert.equal(f.document.querySelector('#cs-notification-list tr').dataset.read,'true');
+    failed=false;f.click('#cs-notification-refresh');await settle();assert.equal(f.document.getElementById('cs-notification-choices').disabled,false);
+  }finally{await f.close();}
+});
 const auditEvent=(action,detail={},extra={})=>({created:1,actor:'admin',owner:'alice',identity:'current',action,subject:'a'.repeat(32),detail,...extra});
 
 test('history shows readable operations, website scope and counters with references closed by default',async()=>{

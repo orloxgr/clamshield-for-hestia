@@ -1,0 +1,11 @@
+# Managed by clamshield
+[Unit]
+Description=Deliver selected ClamShield Bell notifications
+
+[Timer]
+OnBootSec=90
+OnUnitInactiveSec=15
+AccuracySec=1
+
+[Install]
+WantedBy=timers.target

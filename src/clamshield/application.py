@@ -50,6 +50,11 @@ class Application:
 
     def _dispatch(self,request,context):
         action=request.get('action','dashboard')
+        if action in ('notification-settings-get','notification-settings-save'):
+            from .notification_preferences import NotificationPreferences
+            preferences=NotificationPreferences(self.settings,self.store,self.hestia)
+            if action=='notification-settings-save':return preferences.save(context,request.get('policy'),request.get('revision'))
+            return preferences.get(context)
         if action in ('wordpress-recovery-analyze','wordpress-recovery-status','wordpress-recovery-list','wordpress-recovery-preview','wordpress-recovery-apply','wordpress-recovery-undo'):
             from .wordpress_recovery import WordPressRecovery
             recovery=WordPressRecovery(self.settings,self.store,self.hestia)

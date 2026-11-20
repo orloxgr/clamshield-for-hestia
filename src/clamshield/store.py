@@ -123,6 +123,17 @@ CREATE TABLE IF NOT EXISTS notifications (
  subject TEXT NOT NULL, detail TEXT NOT NULL, created REAL NOT NULL, read_at REAL,
  dedup_key TEXT, UNIQUE(owner,identity,event,dedup_key)
 );
+CREATE TABLE IF NOT EXISTS notification_preferences (
+ actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
+ categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,
+ updated REAL NOT NULL, last_sent REAL, error TEXT, last_checked REAL NOT NULL DEFAULT 0,
+ PRIMARY KEY(actor,identity)
+);
+CREATE TABLE IF NOT EXISTS notification_bell_deliveries (
+ actor TEXT NOT NULL, identity TEXT NOT NULL, notification_id TEXT NOT NULL REFERENCES notifications(id) ON DELETE CASCADE,
+ status TEXT NOT NULL, attempted REAL NOT NULL, native_id TEXT, error TEXT,
+ PRIMARY KEY(actor,identity,notification_id)
+);
 CREATE TABLE IF NOT EXISTS mail_policies (
  owner TEXT NOT NULL, identity TEXT NOT NULL, domain TEXT NOT NULL,
  mailbox TEXT NOT NULL, settings TEXT NOT NULL, updated REAL NOT NULL,
