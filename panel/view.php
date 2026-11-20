@@ -185,6 +185,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
    const selected=new Set(preset[provider][profile+'_databases']);
    for(const input of form.querySelectorAll('input[name="'+prefix+'_'+profile+'_databases"]'))input.checked=selected.has(input.value);
   }
+  for(const details of form.querySelectorAll('details'))details.open=true;
   document.getElementById('cs-provider-recommended-status').textContent='Recommended selections applied to this form. Review and save provider settings; provider switches, account key and update intervals are unchanged.';
  });
  document.getElementById('cs-providers')?.addEventListener('submit',event=>{event.preventDefault();const f=new FormData(event.target);saveForm({action:'providers-save',providers:JSON.stringify({automatic:f.has('automatic'),official:{interval_minutes:Number(f.get('official_interval_minutes'))},securiteinfo:{enabled:f.has('si_enabled'),plan:f.get('si_plan'),key:f.get('si_key'),website_databases:f.getAll('si_website_databases'),mail_databases:f.getAll('si_mail_databases'),interval_minutes:Number(f.get('securiteinfo_interval_minutes'))},sanesecurity:{enabled:f.has('sane_enabled'),website_databases:f.getAll('sane_website_databases'),mail_databases:f.getAll('sane_mail_databases'),interval_minutes:Number(f.get('sanesecurity_interval_minutes'))},local:{enabled:f.has('local_enabled')}})});});

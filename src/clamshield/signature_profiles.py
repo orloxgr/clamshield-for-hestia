@@ -58,7 +58,7 @@ def validate_selection(manifest):
 def materialize(stage, manifest):
     validate_selection(manifest)
     for profile in manifest.get('profiles', {}):
-        folder = directory(stage, manifest, profile); folder.mkdir(mode=0o755)
+        folder = directory(stage, manifest, profile); folder.mkdir(mode=0o755); folder.chmod(0o755)
         for name in manifest['profiles'][profile]:
             regular_copy(stage / name, folder / name)
             if (stage / (name + '.sig')).is_file():

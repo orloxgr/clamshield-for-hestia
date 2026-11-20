@@ -98,6 +98,16 @@ class ProviderConfiguration(unittest.TestCase):
         self.assertTrue(all(row['risk'] in ('not-rated', 'not-applicable') for row in catalog['securiteinfo']))
         self.assertTrue(all(row['risk_url'] for row in catalog['sanesecurity']))
 
+    def test_explicit_high_risk_selection_survives_updates_without_reapplying_presets(self):
+        with patch.dict(SANE, {'future-high.ndb': ('High-risk fixture', 'high', 'malware')}):
+            self.providers.save({'sanesecurity': {'website_databases': ['future-high.ndb'], 'mail_databases': []}})
+            before = self.providers.path.read_bytes()
+            self.providers.initialize(existing=True)
+            for _ in range(3):
+                value = self.providers.public()
+                self.assertIn('future-high.ndb', value['sanesecurity']['website_databases'])
+            self.assertEqual(before, self.providers.path.read_bytes())
+
     def test_database_names_and_credentials_cannot_inject_updater_configuration(self):
         for incoming in ({'key': 'a' * 64 + '\nOnUpdateExecute bad'}, {'databases': ['../../evil.ndb']}):
             with self.assertRaises(ClamShieldError):
@@ -191,6 +201,7 @@ class Verification(unittest.TestCase):
             manager.fetch.cache = Mock(return_value=cache)
             def check_permissions(stage, manifest):
                 self.assertEqual(0o644, (stage / 'clamshield-generation.hdb').stat().st_mode & 0o777)
+                self.assertEqual(0o755, stage.stat().st_mode & 0o777)
             manager.validate = check_permissions
             previous = os.umask(0o077)
             try:

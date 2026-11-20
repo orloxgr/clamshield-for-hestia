@@ -83,6 +83,7 @@ class SignatureProfiles(unittest.TestCase):
             setattr(self.manager,name,path)
         self.manager.mail_active=Mock(return_value=True);self.manager.daemon_ready=Mock();self.manager.mail_ready=Mock()
         self.manager.restart_mail=Mock()
+        self.manager.validate=Mock()  # The real engine validated both profiles in setUp.
         with patch('clamshield.signatures.subprocess.run'):
             self.manager.activate(self.stage,self.manifest)
             for profile, name in [('website','website_config'),('mail','mail_config')]:
