@@ -38,6 +38,8 @@
   state.read&&(state.read.disabled=state.loading||state.mutating);
   if(state.clearSelected)state.clearSelected.disabled=state.loading||state.mutating||!state.canClear||!state.selection.size;
   if(state.selectedCount)state.selectedCount.textContent=state.selection.size+' selected';
+  if(state.selectPage)state.selectPage.disabled=state.loading||state.mutating||!state.canClear;
+  for(const check of state.body.querySelectorAll('.cs-review-select'))check.disabled=state.loading||state.mutating||!state.canClear||check.dataset.allowed!=='true';
  }
  function options(select,values,human=true){if(!select)return;const selected=select.value,title=select.options[0].textContent;select.replaceChildren(option('',title));for(const value of values)select.append(option(String(value),value==='@admin'?'Server':human?words(value):String(value)));if(selected&&!values.map(String).includes(selected))select.append(option(selected,words(selected)));select.value=selected;}
  async function load(state,reset=false){
@@ -123,7 +125,7 @@
   const rows=[...state.body.children];for(let i=0;i<rows.length;i++){
    const row=rows[i];row.querySelector('.cs-review-selection-cell')?.remove();
    const value=state.native?{id:row.dataset.reviewId,allowed:row.dataset.reviewAllowed==='true'}:values[i];if(!value?.id)continue;
-   const check=element('input',{type:'checkbox',value:value.id,className:'cs-review-select',disabled:!state.canClear||!value.allowed});check.setAttribute('aria-label','Select record '+(i+1));
+   const check=element('input',{type:'checkbox',value:value.id,className:'cs-review-select',disabled:!state.canClear||!value.allowed});check.dataset.allowed=String(Boolean(value.allowed));check.setAttribute('aria-label','Select record '+(i+1));
    const cell=element(state.body.tagName==='TBODY'?'td':'label',{className:'cs-review-selection-cell'});cell.append(check);if(cell.tagName==='LABEL')cell.append(' Select repair record');row.prepend(cell);
    check.addEventListener('change',()=>{if(check.checked)state.selection.add(check.value);else state.selection.delete(check.value);const enabled=[...state.body.querySelectorAll('.cs-review-select:not(:disabled)')];state.selectPage.checked=enabled.length>0&&enabled.every(v=>v.checked);state.selectPage.indeterminate=state.selection.size>0&&!state.selectPage.checked;controls(state);});
   }

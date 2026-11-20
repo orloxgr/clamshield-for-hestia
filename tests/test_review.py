@@ -120,7 +120,7 @@ class ReviewTests(unittest.TestCase):
         self.ids['bob']='replaced'
         with self.assertRaises(Conflict):self.review.bulk(self.admin,'notices','server','clear',proof['token'])
         proof=self.review.bulk(self.alice,'notices','account','preview')
-        with patch('clamshield.review.time.time',return_value=99999999999):
+        with patch('clamshield.review_bulk.time.time',return_value=99999999999):
             with self.assertRaises(Conflict):self.review.bulk(self.alice,'notices','account','clear',proof['token'])
 
     def test_history_delegation_denies_preview_and_clear_and_never_widens_tenant_scope(self):
@@ -145,7 +145,7 @@ class ReviewTests(unittest.TestCase):
         proof=self.review.bulk(admin,'findings','account','preview',selected=selected)
         self.assertEqual(1,proof['count']);self.store.add_finding(self.store.job(self.alice,rows[0]['job_id']),'new.php',{'sha256':'b'*64},dict(engine='yara',provider='local',signature='NewFixture'))
         self.assertEqual(1,self.review.bulk(admin,'findings','account','clear',proof['token'])['changed'])
-        self.assertEqual(3,self.page('findings')['total']);self.assertEqual('open',self.store.finding(self.alice,selected[0])['status'])
+        self.assertEqual(3,self.page('findings')['total']);self.assertEqual(3,self.store.dashboard_counts(self.alice)['open_findings']);self.assertEqual('open',self.store.finding(self.alice,selected[0])['status'])
         data=dict(findings=rows);self.review.hide_deleted_previews(data);self.assertEqual(2,len(data['findings']))
         for values in ([],['missing'],[rows[1]['id']]*2):
             with self.assertRaises(ClamShieldError):self.review.bulk(admin,'findings','account','preview',selected=values)

@@ -322,10 +322,11 @@ class Store:
 
     def dashboard_counts(self, context):
         """Account-generation totals independent of bounded history previews."""
+        from .review import visible
         scope = self.scope(context)
         with self.connection() as db:
             row = db.execute('''SELECT
-              (SELECT count(*) FROM findings WHERE owner=? AND identity=? AND status='open') AS open_findings,
+              (SELECT count(*) FROM findings f WHERE owner=? AND identity=? AND status='open' AND '''+visible('findings','f')+''') AS open_findings,
               (SELECT count(*) FROM jobs WHERE owner=? AND identity=? AND status IN ('queued','running')) AS active_scans,
               (SELECT count(*) FROM operations WHERE owner=? AND identity=? AND kind='quarantine' AND status='quarantined') AS quarantined''',
               scope * 3).fetchone()

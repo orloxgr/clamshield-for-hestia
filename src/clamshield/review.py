@@ -2,12 +2,9 @@
 from datetime import datetime,timezone
 import json
 import re
-import time
-import uuid
 
 from .errors import AccessDenied,ClamShieldError,Conflict
 from .notification_preferences import category
-from .store import encode
 from .website_availability import WebsiteAvailability
 
 # SQL identifiers and expressions are fixed here, never accepted from requests.

@@ -121,6 +121,16 @@ class MailCustodyTests(unittest.TestCase):
         self.assertFalse(self.blob(staged['transaction_id']).exists())
         with self.assertRaises(Conflict): self.custody.preview(self.bob, bob_id)
 
+    def test_review_bulk_deletion_uses_existing_recipient_custody_and_keeps_shared_content(self):
+        from clamshield.review import Review
+        staged=self.capture();alice_id=self.delivery(self.alice);admin=self.native.authorize('admin','alice')
+        review=Review(self.settings,self.store,self.native)
+        with patch.object(self.native,'sites',return_value=[]):
+            proof=review.bulk(admin,'email-stored','account','preview',selected=[alice_id]);self.assertEqual(1,proof['count'])
+            result=review.bulk(admin,'email-stored','account','clear',proof['token'])
+        self.assertFalse(result['pending']);self.assertEqual(1,result['changed']);self.assertEqual(0,result['failed'])
+        self.assertEqual(0,self.custody.list(self.alice)['total']);self.assertEqual(1,self.custody.list(self.bob)['total']);self.assertTrue(self.blob(staged['transaction_id']).exists())
+
     def test_unconfirmed_source_cannot_release_delete_or_lose_custody(self):
         staged = self.capture(); delivery_id = self.delivery(self.alice)
         with self.store.connection() as db:
