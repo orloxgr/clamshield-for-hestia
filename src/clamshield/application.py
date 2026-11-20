@@ -57,7 +57,7 @@ class Application:
             if action!='yara-settings-status':
                 policy=request.get('policy')
                 if action=='yara-settings-save':policy=YaraSettings.validate(policy)
-                elif not isinstance(policy,dict) or set(policy)!={'php_hosting','web_hosting','php_automatic','web_automatic'} or any(type(v) is not bool for v in policy.values()):
+                elif not isinstance(policy,dict) or set(policy)!={'web_hosting','web_automatic'} or any(type(v) is not bool for v in policy.values()):
                     raise ClamShieldError('Choose boolean hosting-rule options')
                 return {'queued':True,'task_id':self.store.enqueue_task(task_context,action,{'policy':policy})}
             with self.store.connection() as db:
@@ -334,7 +334,7 @@ class Application:
             return {**self.store.rule_install_status(task_context),
                     'schedule':RuleUpdates(self.settings).status(),
                     'active':{key:active[key] for key in ('configured','profile','version','enabled','rules','generation','created') if key in active}}
-        if action in ('rules-install','rules-update','rules-php-hosting','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
+        if action in ('rules-install','rules-update','rules-web-hosting','rules-rollback','rules-build','rules-activate','rules-source-save',
                       'rules-source-toggle','rules-source-review','rules-source-fetch','rules-rule-toggle','rules-catalog'):
             if not context['admin']:
                 raise AccessDenied('Administrator access required')

@@ -107,7 +107,7 @@ class RuleManager:
         config = self.read()
         with self.locked():
             config = self.read()
-            if config['sources'].get(source_id,{}).get('kind') in ('php-hosting','web-hosting'):
+            if config['sources'].get(source_id,{}).get('kind') == 'web-hosting':
                 raise Conflict('Use the managed hosting update action for this source')
             if source_id not in config['sources'] and len(config['sources']) >= 16:
                 raise Conflict('Rule source count limit reached')
@@ -169,7 +169,6 @@ class RuleManager:
     def fetch(self, source_id):
         config = self.read()
         source = config['sources'].get(source_id)
-        if source and source.get('kind')=='php-hosting':return self.php_hosting()
         if source and source.get('kind')=='web-hosting':return self.web_hosting()
         if not source or source['kind'] != 'remote':
             raise ClamShieldError('Unknown remote rule source')
@@ -198,10 +197,6 @@ class RuleManager:
             write_json(self.config_path, current)
         return self.build(revision(current))
 
-    def php_hosting(self):
-        from .php_hosting_rules import fetch,SOURCE_ID
-        return self.managed_hosting(fetch,SOURCE_ID,'php-hosting','PHP Malware Finder — hosting heuristics','PHP')
-
     def web_hosting(self):
         from .web_hosting_rules import fetch,SOURCE_ID
         return self.managed_hosting(fetch,SOURCE_ID,'web-hosting','Community web hosting — JS/phishing heuristics','Web')
@@ -226,7 +221,7 @@ class RuleManager:
         if type(review_only) is not bool:raise ClamShieldError('Choose a boolean heuristic review mode')
         with self.locked():
             config=self.read();source=config['sources'].get(source_id)
-            if not source or source.get('kind') not in ('php-hosting','web-hosting'):raise ClamShieldError('Choose a managed hosting source')
+            if not source or source.get('kind') != 'web-hosting':raise ClamShieldError('Choose a managed hosting source')
             source['review_only']=review_only;write_json(self.config_path,config)
         return {'revision':revision(config)}
 
@@ -286,29 +281,26 @@ class RuleManager:
 
     def configure_hosting(self, options):
         """Validate and apply source choices without exposing a build workflow."""
-        keys={'php_hosting','web_hosting','php_automatic','web_automatic'}
+        keys={'web_hosting','web_automatic'}
         if not isinstance(options,dict) or set(options)!=keys or any(type(v) is not bool for v in options.values()):
             raise ClamShieldError('Choose boolean hosting-rule options')
-        from .php_hosting_rules import fetch as php_fetch
         from .web_hosting_rules import fetch as web_fetch
         original=self.read();wanted=revision(original);config=json.loads(json.dumps(original))
-        fetched={}
-        for source_id,fetch in (('php_hosting',php_fetch),('web_hosting',web_fetch)):
-            if options[source_id] and source_id not in config['sources']:fetched[source_id]=fetch()
+        source_id='web_hosting'
+        fetched=web_fetch() if options[source_id] and source_id not in config['sources'] else None
         with self.locked():
             if revision(self.read())!=wanted:raise Conflict('Rule settings changed; refresh and save again')
-            for source_id,label in (('php_hosting','PHP Malware Finder'),('web_hosting','Community web hosting')):
-                if source_id in fetched:
-                    if len(config['sources'])>=16:raise ClamShieldError('Rule source count limit reached')
-                    content,metadata=fetched[source_id];filename=source_id+'-'+sha(content)+'.yar'
-                    write(self.folder/filename,content)
-                    config['sources'][source_id]=dict(metadata,id=source_id,namespace=source_id,name=label,
-                        kind='php-hosting' if source_id=='php_hosting' else 'web-hosting',file=filename,sha256=sha(content),fetched=time.time())
-                source=config['sources'].get(source_id)
-                if source:
-                    if source.get('kind')!=('php-hosting' if source_id=='php_hosting' else 'web-hosting'):
-                        raise Conflict('Hosting source ID belongs to another source')
-                    source.update(enabled=options[source_id],review_only=not options[source_id.split('_')[0]+'_automatic'])
+            if fetched is not None:
+                if len(config['sources'])>=16:raise ClamShieldError('Rule source count limit reached')
+                content,metadata=fetched;filename=source_id+'-'+sha(content)+'.yar'
+                write(self.folder/filename,content)
+                config['sources'][source_id]=dict(metadata,id=source_id,namespace=source_id,name='Community web hosting',
+                    kind='web-hosting',file=filename,sha256=sha(content),fetched=time.time())
+            source=config['sources'].get(source_id)
+            if source:
+                if source.get('kind')!='web-hosting':
+                    raise Conflict('Hosting source ID belongs to another source')
+                source.update(enabled=options['web_hosting'],review_only=not options['web_automatic'])
             if not any(s.get('enabled') for s in config['sources'].values()):
                 raise ClamShieldError('Install Forge rules before saving the source selection')
             active=self.rules.status()

@@ -57,6 +57,7 @@ test('configuration, update operations and all-account email records stay in the
       assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,page,id);
     for(const node of f.document.querySelectorAll('[data-page]'))assert.equal(node.hidden,node.dataset.page!=='rules');
     assert.equal(f.document.querySelector('[data-action=rules-build],[data-action=rules-activate]'),null);
+    assert.deepEqual([...f.document.getElementById('cs-yara-hosting').querySelectorAll('input')].map(input=>input.name),['web_hosting','web_automatic']);
     const form=f.document.getElementById('cs-forge-install');assert.equal(form.elements.profile.type,'hidden');
     assert.equal(f.document.querySelector('#cs-yara-schedule select[name=profile]').closest('[data-page]').dataset.page,'yara-settings');
   }finally{await f.close();}
@@ -64,7 +65,7 @@ test('configuration, update operations and all-account email records stay in the
 test('Support Us retains the supplied links and full source notices never appear in operational or technical views',async()=>{
   const full='FULL_UPSTREAM_LICENSE_MARKER '.repeat(100);
   const f=fixture({hash:'#settings/support',change:v=>{
-    v.rule_manager.sources=[{id:'php_hosting',name:'PHP fixture',kind:'php-hosting',enabled:true,review_only:true,version:'fixture',source_url:'https://github.com/example/rules',license_url:'https://github.com/example/rules/LICENSE',license:full}];
+    v.rule_manager.sources=[{id:'web_hosting',name:'Web fixture',kind:'web-hosting',enabled:true,review_only:true,version:'fixture',source_url:'https://github.com/example/rules',license_url:'https://github.com/example/rules/LICENSE',license:full}];
     v.notifications=[{id:'notice',event:'maintenance.completed',owner:'alice',created:1,read_at:null,subject:'fixture',detail:{license:full,licenses:[full]}}];
   }});
   try{assert.doesNotMatch(f.document.body.textContent,/FULL_UPSTREAM_LICENSE_MARKER/);

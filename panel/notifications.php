@@ -25,7 +25,7 @@ $notification_subjects = [
     'provider-sanesecurity'=>'SaneSecurity signatures',
     'signatures-update'=>'Signature update', 'signatures-activate'=>'Signature activation',
     'signatures-rollback'=>'Signature rollback', 'rules-web-hosting'=>'Web hosting rule update',
-    'rules-php-hosting'=>'PHP hosting rule update', 'rules-update'=>'YARA Forge update',
+    'rules-update'=>'YARA Forge update',
     'rules-build'=>'Build rule selection', 'rules-fetch'=>'Rule source update',
     'rules-activate'=>'Rule activation', 'rules-rollback'=>'Rule rollback',
     'resources-save'=>'Resource limits', 'resources'=>'Resource limits',

@@ -116,7 +116,6 @@ class Maintenance:
                         result=manager.install(payload['profile'],payload.get('release'),progress=lambda phase:self.store.task_progress(task,phase),
                             **({'automatic':payload} if payload.get('automatic') else {}))
                     elif task['action']=='rules-update':result=manager.forge(payload['profile'],payload.get('release'))
-                    elif task['action']=='rules-php-hosting':result=manager.php_hosting()
                     elif task['action']=='rules-web-hosting':result=manager.web_hosting()
                     elif task['action']=='rules-build':result=manager.build(payload.get('revision'))
                     elif task['action']=='rules-fetch':result=manager.fetch(payload['source_id'])

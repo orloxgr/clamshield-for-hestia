@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.1
+
+- Remove the PHP hosting / PHP Malware Finder integration, downloader, settings
+  and update actions. Keep YARA Forge, additional web rules and custom sources.
+
 ## 1.10.0
 
 - Separate configuration into Settings, update operations into Updates, and

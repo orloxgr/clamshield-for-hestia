@@ -21,7 +21,7 @@ AVAILABLE=Path('/usr/bin/yarac').is_file() and importlib.util.find_spec('plyara'
 class ManagedRules(unittest.TestCase):
     @staticmethod
     def hosting():
-        content=b'rule PHPHeuristic {strings:$a="RuleTestMarker" condition:$a}'
+        content=b'rule WebHeuristic {strings:$a="RuleTestMarker" condition:$a}'
         metadata=dict(commit='a'*40,version='a'*40,source_url='https://github.com/example/pinned',
             license='LGPL upstream notice',license_url='https://github.com/example/LICENSE',license_sha256='b'*64,
             dependencies=[],review_only=True,scope='website')
@@ -29,9 +29,9 @@ class ManagedRules(unittest.TestCase):
 
     def test_managed_hosting_is_staged_with_provenance_review_only_and_mail_scope(self):
         self.source()
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):candidate=self.manager.php_hosting()
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):candidate=self.manager.web_hosting()
         self.assertFalse(self.manager.rules.status()['configured'])
-        self.assertEqual('a'*40,self.manager.read()['sources']['php_hosting']['commit'])
+        self.assertEqual('a'*40,self.manager.read()['sources']['web_hosting']['commit'])
         self.manager.activate(candidate['generation'])
         sample=self.base/'php';sample.write_bytes(b'RuleTestMarker')
         hits=Yara('/usr/bin/yara',self.manager.rules.base/'current/rules.yarac').scan(sample)
@@ -42,21 +42,21 @@ class ManagedRules(unittest.TestCase):
         self.assertEqual(1,len(hits));self.assertTrue(hits[0]['review_only']);self.assertEqual('a'*40,hits[0]['commit'])
         self.assertEqual('b'*64,hits[0]['license_sha256'])
         self.assertEqual([],Yara('/usr/bin/yara',self.manager.rules.base/'current/rules.yarac',purpose='mail').scan(sample))
-        with self.assertRaises(Conflict):self.source('php_hosting')
+        with self.assertRaises(Conflict):self.source('web_hosting')
 
     def test_hosting_update_preserves_disabled_state_and_refuses_concurrent_configuration(self):
         self.source()
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):self.manager.php_hosting()
-        self.manager.toggle_source('php_hosting',False)
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):self.manager.fetch('php_hosting')
-        self.assertFalse(self.manager.read()['sources']['php_hosting']['enabled'])
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):self.manager.web_hosting()
+        self.manager.toggle_source('web_hosting',False)
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):self.manager.fetch('web_hosting')
+        self.assertFalse(self.manager.read()['sources']['web_hosting']['enabled'])
         def change():
             self.manager.toggle_source('local',False);return self.hosting()
-        with patch('clamshield.php_hosting_rules.fetch',side_effect=change),self.assertRaises(Conflict):self.manager.php_hosting()
+        with patch('clamshield.web_hosting_rules.fetch',side_effect=change),self.assertRaises(Conflict):self.manager.web_hosting()
 
     def test_independent_strong_alias_remains_eligible_and_visible_in_mail(self):
         self.source('zstrong',content=self.hosting()[0].decode())
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):candidate=self.manager.php_hosting()
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):candidate=self.manager.web_hosting()
         self.manager.activate(candidate['generation'])
         hits=Yara('/usr/bin/yara',self.manager.rules.base/'current/rules.yarac').scan(self.sample)
         self.assertEqual(1,len(hits));self.assertFalse(hits[0].get('review_only',False))
@@ -66,19 +66,19 @@ class ManagedRules(unittest.TestCase):
     def test_review_mode_is_explicit_staged_and_preserved_by_updates(self):
         self.source()
         self.manager.toggle_source('local',False)
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):first=self.manager.php_hosting()
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):first=self.manager.web_hosting()
         self.manager.activate(first['generation'])
-        self.manager.review_mode('php_hosting',False)
-        self.assertTrue(self.manager.read()['sources']['php_hosting']['scope']=='website')
+        self.manager.review_mode('web_hosting',False)
+        self.assertTrue(self.manager.read()['sources']['web_hosting']['scope']=='website')
         active=self.manager.metadata(first['generation'])[1]
-        self.assertTrue(active['config']['sources']['php_hosting']['review_only'])
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()):second=self.manager.php_hosting()
-        self.assertFalse(self.manager.metadata(second['generation'])[1]['config']['sources']['php_hosting']['review_only'])
+        self.assertTrue(active['config']['sources']['web_hosting']['review_only'])
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()):second=self.manager.web_hosting()
+        self.assertFalse(self.manager.metadata(second['generation'])[1]['config']['sources']['web_hosting']['review_only'])
         self.manager.activate(second['generation'])
         hits=self.scan();self.assertEqual(1,len(hits));self.assertTrue(hits[0]['heuristic'])
         self.assertFalse(hits[0].get('review_only',False));self.assertEqual('a'*40,hits[0]['commit'])
         self.assertEqual([],Yara('/usr/bin/yara',self.manager.rules.base/'current/rules.yarac',purpose='mail').scan(self.sample))
-        with self.assertRaises(ClamShieldError):self.manager.review_mode('php_hosting','false')
+        with self.assertRaises(ClamShieldError):self.manager.review_mode('web_hosting','false')
         with self.assertRaises(ClamShieldError):self.manager.review_mode('local',False)
 
     def setUp(self):
@@ -160,22 +160,22 @@ class ManagedRules(unittest.TestCase):
 
     def test_hosting_settings_download_validate_and_activate_without_manual_build_or_activate(self):
         self.source();first=self.manager.build();self.manager.activate(first['generation'])
-        options=dict(php_hosting=True,web_hosting=False,php_automatic=False,web_automatic=False)
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()) as fetch:
+        options=dict(web_hosting=True,web_automatic=False)
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()) as fetch:
             active=self.manager.configure_hosting(options)
             same=self.manager.configure_hosting(options)
         self.assertTrue(active['activated']);self.assertEqual(1,fetch.call_count)
         self.assertEqual(active['generation'],self.manager.rules.status()['generation'])
         self.assertEqual(active['generation'],same['generation']);self.assertTrue(same['unchanged'])
-        self.assertTrue(self.manager.read()['sources']['php_hosting']['review_only'])
-        active=self.manager.configure_hosting(options|{'php_automatic':True})
-        self.assertFalse(self.manager.read()['sources']['php_hosting']['review_only'])
+        self.assertTrue(self.manager.read()['sources']['web_hosting']['review_only'])
+        active=self.manager.configure_hosting(options|{'web_automatic':True})
+        self.assertFalse(self.manager.read()['sources']['web_hosting']['review_only'])
 
     def test_failed_hosting_settings_restore_selection_and_preserve_active_rules(self):
         self.source();first=self.manager.build();self.manager.activate(first['generation'])
         before=self.manager.read()
-        with patch('clamshield.php_hosting_rules.fetch',return_value=self.hosting()),patch.object(self.manager,'build',side_effect=EngineError('Incompatible rule data')):
-            with self.assertRaises(EngineError):self.manager.configure_hosting(dict(php_hosting=True,web_hosting=False,php_automatic=False,web_automatic=False))
+        with patch('clamshield.web_hosting_rules.fetch',return_value=self.hosting()),patch.object(self.manager,'build',side_effect=EngineError('Incompatible rule data')):
+            with self.assertRaises(EngineError):self.manager.configure_hosting(dict(web_hosting=True,web_automatic=False))
         self.assertEqual(before,self.manager.read());self.assertEqual(first['generation'],self.manager.rules.status()['generation'])
 
     def test_lexer_spans_preserve_braces_strings_comments_and_same_line_rules(self):

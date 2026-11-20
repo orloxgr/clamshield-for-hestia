@@ -80,10 +80,10 @@ class RuleInstallation(unittest.TestCase):
             Maintenance(self.settings,self.store,self.hestia).once()
 
     def test_additional_rule_update_activates_validated_generation_before_reporting_completion(self):
-        task_id=self.store.enqueue_task(self.context,'rules-php-hosting',{'apply':True})
-        manager=Mock();manager.php_hosting.return_value={'generation':'generation-php'}
+        task_id=self.store.enqueue_task(self.context,'rules-web-hosting',{'apply':True})
+        manager=Mock();manager.web_hosting.return_value={'generation':'generation-web'}
         def activate(generation):
-            self.assertEqual('generation-php',generation)
+            self.assertEqual('generation-web',generation)
             task=next(t for t in self.store.list_tasks(self.context) if t['id']==task_id)
             self.assertEqual('running',task['status'])
             return {'generation':generation}

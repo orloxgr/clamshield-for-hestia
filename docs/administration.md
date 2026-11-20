@@ -130,7 +130,7 @@ omitted from manual/scheduled/changed-file website scans; enabled YARA errors or
 size-limit gaps make coverage incomplete. File repair/recovery retain their
 independent validation contract, and email YARA remains separate.
 
-**Additional website rules** selects PHP Malware Finder and the extra web
+**Additional website rules** selects the extra web
 hosting heuristics. Save downloads missing sources, validates with Ubuntu YARA
 and applies the result in one task. New sources default to manual review;
 automatic-policy eligibility requires an explicit choice plus the website action
@@ -138,7 +138,7 @@ policy. Failed validation preserves active rules and restores the saved source
 selection when no concurrent editor has replaced it. Repeated unchanged saves
 reuse the active selection. Custom source/rule saves also validate and apply;
 manual Build/Candidate/Activate controls are no longer part of the interface.
-Updates → YARA rules also offers update actions for enabled PHP/web sources;
+Updates → YARA rules also offers update actions for enabled web and custom remote sources;
 these validate and apply in one task, while preserving manual-review choices.
 
 The engine still comes from Ubuntu APT; `yarac` compiles rule data only.

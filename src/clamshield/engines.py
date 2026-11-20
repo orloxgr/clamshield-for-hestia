@@ -185,7 +185,7 @@ class Yara:
                     rule_sha256=node['sha256'],
                     source_url=str(node['metadata'].get('source_url',source.get('source_url','')))[:1000],
                     license=str(node['metadata'].get('license',source.get('license','Unknown')))[:1000])
-            if source.get('kind') in ('php-hosting','web-hosting'):
+            if source.get('kind') == 'web-hosting':
                 detection['heuristic']=True
                 for field in ('commit','license_url','license_sha256'):
                     if source.get(field):detection[field]=source[field]

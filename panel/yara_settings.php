@@ -12,15 +12,14 @@ $cs_yara_sources=[];foreach($data['rule_manager']['sources'] as $source)$cs_yara
 <button class="button" type="submit">Save scanning settings</button></form>
 <p>Applies to manual, scheduled and changed-file website scans. File repair and recovery keep their own validation checks. Email YARA is managed separately.</p></article>
 <article class="card"><h3>Additional website rules</h3><form id="cs-yara-hosting">
-<?php foreach(['php'=>'PHP hosting rules — PHP Malware Finder','web'=>'Additional web rules — JavaScript and phishing'] as $kind=>$title): $source=$cs_yara_sources[$kind.'_hosting']??[]; ?>
-<p><label><input type="checkbox" name="<?=$kind?>_hosting" <?=!empty($source['enabled'])?'checked':''?>> <?=$escape($title)?></label></p>
-<p><label><input type="checkbox" name="<?=$kind?>_automatic" <?=isset($source['review_only'])&&!$source['review_only']?'checked':''?>> Allow these matches to participate in automatic website actions</label></p>
-<?php endforeach ?>
+<?php $source=$cs_yara_sources['web_hosting']??[]; ?>
+<p><label><input type="checkbox" name="web_hosting" <?=!empty($source['enabled'])?'checked':''?>> Additional web rules — JavaScript and phishing</label></p>
+<p><label><input type="checkbox" name="web_automatic" <?=isset($source['review_only'])&&!$source['review_only']?'checked':''?>> Allow these matches to participate in automatic website actions</label></p>
 <p>New heuristic sources default to manual review. Your website action policy still controls quarantine and cleaning.</p><button class="button" type="submit">Save and apply rule settings</button></form></article>
 <p id="cs-yara-settings-status" role="status" aria-live="polite"></p>
 <?php require __DIR__.'/yara_update_preferences.php'; ?>
 <details id="cs-rules-advanced"><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Custom sources and individual rules</summary>
-<?php foreach($data['rule_manager']['sources'] as $source): if(in_array($source['kind'],['php-hosting','web-hosting','forge'],true))continue; ?>
+<?php foreach($data['rule_manager']['sources'] as $source): if(in_array($source['kind'],['web-hosting','forge'],true))continue; ?>
 <article class="card"><h4><?=$escape($source['name'])?></h4><p><?=$escape($source['version'])?> · <?=$source['enabled']?'Selected':'Disabled'?></p><button class="button" data-action="rules-source-toggle" data-source_id="<?=$escape($source['id'])?>" data-enabled="<?=$source['enabled']?'false':'true'?>" data-apply="true"><?=$source['enabled']?'Disable source':'Enable source'?></button></article>
 <?php endforeach ?>
 <?php require __DIR__.'/yara_advanced_sources.php'; ?>
