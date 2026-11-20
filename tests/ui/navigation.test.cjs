@@ -134,8 +134,38 @@ test('provider interval fields are sent as numbers while masked credentials and 
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     const request=f.requests.find(r=>r.action==='providers-save');assert.ok(request);const policy=JSON.parse(request.providers);
     assert.equal(policy.official.interval_minutes,180);assert.equal(policy.securiteinfo.interval_minutes,120);assert.equal(policy.sanesecurity.interval_minutes,90);
-    assert.equal(policy.securiteinfo.key,'');assert.equal(typeof policy.automatic,'boolean');assert.ok(Array.isArray(policy.securiteinfo.databases));
+    assert.equal(policy.securiteinfo.key,'');assert.equal(typeof policy.automatic,'boolean');
+    for(const provider of ['securiteinfo','sanesecurity'])for(const profile of ['website','mail'])assert.ok(Array.isArray(policy[provider][profile+'_databases']));
     assert.match(f.document.getElementById('cs-message').textContent,/no update performed/);
+  }finally{await f.close();}
+});
+test('recommended provider defaults are an explicit unsaved draft and preserve installed custom choices',async()=>{
+  const pua='securiteinfo-pua-app-and-vulnerabilities.ndb';
+  const f=fixture({hash:'#settings/provider-settings',change:v=>{
+    v.providers.securiteinfo.plan='professional';v.providers.securiteinfo.databases=['spam_marketing.ndb',pua];
+    v.providers.catalog.securiteinfo=[{name:'javascript.ndb',description:'Malicious JavaScript',paid:true,risk:'not-rated'},
+      {name:'spam_marketing.ndb',description:'Marketing spam',paid:true,risk:'not-rated'},
+      {name:pua,description:'Potentially unwanted applications',paid:true,risk:'not-rated'}];
+    v.providers.sanesecurity.databases=['high.ndb'];
+    v.providers.catalog.sanesecurity=[{name:'low.ndb',description:'Malware',risk:'low',risk_url:'https://sanesecurity.com/usage/signatures/'},
+      {name:'high.ndb',description:'High risk',risk:'high'}];
+    v.providers.recommended={professional:{securiteinfo:{website_databases:['javascript.ndb'],mail_databases:['javascript.ndb','spam_marketing.ndb']},
+      sanesecurity:{website_databases:['low.ndb'],mail_databases:['low.ndb']}}};
+  }});
+  try{
+    const form=f.document.getElementById('cs-providers'),input=(prefix,profile,name)=>form.querySelector(`input[name="${prefix}_${profile}_databases"][value="${name}"]`);
+    assert.equal(input('si','website',pua).checked,true);assert.equal(input('sane','mail','high.ndb').checked,true);
+    assert.match(form.textContent,/False-positive risk/);assert.match(form.textContent,/Not rated/);assert.match(form.textContent,/High/);
+    const interval=form.elements.securiteinfo_interval_minutes;interval.value='180';const enabled=form.elements.si_enabled.checked;
+    f.click('#cs-provider-recommended');assert.equal(f.requests.length,0);
+    assert.equal(input('si','website','spam_marketing.ndb').checked,false);assert.equal(input('si','mail','spam_marketing.ndb').checked,true);
+    assert.equal(input('si','website',pua).checked,false);assert.equal(input('sane','mail','high.ndb').checked,false);
+    assert.equal(form.elements.si_enabled.checked,enabled);assert.equal(interval.value,'180');
+    assert.match(f.document.getElementById('cs-provider-recommended-status').textContent,/Review and save/);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const request=f.requests.find(r=>r.action==='providers-save'),settings=JSON.parse(request.providers);
+    assert.deepEqual(settings.securiteinfo.website_databases,['javascript.ndb']);
+    assert.deepEqual(settings.securiteinfo.mail_databases,['javascript.ndb','spam_marketing.ndb']);
   }finally{await f.close();}
 });
 const notificationKinds={detections:'Website malware detections',integrity:'WordPress integrity differences',scan_problems:'Failed, incomplete or interrupted scans',health:'Engine and scanning-data health',maintenance:'Updates and maintenance',mail:'Email protection alerts',actions:'Quarantine, cleaning and repairs',other:'Other notifications'};

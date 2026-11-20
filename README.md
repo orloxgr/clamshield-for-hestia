@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.11.8** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.12.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -135,6 +135,22 @@ establish active scanning coverage or access to a public blocklist.
   web sources under **Settings → YARA**. Source changes are validated and
   applied together; **Updates → YARA rules** installs or updates rule data.
 - Duplicate handling, source/rule overrides and previous-rule recovery.
+
+Website files and email have independent database selections in Settings →
+Signature providers. Each ClamAV daemon loads its own validated directory;
+automatic updates acquire the union once and activate both profiles together.
+New installations preselect malware feeds for website files and additional spam
+feeds for email. PUA and High-risk feeds are excluded from recommended presets.
+SaneSecurity risk labels link to its published ratings; SecuriteInfo databases
+show Not rated when no per-database rating is published. Support files show
+Not applicable. Low risk is not a guarantee that a detection is correct.
+
+Updates preserve existing database selections in both profiles. They never
+reapply presets. **Recommended defaults** changes only the current form, using
+the selected SecuriteInfo plan; review and Save provider settings to persist.
+Provider enable switches, account keys, schedules and local signatures are kept.
+Activate or update signatures in Updates to load a saved selection. SecuriteInfo
+remains subject to the administrator's subscription and enabled-provider choice.
 
 SecuriteInfo requires the administrator's own provider account/key and its
 entitlements. Paid data and credentials are not distributed with this project.

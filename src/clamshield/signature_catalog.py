@@ -241,12 +241,13 @@ class SignatureCatalog:
     def __exit__(self, *_args):
         self.close()
 
-    def resolve(self, signature):
+    def resolve(self, signature, *, sources=None):
         if not isinstance(signature, str) or not 1 <= len(signature) <= 512:
             raise EngineError('Invalid signature lookup')
         if signature.endswith('.UNOFFICIAL'):
             name = signature.removesuffix('.UNOFFICIAL')
-            rows = list(self.db.execute('SELECT detail FROM signatures WHERE name=? ORDER BY source_id LIMIT 33', (name,)))
+            clause = '' if sources is None else ' AND source_id IN (' + ','.join('?' for _ in sources) + ')'
+            rows = list(self.db.execute('SELECT detail FROM signatures WHERE name=?' + clause + ' ORDER BY source_id LIMIT 33', (name, *(sources or []))))
             if len(rows) > 32:
                 raise EngineError('Signature provenance collision limit exceeded')
             origins = [json.loads(row[0]) for row in rows]

@@ -20,6 +20,7 @@ from .provider_fetch import Fetch, regular_copy
 from .providers import Providers
 from .provider_catalog import MAX_DATABASE_BYTES
 from .signature_catalog import build as build_catalog, POLICY as CATALOG_POLICY, SignatureCatalog, engine_lock
+from . import signature_profiles as profiles
 
 
 class Signatures:
@@ -75,6 +76,7 @@ class Signatures:
         stage = Path(tempfile.mkdtemp(prefix='generation-', dir=self.base))
         stage.chmod(0o755)
         manifest = {'files': [], 'providers': [], 'generation': stage.name, 'created': time.time()}
+        manifest['profiles'] = {name: [] for name in profiles.PROFILES}
         try:
             for name in ('official', 'securiteinfo', 'sanesecurity', 'local'):
                 if not config[name]['enabled']:
@@ -105,24 +107,30 @@ class Signatures:
                         self.fetch.verify_sane(destination, signature)
                     manifest['files'].append({'provider': name, 'name': destination.name, 'sha256': digest,
                                               'size': destination.stat().st_size})
+                    for profile in profiles.PROFILES:
+                        if name in ('official', 'local') or filename in config[name].get(profile + '_databases', config[name]['databases']):
+                            manifest['profiles'][profile].append(destination.name)
                 manifest['providers'].append(name)
             if not any(row['provider'] == 'official' for row in manifest['files']):
                 raise ClamShieldError('Official signatures are required')
+            manifest['profiles'] = {name: sorted(files) for name, files in manifest['profiles'].items()}
             return self.complete_stage(stage, manifest, reuse_current=reuse_current)
         except BaseException:
             shutil.rmtree(stage)
             raise
 
     def complete_stage(self, stage, manifest, *, reuse_current=False):
-        identity = json.dumps({'files': manifest['files'], 'catalog_policy': CATALOG_POLICY}, sort_keys=True, separators=(',', ':')).encode()
-        manifest['content_sha256'] = hashlib.sha256(identity).hexdigest()
+        manifest['content_sha256'] = profiles.identity(manifest, CATALOG_POLICY)
         payload = b'ClamShield generation validation ' + stage.name.encode()
         signature_name = 'ClamShield.Generation.' + stage.name.removeprefix('generation-')
         (stage / 'clamshield-generation.hdb').write_text(
             hashlib.md5(payload).hexdigest() + ':' + str(len(payload)) + ':' + signature_name + '\n')
         (stage / 'clamshield-generation.hdb').chmod(0o644)
         manifest['canary'] = {'payload': payload.decode(), 'signature': signature_name}
+        profiles.materialize(stage, manifest)
         self.validate(stage, manifest)
+        for profile in manifest.get('profiles', {}):
+            self.validate(profiles.directory(stage, manifest, profile), dict(manifest, canary=profiles.canary(manifest, profile)))
         # Always validate freshly captured data with the installed engine. Only
         # the expensive name/catalog build can be reused, after verifying both
         # active data and its immutable catalog. Never mutate an old generation.
@@ -137,10 +145,12 @@ class Signatures:
                 return None,previous
         manifest['catalog'] = build_catalog(stage, manifest)
         write_json(stage / 'manifest.json', manifest, 0o644)
-        for path in stage.iterdir():
-            path.chmod(0o644)
-            with path.open('rb') as stream:
-                os.fsync(stream.fileno())
+        for folder, _dirs, names in os.walk(stage):
+            for name in names:
+                path = Path(folder) / name; path.chmod(0o644)
+                with path.open('rb') as stream:
+                    os.fsync(stream.fileno())
+            sync_directory(Path(folder))
         sync_directory(stage)
         return stage, manifest
 
@@ -210,6 +220,7 @@ class Signatures:
         sync_directory(self.base)
 
     def daemon_ready(self, manifest, timeout=60):
+        manifest = dict(manifest, canary=profiles.canary(manifest, 'website'))
         with tempfile.NamedTemporaryFile(dir=self.settings.snapshots) as sample:
             sample.write(manifest['canary']['payload'].encode()); sample.flush()
             deadline = time.monotonic() + timeout
@@ -235,6 +246,7 @@ class Signatures:
                 time.sleep(0.5)
 
     def mail_ready(self, manifest, timeout=60):
+        manifest = dict(manifest, canary=profiles.canary(manifest, 'mail'))
         # Readiness must work even while the broker is stopped and its protected
         # ALLMATCH scan directory is absent. Stream only the owned canary bytes.
         client = ClamAV('/run/clamshield-mail-clamd/clamd.sock', timeout=3)
@@ -309,8 +321,7 @@ class Signatures:
         folder = stage.stat()
         if not stat.S_ISDIR(folder.st_mode) or folder.st_uid != os.geteuid() or folder.st_mode & 0o022:
             raise EngineError('Signature generation directory is untrusted')
-        identity = json.dumps({'files': manifest['files'], 'catalog_policy': CATALOG_POLICY}, sort_keys=True, separators=(',', ':')).encode()
-        if hashlib.sha256(identity).hexdigest() != manifest['content_sha256']:
+        if profiles.identity(manifest, CATALOG_POLICY) != manifest['content_sha256']:
             raise EngineError('Signature generation manifest identity changed')
         names = set()
         for row in manifest['files']:
@@ -332,6 +343,8 @@ class Signatures:
                     raise EngineError('Signature data changed after validation')
             finally:
                 os.close(fd)
+
+        profiles.verify(stage, manifest)
 
     def activate(self, stage, manifest, *, legacy_website_active=True):
         from .website_policy import website_policy
@@ -360,9 +373,9 @@ class Signatures:
             try:
                 self.stop_owned(mail_active)
                 self.pointer('current', stage)
-                write(config_path, self.daemon_config(before, stage), 0o644)
+                write(config_path, self.daemon_config(before, profiles.directory(stage, manifest, 'website')), 0o644)
                 if mail_before is not None:
-                    write(self.mail_config, self.daemon_config(mail_before, stage), 0o644)
+                    write(self.mail_config, self.daemon_config(mail_before, profiles.directory(stage, manifest, 'mail')), 0o644)
                 if website_active:
                     subprocess.run(['/usr/bin/systemctl', 'restart', 'clamshield-clamd.service'], check=True,
                                    capture_output=True, timeout=120)

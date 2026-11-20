@@ -150,6 +150,8 @@ def install(args,lifecycle):
     owned_directory(releases)
     target = Path('/opt/clamshield')
     existing = target.exists() or target.is_symlink()
+    from clamshield.providers import Providers
+    Providers(lifecycle.settings).initialize(existing=existing or lifecycle.settings.database.exists() or lifecycle.manifest.exists())
     if target.exists() or target.is_symlink():
         if not target.is_symlink() or target.resolve().parent != releases:
             raise RuntimeError('Refusing an unmanaged installation')

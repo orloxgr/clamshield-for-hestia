@@ -49,7 +49,34 @@ SI = {
 }
 
 
+RISK_URL = 'https://sanesecurity.com/usage/signatures/'
+SI_SUPPORT = ('securiteinfo.ign2', 'securiteinfo.wdb')
+
+
+def recommended(plan='basic'):
+    """Deliberate presets, independent of saved settings and updater runs."""
+    si_web = list(SI_BASIC) if plan == 'basic' else [
+        name for name in SI if name not in ('spam_marketing.ndb',
+        'securiteinfo-pua-app-and-vulnerabilities.ndb', 'securiteinfoandroid.hdb',
+        'securiteinfo.pdb', 'securiteinfo.wdb')]
+    si_mail = list(si_web)
+    if plan != 'basic':
+        si_mail += ['spam_marketing.ndb', 'securiteinfo.pdb', 'securiteinfo.wdb']
+    # Only documented Low/Medium groups enter a preset; unknown/high never do.
+    sane_web = list(SANE_REQUIRED) + [name for name, row in SANE.items()
+        if row[1] in ('low', 'medium') and row[2] in ('malware', 'mixed')
+        and name not in ('junk.ndb', 'blurl.ndb')]
+    sane_mail = list(SANE_REQUIRED) + [name for name, row in SANE.items()
+        if row[1] in ('low', 'medium')]
+    return {'securiteinfo': {'website_databases': si_web, 'mail_databases': si_mail},
+            'sanesecurity': {'website_databases': sane_web, 'mail_databases': sane_mail}}
+
+
 def catalog():
-    return {'securiteinfo': [{'name': name, 'description': row[0], 'paid': row[1]} for name, row in SI.items()],
-            'sanesecurity': [{'name': name, 'description': row[0], 'risk': row[1], 'category': row[2]}
-                             for name, row in SANE.items()]}
+    return {'securiteinfo': [{'name': name, 'description': row[0], 'paid': row[1],
+                'risk': 'not-applicable' if name in SI_SUPPORT else 'not-rated', 'risk_url': None}
+                for name, row in SI.items()],
+            'sanesecurity': [{'name': name, 'description': row[0],
+                'risk': 'not-applicable' if row[1] == 'required' else row[1],
+                'risk_url': RISK_URL, 'category': row[2]}
+                for name, row in SANE.items()]}

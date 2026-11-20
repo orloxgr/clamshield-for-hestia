@@ -12,6 +12,7 @@ from .mail_scanners import MailScanner, digest_snapshot
 from .providers import Providers
 from .signature_catalog import SignatureCatalog, engine_lock
 from .signatures import Signatures
+from . import signature_profiles as profiles
 
 
 class GenerationMailScanner:
@@ -20,6 +21,7 @@ class GenerationMailScanner:
         self.yara, self.timeout = yara, timeout
 
     def _canary(self, manifest, deadline):
+        manifest = dict(manifest, canary=profiles.canary(manifest, 'mail'))
         fd = os.memfd_create('clamshield-mail-generation', os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
         try:
             os.write(fd, manifest['canary']['payload'].encode())
@@ -65,7 +67,8 @@ class GenerationMailScanner:
                     with SignatureCatalog(current.resolve(strict=True), manifest) as catalog:
                         self._canary(manifest, deadline)
                         result = MailScanner(self.clamav, spamassassin, yara=self.yara,
-                            resolve_signature=catalog.resolve, timeout=max(.001, deadline-time.monotonic())).scan(fd)
+                            resolve_signature=lambda signature: catalog.resolve(signature, sources=profiles.sources(manifest, 'mail')),
+                            timeout=max(.001, deadline-time.monotonic())).scan(fd)
                         result['signature_generation'] = manifest['generation']
                         result['signature_content_sha256'] = manifest['content_sha256']
                         if spam_config:

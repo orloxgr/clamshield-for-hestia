@@ -8,6 +8,7 @@ from .errors import ClamShieldError, EngineError
 from .providers import Providers
 from .signature_catalog import SignatureCatalog, validate_origin
 from .signatures import Signatures
+from . import signature_profiles as profiles
 
 
 def advisory_kind(origin):
@@ -64,14 +65,16 @@ def pinned(settings, engine, job_generation):
                 raise EngineError('Website signature generation changed after job pinning')
             with SignatureCatalog(current.resolve(strict=True), manifest) as catalog:
                 with tempfile.NamedTemporaryFile(dir=settings.snapshots) as sample:
-                    sample.write(manifest['canary']['payload'].encode()); sample.flush()
+                    canary = profiles.canary(manifest, 'website')
+                    sample.write(canary['payload'].encode()); sample.flush()
                     hits = engine.scan(Path(sample.name))
-                if not any(hit['signature'] == manifest['canary']['signature']+'.UNOFFICIAL' for hit in hits):
+                if not any(hit['signature'] == canary['signature']+'.UNOFFICIAL' for hit in hits):
                     raise EngineError('Website daemon has not loaded the pinned signature generation')
                 from .website_coverage import verify
                 verify(engine,settings)
                 entered = True
-                yield AttributedClamAV(engine, catalog.resolve, manifest['generation'], manifest['content_sha256'])
+                resolver = lambda signature: catalog.resolve(signature, sources=profiles.sources(manifest, 'website'))
+                yield AttributedClamAV(engine, resolver, manifest['generation'], manifest['content_sha256'])
                 return
         if expected != 'ubuntu-native':
             raise EngineError('Website pinned signature generation is unavailable')

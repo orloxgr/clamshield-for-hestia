@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from unittest.mock import Mock, patch
 
 from clamshield.errors import ClamShieldError, EngineError
-from clamshield.provider_catalog import SANE_FINGERPRINT
+from clamshield.provider_catalog import SANE_FINGERPRINT, SANE, recommended
 from clamshield.provider_fetch import Fetch, regular_copy
 from clamshield.providers import Providers, DEFAULTS, UPDATE_POLICIES
 from clamshield.settings import Settings
@@ -36,6 +36,67 @@ class ProviderConfiguration(unittest.TestCase):
         self.assertFalse(self.providers.path.exists())
         self.providers.save({'securiteinfo': {'plan': 'professional', 'databases': ['securiteinfo0hour.hdb']}})
         self.assertIn('securiteinfo.ign2', self.providers.read()['securiteinfo']['databases'])
+
+    def test_new_installation_gets_scoped_defaults_only_once(self):
+        value = self.providers.initialize(existing=False)
+        self.assertNotIn('spam.ldb', value['sanesecurity']['website_databases'])
+        self.assertIn('spam.ldb', value['sanesecurity']['mail_databases'])
+        self.providers.save({'sanesecurity': {'website_databases': ['rogue.hdb'], 'mail_databases': ['junk.ndb']}})
+        saved = self.providers.path.read_bytes()
+        self.providers.initialize(existing=True); self.providers.initialize(existing=False)
+        self.assertEqual(saved, self.providers.path.read_bytes())
+
+    def test_upgrade_preserves_legacy_custom_selections_in_both_profiles(self):
+        self.settings.prepare()
+        legacy = {'automatic': False, 'securiteinfo': {'plan': 'professional', 'key': 'a'*128,
+            'enabled': True, 'databases': ['securiteinfo.ign2', 'spam_marketing.ndb', 'securiteinfo-pua-app-and-vulnerabilities.ndb']},
+            'sanesecurity': {'enabled': True, 'databases': ['sanesecurity.ftm', 'sigwhitelist.ign2', 'badmacro.ndb']}}
+        self.providers.path.write_text(json.dumps(legacy)); before = self.providers.path.read_bytes()
+        value = self.providers.initialize(existing=True)
+        self.assertEqual(before, self.providers.path.read_bytes())
+        for name in ('securiteinfo', 'sanesecurity'):
+            for profile in ('website', 'mail'):
+                self.assertEqual(legacy[name]['databases'], value[name][profile+'_databases'])
+        self.providers.save({'official': {'interval_minutes': 120}})
+        self.assertEqual(set(legacy['securiteinfo']['databases']), set(self.providers.read()['securiteinfo']['website_databases']))
+
+    def test_existing_installation_without_provider_file_keeps_old_defaults(self):
+        self.settings.prepare(); self.settings.database.touch()
+        before = self.providers.read()
+        self.assertEqual(before['sanesecurity']['website_databases'], before['sanesecurity']['mail_databases'])
+        self.assertNotIn('spam.ldb', before['sanesecurity']['mail_databases'])
+        self.assertEqual(before, self.providers.initialize(existing=True))
+
+    def test_paid_presets_exclude_pua_and_high_risk_but_keep_malware_in_both_profiles(self):
+        with patch.dict(SANE, {'future-high.ndb': ('High-risk fixture', 'high', 'malware')}):
+            for plan in ('basic', 'professional', 'gold', 'reseller'):
+                value = recommended(plan)
+                for name, section in value.items():
+                    for names in section.values():
+                        self.assertNotIn('future-high.ndb', names)
+                        self.assertNotIn('securiteinfo-pua-app-and-vulnerabilities.ndb', names)
+                if plan != 'basic':
+                    self.assertIn('javascript.ndb', value['securiteinfo']['website_databases'])
+                    self.assertIn('javascript.ndb', value['securiteinfo']['mail_databases'])
+                    self.assertNotIn('spam_marketing.ndb', value['securiteinfo']['website_databases'])
+                    self.assertIn('spam_marketing.ndb', value['securiteinfo']['mail_databases'])
+
+    def test_profile_saves_download_union_and_validate_each_selection(self):
+        self.providers.save({'securiteinfo': {'plan': 'professional', 'website_databases': ['javascript.ndb'],
+                                            'mail_databases': ['spam_marketing.ndb']}})
+        section = self.providers.read()['securiteinfo']
+        self.assertEqual(['javascript.ndb', 'securiteinfo.ign2'], section['website_databases'])
+        self.assertEqual(['securiteinfo.ign2', 'spam_marketing.ndb'], section['mail_databases'])
+        self.assertEqual(['javascript.ndb', 'securiteinfo.ign2', 'spam_marketing.ndb'], section['databases'])
+        for key in ('website_databases', 'mail_databases'):
+            for invalid in (['../../outside.ndb'], 'spam_marketing.ndb', [True]):
+                with self.subTest(key=key, invalid=invalid), self.assertRaises(ClamShieldError):
+                    self.providers.save({'securiteinfo': {key: invalid}})
+
+    def test_catalog_does_not_invent_risk_ratings(self):
+        catalog = self.providers.public()['catalog']
+        self.assertTrue(all(row['risk'] in ('not-rated', 'not-applicable') for row in catalog['securiteinfo']))
+        self.assertTrue(all(row['risk_url'] for row in catalog['sanesecurity']))
 
     def test_database_names_and_credentials_cannot_inject_updater_configuration(self):
         for incoming in ({'key': 'a' * 64 + '\nOnUpdateExecute bad'}, {'databases': ['../../evil.ndb']}):
@@ -66,6 +127,8 @@ class ProviderConfiguration(unittest.TestCase):
 
     def test_legacy_settings_gain_intervals_without_losing_key_database_selection_or_switches(self):
         self.settings.prepare();old=json.loads(json.dumps(DEFAULTS))
+        for name in ('securiteinfo','sanesecurity'):
+            old[name].pop('website_databases');old[name].pop('mail_databases')
         for name in UPDATE_POLICIES:old[name].pop('interval_minutes')
         old['automatic']=False;old['securiteinfo'].update(key='b'*128,plan='professional',databases=['securiteinfo.ign2','securiteinfo0hour.hdb'])
         self.providers.path.write_text(json.dumps(old))

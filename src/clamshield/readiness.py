@@ -43,6 +43,11 @@ class WebsiteReadiness:
             expected = {provider + '--' + name for name in config[provider]['databases']} if config[provider]['enabled'] else set()
             if expected != {row['name'] for row in manifest['files'] if row['provider'] == provider}:
                 return False
+            for profile in ('website', 'mail'):
+                selected = {provider + '--' + name for name in config[provider][profile + '_databases']} if config[provider]['enabled'] else set()
+                active = manifest.get('profiles', {}).get(profile, [row['name'] for row in manifest['files']])
+                if selected != {name for name in active if name.startswith(provider + '--')}:
+                    return False
         expected = {}
         folder = self.settings.state / 'local-signatures'
         if config['local']['enabled'] and folder.exists():

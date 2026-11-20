@@ -7,15 +7,19 @@ import time
 
 from .atomic import write, write_json
 from .errors import ClamShieldError
-from .provider_catalog import SI, SI_BASIC, SANE, SANE_REQUIRED, catalog
+from .provider_catalog import SI, SI_BASIC, SANE, SANE_REQUIRED, catalog, recommended
 
-DEFAULTS = {
+LEGACY_DEFAULTS = {
     'automatic': True,
     'official': {'enabled': True, 'interval_minutes': 60},
     'securiteinfo': {'enabled': False, 'plan': 'basic', 'key': '', 'databases': list(SI_BASIC), 'interval_minutes': 60},
     'sanesecurity': {'enabled': False, 'databases': list(SANE_REQUIRED) + ['phish.ndb', 'rogue.hdb'], 'interval_minutes': 60},
     'local': {'enabled': True},
 }
+DEFAULTS = deepcopy(LEGACY_DEFAULTS)
+for _name, _profiles in recommended().items():
+    DEFAULTS[_name].update(_profiles)
+    DEFAULTS[_name]['databases'] = sorted(set().union(*map(set, _profiles.values())))
 UPDATE_POLICIES = {
     'official': {'minimum_minutes': 60, 'note': 'Conservative hourly floor for ClamAV CDN access',
                  'url': 'https://docs.clamav.net/faq/faq-troubleshoot.html'},
@@ -53,16 +57,42 @@ class Providers:
         if self.path.is_symlink():
             raise ClamShieldError('Unexpected provider configuration path')
         if not self.path.exists():
-            return deepcopy(DEFAULTS)
+            existing = self.settings.database.exists() or (self.settings.state / 'installation.json').exists()
+            return self.profiles(deepcopy(LEGACY_DEFAULTS if existing else DEFAULTS))
         saved = json.loads(self.path.read_text())
         if not isinstance(saved, dict): raise ClamShieldError('Invalid provider settings')
-        result = deepcopy(DEFAULTS)
+        result = deepcopy(LEGACY_DEFAULTS)
         result.update(saved)
         for name in ('official', 'securiteinfo', 'sanesecurity', 'local'):
             if not isinstance(saved.get(name, {}), dict): raise ClamShieldError('Invalid provider settings')
-            result[name] = deepcopy(DEFAULTS[name]) | saved.get(name, {})
+            result[name] = deepcopy(LEGACY_DEFAULTS[name]) | saved.get(name, {})
         for name in UPDATE_POLICIES: validate_interval(name, result[name]['interval_minutes'])
+        return self.profiles(result)
+
+    @staticmethod
+    def profiles(result):
+        for name in ('securiteinfo', 'sanesecurity'):
+            section = result[name]
+            for profile in ('website', 'mail'):
+                # Old installations keep exactly their selected databases in both profiles.
+                section.setdefault(profile + '_databases', deepcopy(section['databases']))
+                files = section[profile + '_databases']
+                allowed = SI if name == 'securiteinfo' else SANE
+                if not isinstance(files, list) or any(not isinstance(n, str) or n not in allowed for n in files):
+                    raise ClamShieldError('Invalid provider database selection')
+            section['databases'] = sorted(set(section['website_databases']) | set(section['mail_databases']))
         return result
+
+    def initialize(self, *, existing):
+        """Installer calls this once; updates never overwrite saved choices."""
+        self.settings.prepare()
+        with (self.settings.state / 'providers-config.lock').open('a+b') as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX)
+            if self.path.exists() or self.path.is_symlink():
+                return self.read()
+            value = self.profiles(deepcopy(LEGACY_DEFAULTS if existing else DEFAULTS))
+            write_json(self.path, value)
+            return value
 
     def save(self, value):
         self.settings.prepare()
@@ -82,6 +112,9 @@ class Providers:
                 if not isinstance(incoming, dict) or set(incoming) - set(DEFAULTS[name]):
                     raise ClamShieldError('Invalid provider settings')
                 current = result[name]
+                if 'databases' in incoming and name in ('securiteinfo', 'sanesecurity'):
+                    for profile in ('website', 'mail'):
+                        current[profile + '_databases'] = deepcopy(incoming['databases'])
                 for key, item in incoming.items():
                     if key == 'enabled' and type(item) is not bool:
                         raise ClamShieldError('Invalid provider toggle')
@@ -99,10 +132,12 @@ class Providers:
             if si['plan'] not in ('basic', 'professional', 'gold', 'reseller'):
                 raise ClamShieldError('Invalid SecuriteInfo plan')
             for section, allowed, required in ((si, SI, ('securiteinfo.ign2',)), (sane, SANE, SANE_REQUIRED)):
-                files = section['databases']
-                if not isinstance(files, list) or any(not isinstance(n, str) or n not in allowed for n in files):
-                    raise ClamShieldError('Invalid provider database selection')
-                section['databases'] = sorted(set(files) | set(required))
+                for profile in ('website', 'mail'):
+                    key = profile + '_databases'; files = section[key]
+                    if not isinstance(files, list) or any(not isinstance(n, str) or n not in allowed for n in files):
+                        raise ClamShieldError('Invalid provider database selection')
+                    section[key] = sorted(set(files) | set(required))
+                section['databases'] = sorted(set(section['website_databases']) | set(section['mail_databases']))
             if si['plan'] == 'basic' and any(n not in SI_BASIC for n in si['databases']):
                 raise ClamShieldError('Selected SecuriteInfo databases require a paid plan')
             if si['enabled'] and not si['key']:
@@ -118,6 +153,7 @@ class Providers:
         result['status'] = json.loads(status_path.read_text()) if status_path.exists() else {}
         result['schedule'] = {name: timing(name, result, result['status']) for name in UPDATE_POLICIES}
         result['catalog'] = catalog()
+        result['recommended'] = {plan: recommended(plan) for plan in ('basic', 'professional', 'gold', 'reseller')}
         local = self.settings.state / 'local-signatures'
         result['local']['files'] = sorted(p.name for p in local.iterdir() if p.is_file() and not p.is_symlink()) if local.exists() else []
         return result

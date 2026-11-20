@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.12.0
+
+- Separate website and email database selections and loaded ClamAV directories,
+  with shared downloads, profile validation and atomic activation/rollback.
+- Add explicit Recommended defaults for malware scanning and email protection;
+  exclude PUA and High risk from presets and show published false-positive risk.
+- Apply presets only on new installations or when requested in the form; updates
+  retain installed selections, credentials, provider switches and update intervals.
+
 ## 1.11.8
 
 - Explain recovery as Analyze, Review proposed changes and Apply selected changes;
