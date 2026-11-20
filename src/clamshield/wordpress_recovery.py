@@ -310,7 +310,16 @@ class WordPressRecovery:
 
     def preflight(self,plan,context,items,*,allow_applied=False):
         for item in items:
-            if allow_applied and item['status'] in ('done','applying'):continue
+            if allow_applied and item['status']=='applying':continue
+            if allow_applied and item['status']=='done':
+                if item['action']=='replace':
+                    repair=self.repairs.get(context,item['detail']['repair_id'])
+                    if not self.repairs.target_matches(repair,repair['metadata']['replacement_fingerprint']):raise Conflict('A completed replacement changed; inspect it before resuming')
+                elif item['action']=='quarantine':absence(plan['root'],item['path'])
+                else:
+                    after=self.artifact(plan,item['id'],'db-after').read_bytes()
+                    WordPressDatabase(self.settings,self.hestia,context,plan['root'],item['detail']['installation']).change(item['detail'],after,after,inspect_only=True)
+                continue
             if item['action']=='database':
                 before=self.artifact(plan,item['id'],'db-before').read_bytes();after=self.artifact(plan,item['id'],'db-after').read_bytes()
                 if hashlib.sha256(before).hexdigest()!=item['detail']['sha256'] or hashlib.sha256(after).hexdigest()!=item['detail']['after_sha256']:raise Conflict('Database recovery evidence changed')
@@ -376,7 +385,9 @@ class WordPressRecovery:
                     if not self.repairs.target_matches(repair,original):raise Conflict('Interrupted repair original needs review')
                 elif repair['status']!='undone':self.repairs.undo(context,repair['id'])
             elif repair['status']=='ready':self.repairs.apply(context,repair['id'])
-            elif repair['status'] not in ('repaired','verified','recheck_failed'):raise Conflict('Interrupted replacement needs a fresh preview or undo')
+            elif repair['status'] in ('repaired','verified','recheck_failed'):
+                if not self.repairs.target_matches(repair,repair['metadata']['replacement_fingerprint']):raise Conflict('Completed replacement changed before recovery could be confirmed')
+            else:raise Conflict('Interrupted replacement needs a fresh preview or undo')
         elif item['action']=='quarantine':
             operation=detail.get('operation_id')
             if operation:
@@ -391,7 +402,8 @@ class WordPressRecovery:
                 elif row['status']=='failed':
                     operation=uuid.uuid4().hex;self.save_item(item,detail=detail|{'operation_id':operation})
                     self.quarantine.capture(context,detail['finding_id'],operation_id=operation,extra={'wordpress_recovery':plan['id']})
-                elif row['status']!='quarantined':raise Conflict('Interrupted quarantine needs review before continuing')
+                elif row['status']=='quarantined':absence(plan['root'],item['path'])
+                else:raise Conflict('Interrupted quarantine needs review before continuing')
             elif not undo:
                 operation=uuid.uuid4().hex;detail=detail|{'operation_id':operation}
                 self.save_item(item,status='applying',detail=detail)

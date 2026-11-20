@@ -176,6 +176,18 @@ class RecoveryBatchTests(unittest.TestCase):
     def quarantine_records(self):
         with self.store.connection() as db:return list(db.execute("SELECT id FROM operations WHERE kind='quarantine'"))
 
+    def test_resume_does_not_confirm_a_repaired_file_that_was_changed_after_interruption(self):
+        self.write('wp-settings.php',b'compromised core');key=self.analyze();status=self.status(key)
+        self.request(key,'preview',dict(items=status['recommended']));self.run_until(key,{'reviewed'});self.request(key,'apply')
+        original=WordPressRecovery.save_item;stopped=[]
+        def interrupt(manager,item,**changes):
+            if changes.get('status')=='done' and not stopped:stopped.append(True);raise OSError('stop after publication')
+            return original(manager,item,**changes)
+        with patch.object(WordPressRecovery,'save_item',interrupt):self.worker.once()
+        self.assertEqual('interrupted',self.status(key)['plan']['status']);self.write('wp-settings.php',b'new edit')
+        self.request(key,'apply');status=self.run_until(key,{'interrupted','applied'})
+        self.assertEqual('interrupted',status['plan']['status']);self.assertEqual(b'new edit',(self.root/'wp-settings.php').read_bytes())
+
     def test_array_keys_and_json_structure_are_preserved_during_database_changes(self):
         value=b'a:1:{s:1:"x";s:1:"x";}'
         self.assertEqual(b'a:1:{s:1:"x";s:1:"y";}',replacement(value,'x','y'))
