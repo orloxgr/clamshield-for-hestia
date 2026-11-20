@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.7.1
+
+- Align Dashboard Manage and View queue links to the right edge of their cards,
+  keeping engine/provider values on the left and allowing long values to wrap.
+
 ## 1.7.0
 
 - Add personal notification-type selections, type/read-state filters and AJAX

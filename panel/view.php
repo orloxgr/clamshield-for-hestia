@@ -20,6 +20,8 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs .cs-activity dt{display:flex;align-items:center;gap:10px}.cs .cs-activity dd{display:flex;justify-content:flex-end;align-items:center;gap:16px;margin:0;text-align:right}
 .cs .cs-activity dd a{min-width:8em}.cs .cs-activity strong{min-width:3ch;overflow-wrap:anywhere}
 .cs .cs-dashboard-panels{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:28px;margin-bottom:12px}.cs .cs-engine-info{display:grid;grid-template-columns:minmax(9em,1fr) minmax(0,2fr);gap:12px}.cs .cs-engine-info dd{margin:0;overflow-wrap:anywhere}
+.cs .cs-dashboard-value{display:flex;align-items:flex-start;gap:12px}.cs .cs-dashboard-value>span{min-width:0}
+.cs :is(.cs-dashboard-value,.cs-dashboard-heading)>a{margin-inline-start:auto;flex-shrink:0;white-space:nowrap}
 .cs details>summary.cs-disclosure{display:inline-flex;align-items:center;gap:8px;max-width:100%;margin:0;white-space:normal;list-style:none}
 .cs details[open]>summary.cs-disclosure{margin-bottom:12px}
 .cs summary.cs-disclosure::-webkit-details-marker{display:none}
