@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "clamshield-hestia"
-version = "1.12.2"
+version = "1.12.3"
 description = "Website and email protection integrated with Hestia without vendor patches"
 requires-python = ">=3.12"
 dependencies = []

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.12.3
+
+- Rename the read-only SpamAssassin catalog action to Show installed rule scores
+  and DNS restrictions to distinguish displaying data from applying settings.
+
 ## 1.12.2
 
 - Show provider state, activation status, update timing and automatic-update

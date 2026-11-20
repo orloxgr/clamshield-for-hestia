@@ -24,7 +24,7 @@ $sa = $data['spamassassin']; ?>
 <p id="cs-sa-result" role="status" aria-live="polite"></p>
 </form>
 <p>Validation and application run in maintenance. A running ClamShield SpamAssassin daemon is restarted and checked; a stopped daemon stays stopped. Check maintenance history for the result.</p>
-<button class="button" id="cs-sa-catalog" type="button">Load installed rule scores and DNS restrictions</button>
+<button class="button" id="cs-sa-catalog" type="button">Show installed rule scores and DNS restrictions</button>
 <label>Filter rules <input class="form-control" id="cs-sa-search" type="search" placeholder="Rule or description"></label>
 <p id="cs-sa-catalog-status" role="status"></p>
 <p>Installed scores are shown for local tests and network tests, with Bayes disabled. UI overrides replace both values when applied.</p>
