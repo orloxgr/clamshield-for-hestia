@@ -1,6 +1,6 @@
 """Global scope follows native accounts and never trusts browser role/scope."""
 from contextlib import ExitStack
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
@@ -137,6 +137,26 @@ class GlobalAdministration(unittest.TestCase):
         self.assertEqual(7,self.mail.get(self.alice,'alice.test')['effective']['spam_threshold'])
         for key in ('enabled','exceptions'):
             with self.assertRaises(ClamShieldError):self.server_mail({key:True if key=='enabled' else []})
+
+    def test_account_revision_tracks_inheritance_even_when_effective_values_are_equal(self):
+        initial=self.request('mail-account-get',owner='alice')
+        self.request('mail-account-save',owner='alice',revision=initial['revision'],policy=dict(defaults={},permissions=PERMISSIONS))
+        with self.assertRaises(Conflict):self.request('mail-account-reset',owner='alice',revision=initial['revision'])
+
+    def test_partial_account_mail_defaults_leave_other_fields_and_permissions_inherited(self):
+        current=self.request('mail-account-get',owner='alice')
+        saved=self.request('mail-account-save',owner='alice',revision=current['revision'],policy=dict(defaults=dict(spam_action='tag'),permissions=None))
+        self.assertTrue(saved['permissions_inherited']);self.assertEqual({'spam_action':'tag'},saved['overrides'])
+        self.server_mail(dict(spam_threshold=8),dict(PERMISSIONS,manage_policy=True))
+        value=self.mail.get(self.alice,'alice.test')['effective']
+        self.assertEqual('tag',value['spam_action']);self.assertEqual(8,value['spam_threshold'])
+        self.assertTrue(self.mail.permissions(self.alice)['manage_policy'])
+
+    def test_deleted_account_policy_does_not_block_global_defaults_or_reach_new_accounts(self):
+        self.mail.save(self.hestia.authorize('admin','bob'),'bob.test','',dict(spam_high_threshold=6))
+        del self.ids['bob']
+        self.server_mail(dict(spam_threshold=8))
+        self.assertEqual(8,self.mail.get(self.alice,'alice.test')['effective']['spam_threshold'])
 
     def test_global_mail_activity_includes_other_accounts_when_admin_has_no_domains(self):
         for owner in ('alice','bob'):

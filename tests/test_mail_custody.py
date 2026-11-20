@@ -51,6 +51,9 @@ class MailCustodyTests(unittest.TestCase):
         self.policies = MailPolicies(self.store, self.native)
         self.alice, self.bob = self.native.authorize('alice'), self.native.authorize('bob')
         for owner in ('alice','bob'):self.policies.save_permissions(self.native.authorize('admin',owner),dict.fromkeys(PERMISSIONS,True))
+        # Start custody/retention scenarios with an empty activity history;
+        # the explicit fixture grants are pre-existing administrator setup.
+        with self.store.connection() as db:db.execute("DELETE FROM audit WHERE action='mail.permissions_saved'")
         self.fds = []; self.addCleanup(lambda: [os.close(fd) for fd in self.fds])
         self.request = self.request_for()
 

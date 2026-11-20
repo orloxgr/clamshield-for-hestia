@@ -263,7 +263,7 @@ class MailPolicies:
             for row in rows:
                 if row['owner'] not in identities:
                     try:identities[row['owner']]=self.hestia.identity(row['owner'])
-                    except AccessDenied:identities[row['owner']]=None
+                    except (AccessDenied,FileNotFoundError,KeyError):identities[row['owner']]=None
             domains={(r['owner'],r['identity'],r['domain']):validate(json.loads(r['settings'])) for r in rows if not r['mailbox']}
             for row in rows:
                 if identities.get(row['owner'])!=row['identity']:continue
@@ -277,14 +277,21 @@ class MailPolicies:
     def account_defaults(self,context,db):
         return self.server_defaults(db)|self._saved(context,'','',db)
 
+    def account_revision(self,context,db):
+        grant=db.execute('SELECT settings FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()
+        return policy_revision([self.server_defaults(db),self._saved(context,'','',db)],
+                               [self.permissions(context,db),json.loads(grant['settings']) if grant else None])
+
     def account(self,context):
         if not context['admin']:raise AccessDenied('Administrator access required')
         self.targets(context)
         with self.store.connection() as db:
             db.execute('BEGIN')
             defaults=self.account_defaults(context,db);permissions=self.permissions(context,db)
+            grant=db.execute('SELECT 1 FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()
             return dict(defaults=effective(defaults),permissions=permissions,
-                        revision=policy_revision(defaults,permissions))
+                        overrides=self._saved(context,'','',db),permissions_inherited=not bool(grant),
+                        revision=self.account_revision(context,db))
 
     def save_account(self,context,value,revision,reset=False):
         if not context['admin']:raise AccessDenied('Administrator access required')
@@ -294,11 +301,10 @@ class MailPolicies:
         defaults={} if reset else validate(value['defaults'])
         if set(defaults)&{'enabled','exceptions'}:raise ClamShieldError('Mail activation is managed by the server administrator')
         permissions=self.permissions(context) if reset else value['permissions']
-        if not isinstance(permissions,dict) or set(permissions)!=set(PERMISSIONS) or any(type(v) is not bool for v in permissions.values()):
+        if permissions is not None and (not isinstance(permissions,dict) or set(permissions)!=set(PERMISSIONS) or any(type(v) is not bool for v in permissions.values())):
             raise ClamShieldError('Invalid mail permissions')
         with self.store.connection(True) as db:
-            previous=self.account_defaults(context,db)
-            if revision!=policy_revision(previous,self.permissions(context,db)):raise Conflict('Account mail defaults changed. Refresh before saving.')
+            if revision!=self.account_revision(context,db):raise Conflict('Account mail defaults changed. Refresh before saving.')
             parent=self.server_defaults(db)|defaults;effective(parent)
             rows=db.execute('SELECT * FROM mail_policies WHERE owner=? AND identity=? AND domain<>\'\'',self.store.scope(context)).fetchall()
             domains={row['domain']:validate(json.loads(row['settings'])) for row in rows if not row['mailbox']}
@@ -308,7 +314,8 @@ class MailPolicies:
                 db.execute('DELETE FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context))
             else:
                 db.execute('INSERT INTO mail_policies VALUES(?,?,?,?,?,?) ON CONFLICT(owner,identity,domain,mailbox) DO UPDATE SET settings=excluded.settings,updated=excluded.updated',(*self.store.scope(context),'','',encode(defaults),time.time()))
-                db.execute('INSERT INTO mail_permissions VALUES(?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings',(*self.store.scope(context),encode(permissions)))
+                if permissions is None:db.execute('DELETE FROM mail_permissions WHERE owner=? AND identity=?',self.store.scope(context))
+                else:db.execute('INSERT INTO mail_permissions VALUES(?,?,?) ON CONFLICT(owner,identity) DO UPDATE SET settings=excluded.settings',(*self.store.scope(context),encode(permissions)))
             self.store.audit(context,'mail.account_defaults_reset' if reset else 'mail.account_defaults_saved',context['owner'],value,db)
         return self.account(context)
 

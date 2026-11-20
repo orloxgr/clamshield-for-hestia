@@ -5,7 +5,7 @@ const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const item={id:'file-one',path:'wp-content/uploads/custom.js',kind:'uploads-policy',action:'quarantine',status:'proposed',detail:{reason:'Selected uploads cleanup policy',recommended:true}};
 function snapshot(status,options={}){return {plan:{id:'plan-one',domain:'site.test',target:'',created:1,status,revision:'revision-'+status,report:{coverage:{scanned:5,errors:0,skipped:0,unverified:0}},error:null},items:[item],recommended:[item.id],selection:status==='ready'?[]:[item.id],next_offset:null,total:1,work:['analyzing','preparing','applying'].includes(status)?{id:'job',status:'running',counters:{scanned:2}}:null,rechecks:[],...options};}
 function fixture(snapshots,options={}){
-  const data={context:{owner:'alice'},sites:[{domain:'site.test',suspended:false}],website_permissions:{effective:{scan:options.scan!==false}}};
+  const data={context:{owner:'alice',view_scope:options.global?'server':'account'},sites:[{owner:options.global?'bob':'alice',domain:'site.test',suspended:false}],website_permissions:{effective:{scan:options.scan!==false}}};
   const rendered=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',"set_error_handler(function($s,$m){throw new ErrorException($m,0,$s);});$data=json_decode(stream_get_contents(STDIN),true);$_SESSION=['token'=>'csrf'];$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.resolve(__dirname,'../../panel/wordpress_recovery.php')],{input:JSON.stringify(data),encoding:'utf8'});
   assert.equal(rendered.status,0,rendered.stderr);const dom=new JSDOM(rendered.stdout,{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only'});
   const w=dom.window,requests=[],timers=new Map();let index=0,id=0;
@@ -63,5 +63,16 @@ test('hidden recovery view makes no request and delegated scan denial stays disa
   try{await settle();assert.equal(f.requests.length,0);assert.equal(f.by('analyze').querySelector('[type=submit]').disabled,true);
     f.w.document.getElementById('cs-wp-recovery').hidden=false;f.w.document.dispatchEvent(new f.w.CustomEvent('clamshield-tab-change'));await settle();
     assert.equal(f.by('analyze').querySelector('[type=submit]').disabled,true);
+  }finally{f.close();}
+});
+
+test('Global recovery analysis and retained plans use their native hosting owner',async()=>{
+  const f=fixture([snapshot('ready'),snapshot('reviewed')],{global:true,api:async body=>body.action==='wordpress-recovery-list'?{ok:true,json:async()=>({ok:true,plans:[{id:'plan-one',owner:'bob',domain:'site.test',status:'ready',created:1}]})}:null});
+  try{await f.select();
+    assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-list').scope,'server');
+    assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-status').owner,'bob');
+    f.by('review').click();await settle();assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-preview').owner,'bob');
+    f.by('analyze').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-analyze').owner,'bob');
   }finally{f.close();}
 });

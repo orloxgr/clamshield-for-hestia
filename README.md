@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.5.3** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.6.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -52,6 +52,11 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
 
 3. **Log into Hestia and open Plugins → ClamShield.**
 
+   Administrators open **Global** by default: websites, scan results, quarantine,
+   recovery and history across native accounts. Select an account only when
+   managing its overrides or reviewing its complete records. Hosting users
+   remain limited to their own account.
+
    As administrator, select and update your **Updates → Signature providers**, install the required
    **Updates → YARA rules** with one click, then choose **Start website ClamAV** in
    **Settings → Resources**. Confirm readiness in the dashboard before starting a scan.
@@ -59,7 +64,9 @@ the engines and dependencies; there is no separately compiled or bundled YARA.
 
 4. **Configure protection for websites and email.**
 
-   Choose site schedules and changed-file monitoring under **Scheduled Scanner**.
+   Set global scan defaults under **Scheduled Scanner**, with optional account
+   and website overrides. Global email defaults cover existing and future
+   accounts; customer email changes require explicit administrator permission.
    Review **Settings → Automatic actions** and **Settings → Website permissions** for tenant access.
    For native Exim/SpamAssassin email, click **Enable mail protection** under
    **Email Shield → Email policies**. Preparation, verification and activation

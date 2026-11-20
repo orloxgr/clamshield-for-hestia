@@ -88,6 +88,19 @@ test('Global row actions and site schedules send the actual record owner',async(
     assert.equal(f.document.getElementById('cs-history-retention'),null);
   }finally{await f.close();}
 });
+
+test('account email editor saves only selected overrides and preserves inherited permissions',async()=>{
+  const value={defaults:mailDefaults,permissions:mailPermissions,overrides:{},permissions_inherited:true,revision:'account-revision'};
+  const f=fixture({hash:'#email',api:async body=>({ok:true,json:async()=>({ok:true,...value})})});
+  try{await settle();const form=f.document.getElementById('cs-mail-server-form');
+    assert.equal(form.elements.spam_threshold.disabled,true);assert.equal(form.elements.manage_policy.disabled,true);
+    const toggle=form.querySelector('[data-mail-default-override=spam_threshold]');toggle.click();assert.equal(form.elements.spam_threshold.disabled,false);
+    form.elements.spam_threshold.value='8';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const saved=f.requests.find(row=>row.action==='mail-account-save');assert.equal(saved.owner,'alice');assert.equal(saved.revision,'account-revision');
+    assert.deepEqual(JSON.parse(saved.policy),{defaults:{spam_threshold:8},permissions:null});
+    assert.equal(f.requests.some(row=>row.action.startsWith('mail-server-')),false);
+  }finally{await f.close();}
+});
 test('scan dropdown chooses account and website without scanning until Scan is pressed',async()=>{
   const f=fixture({hash:'#scan',change:values=>values.accounts.push({owner:'bob'}),api:queuedScans});
   try{const form=f.document.getElementById('cs-scan-target');

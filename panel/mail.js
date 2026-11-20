@@ -81,7 +81,7 @@
         else { input.min = '0'; input.max = '100'; input.step = '0.1'; input.value = value.effective[key]; }
       }
       input.name = key; title.append(input);
-      if (true) {
+      {
         const inherit = document.createElement('label'), toggle = nativeControl('input', 'checkbox');
         toggle.dataset.override = key;
         toggle.checked = Object.hasOwn(value.overrides, key);
@@ -89,7 +89,7 @@
         input.disabled = !canEdit() || !toggle.checked;
         toggle.addEventListener('change', () => { input.disabled = !toggle.checked || !canEdit(); });
         inherit.append(toggle, document.createTextNode(value.mailbox?' Override domain setting':' Override server setting')); row.append(' ', inherit);
-      } else input.disabled = !canEdit();
+      }
       list.append(row);
     }
     const explanation = document.createElement('p');

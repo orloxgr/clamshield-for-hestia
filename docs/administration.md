@@ -38,6 +38,20 @@ Secondary links retain access to all website and server tools. Dashboard Manage
 links select the matching secondary view. Tenants retain the same primary menu;
 server-wide forms remain administrator-only and backend authorization is unchanged.
 
+Native administrators open **Global** by default in **Viewing account**. Dashboard
+totals and website lists cover all current native accounts; recent results,
+quarantine, integrity/recovery plans and history retain their actual account
+ownership. Mutations reauthorize that account in the root backend. Select an
+account to filter all views or manage its overrides. Hosting users never receive
+the Global option or cross-account access. Same-name replacement accounts do not
+inherit the previous generation's records or explicit grants.
+
+Global lists are bounded recent previews (up to 500 website records per list and
+100 mail records per list); dashboard totals are independent of preview lengths.
+Scans has its own server-wide search and pagination. Account views provide their
+scoped history; account-specific history-retention controls appear there, while
+server history controls remain available globally.
+
 The dashboard distinguishes rule build times and successful provider downloads
 from active scanner readiness. SpamAssassin displays service, mail integration,
 process verification, score and configured DNS checks, plus pending tasks shown
@@ -80,8 +94,9 @@ updates verify the running scanner without restarting it.
 
 ## Websites and remediation
 
-The administrator selects an account; each hosting user sees its own native
-account generation. **Settings → Website permissions** delegates specific tenant actions.
+The administrator normally stays in **Global**; each hosting user sees its own
+native account generation. **Settings → Website permissions** sets global
+delegation defaults or explicit permissions for the selected account.
 The root bridge rechecks scope and authority for each operation, including
 asynchronous work. Recreated accounts do not inherit the old account's access.
 
@@ -92,7 +107,13 @@ For a single site, **Scan a folder or file (optional)** accepts a path relative
 to its document root; blank means the whole website. Account/server scans ignore
 that path. Choosing an account/site alone does not start work. **View progress**
 opens the selected account or the server-wide queue as appropriate.
-**Scheduled Scanner** manages schedules and changed-file monitoring.
+**Scheduled Scanner** manages global scan defaults, account defaults and website
+overrides for schedules and changed-file monitoring. Defaults apply to new sites
+without copying a policy into every account. **Use account scan defaults** removes
+a website override; **Use global scan defaults** removes an account override.
+**Settings → Automatic actions** follows the same server/account/site hierarchy.
+Administrator-configured automatic protection retains administrator authority
+when user controls are restricted. Policy changes still fence queued actions.
 **On-demand Scan → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results
@@ -209,19 +230,41 @@ automatic; a failed check remains visible and retryable instead of reporting
 Enabled. No manual adapter preparation or refresh is needed for normal activation.
 
 Unconfigured domains, including future domains, inherit enabled protection.
-Explicit domain/mailbox overrides, sender lists and exceptions remain intact;
-an explicitly disabled policy stays disabled. Native Hestia antivirus/antispam/
+Explicit handling overrides, sender lists and exceptions remain intact.
+Server activation takes precedence over old domain/mailbox activation toggles;
+customers cannot disable the server protection. Native Hestia antivirus/antispam/
 rejection flags retain their precedence. The toggle becomes **Disable mail
 protection** only with a verified active connection and enabled server defaults.
 Disabling drains/detaches the connection and retains policies and quarantined
 email. Tenant users retain their delegated account controls; the global toggle
 requires native administrator authority.
 
-**Advanced email settings and activity** is closed initially and contains
+With **Global** selected, **Server-wide email defaults** controls handling actions,
+spam thresholds, sender lists and default customer permissions for every existing
+and future account. The central activity view shows all native accounts, mail
+domain counts, stored recipient records and recent decisions, even when the
+administrator's own account has no mail domains. **Manage account** opens that
+account for message previews, release, recovery and complete decision history.
+
+Selecting an account exposes **Account email defaults**, which overrides the
+server defaults for all its current/future domains. The inheritance order is
+server → account → domain → mailbox. Saving server/account defaults validates
+existing live descendants' score thresholds and checks the loaded revision;
+conflicting or stale changes do not silently replace newer settings.
+
+Customer policy editing, exact-content exceptions, release and deletion are
+**denied by default** until an administrator grants them globally or per account.
+Existing explicit grants are retained on update. **Use global email defaults and
+permissions** removes account defaults/grants; individual domain/mailbox overrides
+remain. Services, engine installation and server activation are always restricted
+to native administrators, regardless of customer policy permissions.
+
+**Advanced email settings and account activity** is closed initially and contains
 integration/adapter diagnostics, domain settings, quarantine, history and
-recovery tools. Domain policy provides mailbox defaults. Selecting a mailbox and
-enabling a field override changes only that field. Other fields continue to
-inherit later domain edits. **Use domain policy for this mailbox** removes its
+recovery tools. Select an account above to use its account-specific controls.
+Domains inherit account/server defaults; mailboxes inherit their domain. Selecting
+a field override changes only that field; other fields follow later parent edits.
+**Use domain policy for this mailbox** removes its
 overrides. Sender allowlists affect spam scoring; malware/phishing policies
 remain independent. Exact-content exceptions have separate scope and permissions.
 

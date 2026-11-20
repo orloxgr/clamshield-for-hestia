@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.6.0
+
+- Default native administrators to Global throughout the plugin. Aggregate live
+  account generations, full dashboard totals and recent website records; retain
+  actual account ownership for scans, findings, quarantine, repairs and recovery.
+- Add inherited server/account defaults for scan schedules, website delegation
+  and automatic actions, with reset-to-inheritance controls.
+- Add central email defaults and all-account domain/activity summaries. Settings
+  inherit server → account → domain → mailbox, including future accounts/domains.
+  Validate inherited thresholds and reject stale server/account edits.
+- Default customer email modification, exception, release and deletion permissions
+  to denied. Preserve explicit administrator grants, allow global and account
+  delegation, and keep all engine/service/activation controls administrator-only.
+- Enforce server protection activation independently of domain/mailbox overrides;
+  hosting users cannot disable it with a policy or a forged API request.
+
 ## 1.5.3
 
 - Give installation and updates priority over background scans: close admission,

@@ -81,7 +81,7 @@ class ScopedExceptionChanges(unittest.TestCase):
         with self.assertRaises(Conflict): self.mail.change_exception(self.context, 'alice.test', '', 'remove', entry_id='untrusted-id')
 
     def test_exception_removal_restores_detection_and_never_suppresses_different_bytes(self):
-        self.mail.save(self.context, 'alice.test', '', dict(enabled=True))
+        self.mail.save(self.native.authorize('admin','alice'), 'alice.test', '', dict(enabled=True))
         value = self.add()
         def verdict(digest):
             return evaluate(self.mail.get(self.context, 'alice.test')['effective'], policies.scan('malware'), sender='', sha256=digest)
