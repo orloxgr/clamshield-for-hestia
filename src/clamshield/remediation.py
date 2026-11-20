@@ -17,6 +17,7 @@ from .repairs import Repairs
 from .store import encode
 from .website_permissions import WebsitePermissions,MODE_REQUIREMENTS
 from .website_generation import advisory_kind
+from .rule_sources import finding_supported
 
 MODES=('report','quarantine','cleanup','cleanup-or-quarantine')
 SOURCES=('manual','scheduled','watch','watch-initial','signature-update')
@@ -144,7 +145,7 @@ class Remediation:
                 for result in rows:
                     data=json.loads(result['detail'])
                     candidates=db.execute("SELECT * FROM findings WHERE job_id=? AND path=? AND status='open' AND engine IN ('clamav','yara') AND COALESCE(json_extract(detail,'$.review_only'),0)!=1 ORDER BY created,id",(job['id'],result['path'])).fetchall()
-                    finding=next((v for v in candidates if v['engine']!='clamav' or not advisory_kind(json.loads(v['detail']))),None)
+                    finding=next((v for v in candidates if finding_supported(v) and (v['engine']!='clamav' or not advisory_kind(json.loads(v['detail'])))),None)
                     from .yara_settings import YaraSettings
                     required={'clamav','yara'} if YaraSettings(self.settings).read()['enabled'] else {'clamav'}
                     if finding and not data.get('failures') and set(data.get('engines',[]))==required:
@@ -200,6 +201,7 @@ class Remediation:
         if job['status']!='completed' or self.store.cancelled(job['id']) or job['root']!=site['root'] or job['generation']!=generation(self.settings) or row['created']<time.time()-86400:
             raise Conflict('Scan coverage expired, changed or was cancelled; scan again')
         finding=self.store.finding(context,row['finding_id'])
+        if not finding_supported(finding):raise Conflict('Finding belongs to a removed rule source; scan again with current rules')
         if finding['detail'].get('review_only') is True or finding['engine']=='clamav' and advisory_kind(finding['detail']):
             raise Conflict('Finding requires manual review')
         if finding['status']!='open':raise Conflict('Finding was handled or excepted')

@@ -218,6 +218,9 @@ def install(args,lifecycle):
     progress.stage('[8/10] Checking scanning-data compatibility and archive coverage')
     lifecycle.migrate_signatures()
     lifecycle.migrate_website_coverage()
+    from clamshield.rule_manager import RuleManager
+    progress.stage('Checking active YARA sources against the supported selection')
+    RuleManager(Settings()).rebuild_supported()
     progress.stage('[9/10] Enabling the five ClamShield background timers')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-worker.timer')
     run('/usr/bin/systemctl', 'enable', '--now', 'clamshield-monitor.timer')

@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.11.5
+
+- Restrict rule building to supported source types and rebuild active unsupported
+  selections from installed source bytes during install/update, without downloads.
+- Exclude removed sources from pinned-generation matches and automatic actions;
+  prevent activation or rollback to rulesets containing unsupported sources.
+- Mark retained findings from removed sources as historical evidence.
+- Label automatic signature-update scans as Recheck after signature updates and
+  clarify the independent scheduled full-recheck choice.
+
 ## 1.11.4
 
 - Explain queued scans with their global FIFO position, elapsed wait and observed

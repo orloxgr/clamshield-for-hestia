@@ -39,6 +39,17 @@ class AutomaticActions(unittest.TestCase):
         finding=self.store.list_findings(self.context)[0]
         self.assertTrue(finding['detail']['review_only']);self.assertEqual('open',finding['status'])
 
+    def test_removed_yara_source_never_triggers_automatic_quarantine_even_without_review_flag(self):
+        self.hit=dict(self.hit,provider='php-hosting',source_id='php_hosting')
+        self.scan('quarantine');self.auto.once()
+        self.assertEqual([],self.auto.history(self.context));self.assertEqual(self.before,self.file.read_bytes())
+        self.assertTrue(self.store.list_findings(self.context)[0]['detail']['source_removed'])
+
+    def test_queued_action_from_removed_source_is_revalidated_before_mutation(self):
+        self.scan('quarantine');pending=self.only()
+        with self.store.connection() as db:db.execute("UPDATE findings SET provider='php-hosting' WHERE id=?",(pending['finding_id'],))
+        self.auto.once();self.assertEqual('needs_review',self.only()['status']);self.assertEqual(self.before,self.file.read_bytes())
+
     def test_independent_strong_finding_can_still_trigger_automatic_policy(self):
         self.yara.scan.side_effect=None;self.yara.scan.return_value=[dict(self.hit,review_only=True),dict(self.hit,signature='IndependentStrong')]
         self.scan('quarantine');self.auto.once()

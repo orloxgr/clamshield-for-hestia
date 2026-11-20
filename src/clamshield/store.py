@@ -502,7 +502,8 @@ class Store:
                               ON j.id=f.job_id AND j.owner=f.owner AND j.identity=f.identity
                               WHERE f.owner=? AND f.identity=? ORDER BY f.created DESC LIMIT 500''',
                               self.scope(context)).fetchall()
-        return [dict(row) | {'fingerprint': json.loads(row['fingerprint']),'detail':json.loads(row['detail'])} for row in rows]
+        from .rule_sources import finding_supported
+        return [dict(row) | {'fingerprint': json.loads(row['fingerprint']),'detail':json.loads(row['detail'])|{'source_removed':not finding_supported(row)}} for row in rows]
 
     def finding(self, context, finding_id):
         with self.connection() as db:

@@ -74,6 +74,12 @@ class ReviewTests(unittest.TestCase):
         value=self.page('findings',self.admin,'server',{'account':'alice'})
         self.assertEqual(56,value['total']);self.assertIn('bob',value['accounts'])
 
+    def test_removed_rule_source_is_labelled_in_paged_findings_without_rewriting_original_evidence(self):
+        self.findings(1);finding=self.page('findings')['records'][0]
+        with self.store.connection() as db:db.execute("UPDATE findings SET provider='php-hosting' WHERE id=?",(finding['id'],))
+        self.assertTrue(self.page('findings')['records'][0]['detail']['source_removed'])
+        self.assertNotIn('source_removed',self.store.finding(self.alice,finding['id'])['detail'])
+
     def test_global_and_recreated_account_scope_never_reveal_old_identity_records(self):
         self.notice(self.alice);self.notice(self.bob);self.notice(dict(owner='@admin',identity=''))
         self.assertEqual(1,self.page('notices')['total']);self.assertEqual(3,self.page('notices',self.admin,'server')['total'])

@@ -1,4 +1,5 @@
 <?php foreach($data['findings'] as $finding): ?><tr data-owner="<?=$escape($cs_owner($finding))?>"><td><?=$escape($cs_label($finding))?><div class="path"><?=$escape($finding['path'])?></div><?php if(!$finding['site_availability']['available']): ?><p class="notice alert alert-info"><?=$escape($finding['site_availability']['message'])?><br><small class="path">Original root: <?=$escape($finding['root']??'Unknown')?></small></p><?php endif ?></td><td><?=$escape($finding['signature'])?>
+<?php if(!empty($finding['detail']['source_removed'])): ?><p class="notice alert alert-info">Historical finding from a removed rule source. This source is no longer used by current scans.</p><?php endif ?>
 <?php if($finding['engine']==='clamav'): $origin=$finding['detail']; ?>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Signature source</summary>
 <?php if(!empty($origin['signature_generation'])): ?>

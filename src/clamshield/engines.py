@@ -11,6 +11,7 @@ import struct
 import subprocess
 
 from .errors import EngineError, EncryptedContent
+from .rule_sources import KINDS
 
 
 @contextmanager
@@ -133,6 +134,8 @@ class Yara:
                     raise EngineError('YARA rule provenance verification failed')
                 self._catalog = {(n['namespace']+':'+n['name']):n for n in json.loads(data)}
                 self._sources = metadata.get('config',{}).get('sources',{})
+                if self._sources and not any(source.get('enabled') and source.get('kind') in KINDS for source in self._sources.values()):
+                    raise EngineError('No supported YARA sources are active; install the current YARA rules')
             except (OSError,ValueError,KeyError,TypeError) as exc:
                 raise EngineError('YARA rule provenance is unavailable') from exc
         self._catalog_key = key
@@ -174,7 +177,10 @@ class Yara:
             if not separator or scanned != target_arg or not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_:]*', rule):
                 raise EngineError('YARA returned an invalid result')
             node = catalog.get(rule, {})
+            if self._sources and (not node or node.get('source_id') not in self._sources):
+                raise EngineError('YARA match is missing its managed source provenance')
             source = self._sources.get(node.get('source_id'), {})
+            if source and source.get('kind') not in KINDS:continue
             if source.get('scope')=='website' and self.purpose=='mail':continue
             detection = {'engine': 'yara', 'signature': rule.removeprefix('default:'),
                          'provider': 'yara-forge' if node.get('source_id')=='forge' else source.get('kind','yara'),

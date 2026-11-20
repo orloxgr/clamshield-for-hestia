@@ -21,7 +21,7 @@ async function fixture(options={}){
     if(index===0&&options.wait)await options.wait;
     concurrent--;
     if(index===1&&options.refreshError)throw new Error(options.refreshError);
-    const job={id:'a'.repeat(32),owner:'alice',domain:options.domain||'alice.test',target:'',source:'manual',status:cancelled?'running':options.jobStatus||'running',
+    const job={id:'a'.repeat(32),owner:'alice',domain:options.domain||'alice.test',target:'',source:options.source||'manual',status:cancelled?'running':options.jobStatus||'running',
       queue:options.queue,cancel_requested:cancelled?1:0,created:1,heartbeat:2,counters:{seen:10,scanned:7+index,errors:1,skipped:2,...options.counters},error:null,can_cancel:!cancelled};
     return {ok:true,json:async()=>({ok:true,jobs:[job],scope:body.scope,total:1,summary:{recorded:1,queued:job.status==='queued'?1:0,running:job.status==='running'?1:0},account_active:1,checked:3+index,next_offset:options.nextOffset??null})};
   };
@@ -60,6 +60,13 @@ test('visible scans poll current counters without replacing focused native contr
     assert.equal(f.w.document.activeElement,button);assert.equal(button.className,'button');
     assert.equal(f.w.document.getElementById('cs-active-scans').textContent,'1');
     assert.equal(f.section.querySelector('option[value=server]'),null);
+  }finally{f.close();}
+});
+
+test('signature-update job means a file recheck and has a readable label rather than an update action',async()=>{
+  const f=await fixture({source:'signature-update'});try{
+    const cell=f.byId('list').querySelector('tr').children[0];assert.match(cell.textContent,/Recheck after signature updates/);assert.doesNotMatch(cell.textContent,/signature-update/);
+    assert.equal(f.requests[0].action,'scans-status');assert.equal(f.requests.some(row=>row.action==='signatures-update'),false);
   }finally{f.close();}
 });
 

@@ -1,3 +1,3 @@
 """ClamShield for Hestia: addon-owned orchestration, Ubuntu-provided engines."""
 
-__version__ = "1.11.4"
+__version__ = "1.11.5"

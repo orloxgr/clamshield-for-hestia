@@ -168,6 +168,9 @@ class Rules:
         if release.is_symlink() or release.resolve().parent != self.base or not release.is_dir():
             raise ClamShieldError('Rules generation unavailable')
         metadata = json.loads((release / 'metadata.json').read_text())
+        from .rule_sources import unsupported
+        if unsupported(metadata.get('config',{})):
+            raise EngineError('Ruleset contains unsupported sources; update the current YARA rules instead')
         for filename, expected in metadata.get('files', {'rules.yar': metadata['sha256']}).items():
             if '/' in filename or '\\' in filename or filename.startswith('.'):
                 raise ClamShieldError('Invalid rules generation manifest')

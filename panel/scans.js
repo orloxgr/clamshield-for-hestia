@@ -35,7 +35,8 @@
     let position=body.firstElementChild;
     for(const job of value.jobs){
       const row=existing.get(job.id)||makeRow(job.id);existing.delete(job.id);row.dataset.scope=value.scope;
-      text(row.children[0],job.owner+' / '+job.domain+'\n'+(job.target||'Whole website')+'\n'+job.source+(row.dataset.availability?'\n'+row.dataset.availability:''));
+      const sources={'signature-update':'Recheck after signature updates',manual:'Manual scan','wordpress-integrity':'WordPress integrity check',scheduled:'Scheduled scan',watch:'Changed-file scan','watch-initial':'Initial monitoring scan'};
+      text(row.children[0],job.owner+' / '+job.domain+'\n'+(job.target||'Whole website')+'\n'+(sources[job.source]||job.source)+(row.dataset.availability?'\n'+row.dataset.availability:''));
       const queue=job.status==='queued'?job.queue:null;
       text(row.children[1],job.status+(job.cancel_requested&&['queued','running'].includes(job.status)?' · cancellation requested':'')+
         (queue?'\n'+(queue.position?'Queue position: '+queue.position+' · ':'')+'Waiting: '+Math.floor(queue.wait_seconds/60)+'m '+queue.wait_seconds%60+'s\n'+queue.message:'')+(job.error?'\n'+job.error:''));

@@ -32,7 +32,7 @@ $cs_history_actions=[
 $cs_history_action=static fn($action)=>$cs_history_actions[$action]??$cs_history_words((string)$action);
 $cs_history_labels=['domain'=>'Website','target'=>'Folder','path'=>'File','action'=>'Operation','operation'=>'Operation',
     'queued_action'=>'Operation','frequency'=>'Schedule','time'=>'Time','timezone'=>'Timezone','watch'=>'Monitor changed files',
-    'rescan_updates'=>'Recheck after rule updates','scan_days'=>'Scan details retained (days)',
+    'rescan_updates'=>'Recheck after signature/rule updates','scan_days'=>'Scan details retained (days)',
     'mail_days'=>'Email details retained (days)','event_days'=>'Events retained (days)',
     'maintenance_days'=>'Maintenance details retained (days)','allowed'=>'Permission granted','error'=>'Problem',
     'scanned'=>'Files checked','seen'=>'Entries inspected','infected'=>'Files with detections','detections'=>'Detections',

@@ -83,7 +83,8 @@ class Monitoring(unittest.TestCase):
     def test_new_rule_generation_queues_full_recheck_without_file_changes(self):
         job_id=self.store.enqueue(self.context,self.site,generation='old-rules')
         job=self.store.claim('test');self.store.finish(job,'completed',{})
-        ids=self.scheduler.site(self.context,self.site,'new-rules',datetime.now(timezone.utc))
+        with patch('clamshield.rules.download',side_effect=AssertionError('Scans must not download rules')),patch('clamshield.signatures.Signatures.update',side_effect=AssertionError('Scans must not update signatures')):
+            ids=self.scheduler.site(self.context,self.site,'new-rules',datetime.now(timezone.utc))
         self.assertEqual(1,len(ids))
         job=self.store.job(self.context,ids[0])
         self.assertEqual('signature-update',job['source'])

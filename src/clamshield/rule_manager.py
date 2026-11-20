@@ -18,6 +18,7 @@ from .errors import ClamShieldError, Conflict, EngineError
 from .rules import Rules, download
 from .rule_updates import RuleUpdates
 from .store import encode
+from .rule_sources import supported,unsupported
 
 
 def sha(content):
@@ -49,7 +50,7 @@ class RuleManager:
         if self.config_path.is_symlink():
             raise ClamShieldError('Unexpected rule configuration path')
         if self.config_path.is_file():
-            return json.loads(self.config_path.read_text())
+            return supported(json.loads(self.config_path.read_text()))
         result = {'sources': {}, 'disabled': []}
         active = self.rules.status()
         if active.get('configured'):
@@ -58,7 +59,7 @@ class RuleManager:
             if active.get('provider') == 'yara-forge':
                 with self.locked():
                     if self.config_path.is_file():
-                        return json.loads(self.config_path.read_text())
+                        return supported(json.loads(self.config_path.read_text()))
                     filename = 'forge-' + sha(content) + '.yar'
                     write(self.folder / filename, content)
                     result['sources']['forge'] = dict(id='forge', name='YARA Forge', kind='forge', enabled=True,
@@ -73,6 +74,28 @@ class RuleManager:
         if not isinstance(value, str) or not re.fullmatch('[a-z][a-z0-9_]{0,31}', value) or value in ('default', 'forge'):
             raise ClamShieldError('Choose a source ID using lowercase letters, digits and underscores; forge/default are reserved')
         return value
+
+    def rebuild_supported(self):
+        """Apply only supported installed source bytes; never download on install."""
+        config=self.read()
+        with self.locked():
+            config=self.read()
+            if self.config_path.is_file():write_json(self.config_path,config)
+        current=self.rules.base/'current'
+        if not current.is_symlink():return {'changed':False}
+        _path,metadata=self.metadata(current.resolve().name)
+        if not unsupported(metadata.get('config',{})):return {'changed':False}
+        if not any(source.get('enabled') for source in config['sources'].values()):
+            # No usable rule selection remains. Keep the original generation as
+            # an archive and expose the normal Install rules state in the UI.
+            with self.locked(),self.rules.locked():
+                if current.resolve()!=_path or revision(self.read())!=revision(config):
+                    raise Conflict('Rule settings changed while checking supported sources; retry')
+                self.rules.pointer(self.rules.base/'previous',_path)
+                current.unlink();sync_directory(self.rules.base)
+            return {'changed':True,'configured':False}
+        candidate=self.build(revision(config))
+        return self.activate(candidate['generation'])|{'changed':True}
 
     @staticmethod
     def remote_url(value):
@@ -438,6 +461,8 @@ class RuleManager:
         values=self.catalog_data(name)
         _,metadata=self.metadata(name)
         source_info=metadata.get('config',{}).get('sources',{})
+        removed=unsupported(metadata.get('config',{}))
+        values=[node for node in values if node['source_id'] not in removed]
         desired=self.read()
         if search.lower().startswith('source:'):
             values=[n for n in values if n['source_id']==search[7:].strip().lower()]
@@ -453,6 +478,7 @@ class RuleManager:
         pointer=self.rules.base/'candidate'
         if not pointer.is_symlink():return None
         _,metadata=self.metadata(pointer.resolve().name)
+        if unsupported(metadata.get('config',{})):return None
         return self.summary(metadata)
 
     def activate(self, name):

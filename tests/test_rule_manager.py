@@ -295,3 +295,44 @@ class ManagedRules(unittest.TestCase):
         self.source('two',content='rule Other {condition:true}');second=self.manager.build();self.manager.activate(second['generation'])
         self.manager.activate(second['generation']);self.manager.rollback()
         self.assertEqual(first['generation'],self.manager.rules.status()['generation'])
+
+    def removed_source_generation(self,only=False):
+        if not only:self.source()
+        self.source('php_hosting',content='rule NonPrintableChars {strings:$a="RuleTestMarker" condition:$a}')
+        old=self.manager.build();self.manager.activate(old['generation'])
+        config=self.manager.read();config['sources']['php_hosting']['kind']='php-hosting'
+        config['disabled'].append('php_hosting:OldOverride')
+        self.manager.config_path.write_text(json.dumps(config))
+        path,metadata=self.manager.metadata(old['generation'])
+        metadata.update(config=config,config_sha256=revision(config))
+        (path/'metadata.json').write_text(json.dumps(metadata))
+        return old,path
+
+    def test_removed_sources_cannot_be_recompiled_reactivated_or_restored_by_rollback(self):
+        old,_path=self.removed_source_generation()
+        self.assertNotIn('php_hosting',self.manager.read()['sources'])
+        self.assertNotIn('php_hosting:OldOverride',self.manager.read()['disabled'])
+        with patch('clamshield.rules.download',side_effect=AssertionError('Unexpected download')):
+            result=self.manager.rebuild_supported()
+        self.assertTrue(result['changed']);self.assertNotEqual(old['generation'],result['generation'])
+        catalog=self.manager.catalog()['rules'];self.assertEqual({'local'},{n['source_id'] for n in catalog})
+        self.assertNotIn('php_hosting',self.manager.config_path.read_text())
+        self.assertFalse(self.manager.rebuild_supported()['changed'])
+        with self.assertRaises(EngineError):self.manager.rules.activate(old['generation'])
+        with self.assertRaises(EngineError):self.manager.rollback()
+        self.assertEqual(result['generation'],self.manager.rules.status()['generation'])
+
+    def test_pinned_older_ruleset_cannot_return_removed_matches_in_websites_or_mail(self):
+        old,path=self.removed_source_generation()
+        for purpose in ('website','mail'):
+            hits=Yara('/usr/bin/yara',path/'rules.yarac',purpose=purpose).scan(self.sample)
+            self.assertEqual(['local'],[hit['source_id'] for hit in hits]);self.assertFalse(hits[0].get('also_matched'))
+        self.assertIsNone(self.manager.candidate())
+        self.assertEqual({'local'},{node['source_id'] for node in self.manager.catalog(old['generation'])['rules']})
+
+    def test_only_removed_rules_are_not_reported_as_successful_yara_coverage(self):
+        _old,path=self.removed_source_generation(only=True)
+        with self.assertRaises(EngineError):Yara('/usr/bin/yara',path/'rules.yarac').scan(self.sample)
+        result=self.manager.rebuild_supported()
+        self.assertTrue(result['changed']);self.assertFalse(result['configured']);self.assertFalse(self.manager.rules.status()['configured'])
+        self.assertTrue(path.is_dir())

@@ -180,6 +180,12 @@ test('newly paged findings retain owner-bound actions and administrator capabili
   }finally{await f.close();}
 });
 
+test('retained findings from removed sources are explicitly historical',async()=>{
+  const f=fixture({change:v=>{v.findings=[{id:'old-source-finding',owner:'alice',domain:'site.test',path:'inert.php',engine:'yara',provider:'php-hosting',signature:'php_hosting:NonPrintableChars',status:'open',detail:{source_removed:true,review_only:true},fingerprint:{},site_availability:{available:true}}];}});
+  try{assert.match(f.document.getElementById('cs-review-findings-rows').textContent,/Historical finding from a removed rule source.*no longer used by current scans/);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('Delete all history requires a scoped count confirmation and guards repeated confirmation clicks',async()=>{
   let finish;
   const f=fixture({hash:'#review/history',change:v=>{v.context.view_scope='server';},api:async body=>{

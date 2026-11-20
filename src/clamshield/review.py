@@ -109,6 +109,9 @@ class Review:
         for row in rows:
             value=dict(row)
             for field in json_fields:value[field]=json.loads(value[field]) if value.get(field) else {}
+            if kind=='findings':
+                from .rule_sources import finding_supported
+                value['detail']['source_removed']=not finding_supported(value)
             if kind=='repairs':value['metadata'].get('preview',{}).pop('diff',None)
             if kind in ('findings','repairs','quarantine','automatic'):
                 account=dict(live,owner=value['owner'],identity=value['identity'])

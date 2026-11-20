@@ -499,3 +499,23 @@ the actual worker lock and recorded jobs as well as bounded read-only systemd
 properties; a leftover lock filename alone is not considered busy. Pending
 activation links open Review / History for administrators. Unknown service or
 lock state is reported explicitly rather than presented as normal waiting.
+
+
+### Signature updates and file rechecks
+
+Normal scans use the already active signatures and rules. They do not run a
+signature download first. Provider/YARA automatic updates follow their saved
+schedules. The separate Full recheck after signature/rule updates choice queues
+a file scan when the active generation changes; the scan is labelled Recheck
+after signature updates. Its internal job source remains signature-update.
+
+Only Forge, community web hosting, local and remote source types are supported.
+Install/update rebuilds a mixed active ruleset from its supported installed source
+bytes when necessary; this step does not fetch rule data. A selection containing
+only unsupported sources returns to the normal Install rules state. Unsupported
+rulesets cannot be reactivated or restored by rollback. Already pinned older
+rulesets cannot publish matches from removed sources; a ruleset without any
+supported sources reports missing coverage instead of a successful clean scan.
+Retained findings show an explicit historical-source label, keep their original
+evidence and are excluded from automatic remediation. Clear selected findings
+or Clear all findings can remove those entries from the Review list.
