@@ -138,6 +138,10 @@ CREATE TABLE IF NOT EXISTS review_deleted (
  kind TEXT NOT NULL,record_id TEXT NOT NULL,owner TEXT NOT NULL,identity TEXT NOT NULL,
  PRIMARY KEY(kind,record_id,owner,identity)
 );
+CREATE TABLE IF NOT EXISTS automatic_rechecks (
+ owner TEXT NOT NULL,identity TEXT NOT NULL,domain TEXT NOT NULL,root TEXT NOT NULL,
+ paused INTEGER NOT NULL,updated REAL NOT NULL,PRIMARY KEY(owner,identity,domain,root)
+);
 CREATE TABLE IF NOT EXISTS notification_preferences (
  actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
  categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,
@@ -312,15 +316,11 @@ class Store:
         job_id = uuid.uuid4().hex
         with self.connection(True) as db:
             if source in ('signature-update','watch-initial') and not target:
-                # Serialize admission with Cancel. The original cancellation is
-                # durable evidence even after its row is cleared from the UI.
-                scope=(*self.scope(context),site['domain'],site['root'],generation)
-                stopped=db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
-                  AND generation=? AND target='' AND source IN ('signature-update','watch-initial')
-                  AND cancel_requested=1 LIMIT 1""",scope).fetchone()
+                from .automatic_rechecks import AutomaticRechecks
+                scope=(*self.scope(context),site['domain'],site['root'])
                 active=db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
-                  AND target='' AND status IN ('queued','running') AND source NOT IN ('wordpress-integrity','repair-preview','yara-trial') LIMIT 1""",scope[:-1]).fetchone()
-                if stopped or active:return None
+                  AND target='' AND status IN ('queued','running') AND source NOT IN ('wordpress-integrity','repair-preview','yara-trial') LIMIT 1""",scope).fetchone()
+                if AutomaticRechecks.paused(db,context,site) or active:return None
             if reuse_active:
                 existing=db.execute('''SELECT id FROM jobs WHERE owner=? AND identity=? AND domain=?
                   AND root=? AND source=? AND target=? AND status IN ('queued','running')
@@ -387,17 +387,27 @@ class Store:
             else:
                 raise Conflict('Scan has already finished')
             if automatic:
+                from .automatic_rechecks import AutomaticRechecks
+                AutomaticRechecks.set(db,context,dict(row),True)
                 db.execute("""UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?
-                  WHERE owner=? AND identity=? AND domain=? AND root=? AND generation IN (?,?) AND target=''
+                  WHERE owner=? AND identity=? AND domain=? AND root=? AND target=''
                   AND source IN ('signature-update','watch-initial') AND status='queued'""",
-                  (time.time(),*self.scope(context),row['domain'],row['root'],row['generation'],cancelled_generation))
-            self.audit(context, 'scan.cancel_requested', job_id, {}, db)
+                  (time.time(),*self.scope(context),row['domain'],row['root']))
+            self.audit(context, 'scan.cancel_requested', job_id, {'automatic_rechecks_paused':automatic}, db)
+            return automatic
 
     def claim(self, worker):
         with self.connection(True) as db:
-            row = db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created,id LIMIT 1").fetchone()
-            if row is None:
-                return None
+            from .automatic_rechecks import AutomaticRechecks
+            row=None
+            for candidate in db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created,id LIMIT 100").fetchall():
+                if (candidate['source'] in ('signature-update','watch-initial') and not candidate['target'] and
+                        AutomaticRechecks.paused(db,dict(candidate),dict(candidate))):
+                    db.execute("UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?,error=? WHERE id=?",
+                      (time.time(),'Automatic rechecks paused after cancellation',candidate['id']))
+                    continue
+                row=candidate;break
+            if row is None:return None
             now = time.time()
             db.execute("UPDATE jobs SET status='running',worker=?,started=?,heartbeat=? WHERE id=?",
                        (worker, now, now, row['id']))

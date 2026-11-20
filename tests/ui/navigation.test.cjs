@@ -630,6 +630,17 @@ test('full panel opens Dashboard and keeps the seven native menu links while nav
     assert.equal(f.document.querySelectorAll('[id]').length,new Set([...f.document.querySelectorAll('[id]')].map(node=>node.id)).size);
   }finally{await f.close();}
 });
+test('Scheduled Scanner shows a closed paused site with an authorized explicit Resume control',async()=>{
+  const f=fixture({hash:'#scheduled',change:v=>{v.context.view_scope='server';v.sites[0].owner='bob';v.sites[0].automatic_rechecks_paused=true;}});
+  try{const button=f.document.querySelector('[data-action=automatic-rechecks-resume]'),section=button.closest('details');
+    assert.equal(section.open,false);assert.match(section.querySelector('summary').textContent,/Automatic rechecks paused/);
+    assert.equal(button.dataset.capability,'schedule');assert.equal(button.textContent,'Resume automatic rechecks');
+    button.click();button.click();await settle();const request=f.requests.find(r=>r.action==='automatic-rechecks-resume');
+    assert.equal(request.owner,'bob');assert.equal(request.domain,'site.test');assert.equal(request.token,'fixture-token');
+    assert.equal(f.requests.filter(r=>r.action==='automatic-rechecks-resume').length,1);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('Manage links select Settings, while records and retention each load in their own view',async()=>{
  const f=fixture();try{
   f.click('#cs-dashboard [data-tab=provider-settings]');assert.deepEqual(f.visible(),['provider-settings']);

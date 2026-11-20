@@ -15,7 +15,7 @@ async function fixture(options={}){
     const body=Object.fromEntries(request.body);requests.push(body);
     if(body.action==='scan-cancel'){
       if(options.cancelError)return {ok:false,json:async()=>({ok:false,error:options.cancelError})};
-      cancelled=true;return {ok:true,json:async()=>({ok:true,cancel_requested:true})};
+      cancelled=true;return {ok:true,json:async()=>({ok:true,cancel_requested:true,automatic_rechecks_paused:!!options.rechecksPaused})};
     }
     if(body.action==='review-bulk-preview'){
       if(options.previewWait)await options.previewWait;
@@ -89,6 +89,15 @@ test('cancel binds the recorded job/scope and retains running state until worker
     const request=f.requests.find(r=>r.action==='scan-cancel');assert.equal(request.job_id,'a'.repeat(32));assert.equal(request.scope,'server');
     assert.deepEqual(Object.keys(request).sort(),['action','job_id','owner','scope','token']);
     assert.match(f.byId('list').textContent,/running/);assert.equal(f.byId('list').querySelector('button').disabled,true);
+  }finally{f.close();}
+});
+
+test('cancelling an automatic recheck explains its persistent pause without duplicate requests',async()=>{
+  const f=await fixture({source:'signature-update',rechecksPaused:true});try{
+    const button=f.byId('list').querySelector('button');button.click();button.click();
+    await until(()=>f.byId('list').textContent.includes('Automatic rechecks paused'));
+    assert.match(f.byId('list').textContent,/Resume in Scheduled Scanner/);
+    assert.equal(f.requests.filter(r=>r.action==='scan-cancel').length,1);
   }finally{f.close();}
 });
 

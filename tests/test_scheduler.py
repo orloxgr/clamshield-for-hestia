@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
+from clamshield.automatic_rechecks import AutomaticRechecks
 from clamshield.paths import attributes
 from clamshield.scheduler import DEFAULTS, Scheduler, schedule_slot, validate_policy
 from clamshield.settings import Settings
@@ -32,7 +33,9 @@ class Monitoring(unittest.TestCase):
         self.store=Store(self.settings.database)
         self.context=dict(actor='alice',owner='alice',identity='generation')
         self.site=dict(owner='alice',identity='generation',domain='site.test',root=str(self.root),suspended=False)
-        self.scheduler=Scheduler(self.settings,self.store,Mock())
+        native=Mock();native.authorize.side_effect=lambda actor,owner:dict(self.context,actor=actor)
+        native.sites.side_effect=lambda owner:[dict(self.site)]
+        self.scheduler=Scheduler(self.settings,self.store,native)
 
     def test_enabled_schedule_runs_once_and_replay_is_idempotent(self):
         before=datetime(2026,11,18,1,tzinfo=timezone.utc)
@@ -120,8 +123,12 @@ class Monitoring(unittest.TestCase):
         for _ in range(3):self.assertEqual([],self.tick_site())
         self.assertEqual('cancelled',self.store.job(self.context,job)['status'])
         with self.store.connection() as db:self.assertEqual('old-rules',db.execute("SELECT generation FROM jobs WHERE status='completed'").fetchone()[0])
+        self.assertEqual([],self.tick_site('newer-rules'))
+        self.assertTrue(AutomaticRechecks.status(Store(self.settings.database),self.context,self.site))
+        AutomaticRechecks.resume(self.store,self.scheduler.hestia,self.context,self.site)
         newer=self.tick_site('newer-rules');self.assertEqual(1,len(newer))
         self.store.cancel(self.context,newer[0])
+        self.assertEqual([],self.tick_site('third-rules'))
         manual=self.store.enqueue(self.context,self.site,generation='new-rules')
         self.assertEqual('queued',self.store.job(self.context,manual)['status'])
 
@@ -132,10 +139,12 @@ class Monitoring(unittest.TestCase):
         self.assertEqual([],self.tick_site())
         self.assertEqual(2,self.store.job(self.context,job_id)['counters']['scanned'])
 
-    def test_cancelled_initial_watch_stays_cancelled_for_same_generation(self):
+    def test_cancelled_initial_watch_stays_cancelled_across_generations_until_resumed(self):
         self.scheduler.save(self.context,self.site,{'watch':True})
         job=self.tick_site()[0];self.assertEqual('watch-initial',self.store.job(self.context,job)['source'])
         self.store.cancel(self.context,job);self.assertEqual([],self.tick_site())
+        self.assertEqual([],self.tick_site('newer-rules'))
+        AutomaticRechecks.resume(self.store,self.scheduler.hestia,self.context,self.site)
         self.assertEqual(1,len(self.tick_site('newer-rules')))
 
     def test_cancelled_full_recheck_keeps_individual_changed_file_monitoring(self):
@@ -147,7 +156,7 @@ class Monitoring(unittest.TestCase):
         queued=self.tick_site();self.assertEqual(1,len(queued))
         changed=self.store.job(self.context,queued[0]);self.assertEqual(('watch','changed.php'),(changed['source'],changed['target']))
 
-    def test_cancel_intent_is_bound_to_native_identity_root_and_generation(self):
+    def test_cancel_intent_is_bound_to_native_identity_and_root_across_generations(self):
         job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
         self.store.cancel(self.context,job)
         self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules'))
@@ -157,7 +166,7 @@ class Monitoring(unittest.TestCase):
     def test_auto_admission_is_atomic_and_cancelling_legacy_twins_keeps_manual_work(self):
         job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
         self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules'))
-        twin=self.store.enqueue(self.context,self.site,source='manual',generation='rules')
+        twin=self.store.enqueue(self.context,self.site,source='manual',generation='newer-rules')
         manual=self.store.enqueue(self.context,self.site,source='manual',generation='rules')
         with self.store.connection(True) as db:db.execute("UPDATE jobs SET source='watch-initial' WHERE id=?",(twin,))
         self.store.cancel(self.context,job)
@@ -170,6 +179,42 @@ class Monitoring(unittest.TestCase):
         self.store.cancel(self.context,job)
         self.assertEqual(current(self.settings),self.store.job(self.context,job)['generation'])
         self.assertIsNone(self.store.enqueue(self.context,self.site,source='watch-initial',generation=current(self.settings)))
+
+    def test_existing_cancellation_and_already_queued_new_generation_cannot_restart_scan(self):
+        self.baseline();cancelled=self.tick_site()[0];self.store.cancel(self.context,cancelled)
+        # Existing installations retain cancelled jobs even when UI history is cleared.
+        with self.store.connection(True) as db:db.execute('DELETE FROM automatic_rechecks')
+        self.assertEqual([],self.tick_site('newer-rules'))
+        stale=self.store.enqueue(self.context,self.site,source='manual',generation='newer-rules')
+        with self.store.connection(True) as db:db.execute("UPDATE jobs SET source='signature-update' WHERE id=?",(stale,))
+        manual=self.store.enqueue(self.context,self.site,source='manual',generation='newer-rules')
+        self.assertEqual(manual,self.store.claim('test')['id'])
+        self.assertEqual('cancelled',self.store.job(self.context,stale)['status'])
+
+    def test_resuming_requires_current_site_identity_and_preserves_saved_policy(self):
+        self.baseline();self.scheduler.save(self.context,self.site,{'watch':True,'rescan_updates':False})
+        job=self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules')
+        self.store.cancel(self.context,job)
+        from clamshield.errors import AccessDenied
+        for change in ({'root':str(self.root/'moved')},{'suspended':True}):
+            self.scheduler.hestia.sites.side_effect=lambda owner:[self.site|change]
+            with self.assertRaises(AccessDenied):AutomaticRechecks.resume(self.store,self.scheduler.hestia,self.context,self.site)
+            self.assertTrue(AutomaticRechecks.status(self.store,self.context,self.site))
+        self.scheduler.hestia.sites.side_effect=lambda owner:[dict(self.site)]
+        self.scheduler.hestia.authorize.side_effect=lambda actor,owner:self.context|{'identity':'recreated'}
+        with self.assertRaises(AccessDenied):AutomaticRechecks.resume(self.store,self.scheduler.hestia,self.context,self.site)
+        self.scheduler.hestia.authorize.side_effect=lambda actor,owner:dict(self.context)
+        AutomaticRechecks.resume(self.store,self.scheduler.hestia,self.context,self.site)
+        self.assertFalse(self.scheduler.policy(self.context,self.site)['rescan_updates'])
+        self.assertTrue(self.scheduler.policy(self.context,self.site)['watch'])
+
+    def test_cancelled_automatic_recheck_does_not_pause_future_calendar_or_manual_scans(self):
+        job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
+        self.store.cancel(self.context,job)
+        self.scheduler.save(self.context,self.site,{'frequency':'daily'},datetime(2026,11,18,1,tzinfo=timezone.utc))
+        due=self.scheduler.site(self.context,self.site,'new-rules',datetime(2026,11,18,3,tzinfo=timezone.utc))
+        self.assertEqual('scheduled',self.store.job(self.context,due[0])['source'])
+        self.assertIsNotNone(self.store.enqueue(self.context,self.site,source='manual',generation='new-rules'))
 
     def test_yara_timer_uses_saved_interval_cooldown_installed_profile_and_deduplicates_work(self):
         from clamshield.rule_updates import RuleUpdates

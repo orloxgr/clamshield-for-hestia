@@ -26,7 +26,7 @@
     cancel.removeAttribute('data-action');cancel.removeAttribute('data-job_id');
     cancel.addEventListener('click',async()=>{
       if(row.dataset.cancelling)return;version++;stop();row.dataset.cancelling='true';cancel.disabled=true;text(message,'Requesting cancellation…');
-      try{await api('scan-cancel',{job_id:row.dataset.job,scope:row.dataset.scope});row.dataset.cancelRequested='true';text(message,'Cancellation requested. Waiting for the recorded scan state.');}
+      try{const result=await api('scan-cancel',{job_id:row.dataset.job,scope:row.dataset.scope});row.dataset.cancelRequested='true';row.dataset.rechecksPaused=String(Boolean(result.automatic_rechecks_paused));text(message,'Cancellation requested. Waiting for the recorded scan state.'+(result.automatic_rechecks_paused?' Automatic rechecks paused. Resume in Scheduled Scanner.':''));}
       catch(error){text(message,error.message);}
       finally{delete row.dataset.cancelling;load();}
     });
@@ -54,7 +54,7 @@
       text(row.children[3],c.detections??0);
       const cancel=row.children[4].querySelector('button');cancel.hidden=!['queued','running'].includes(job.status);
       cancel.disabled=!job.can_cancel||!!row.dataset.cancelling;
-      if(!['queued','running'].includes(job.status)&&row.dataset.cancelRequested){text(row.children[4].querySelector('p'),'Cancellation outcome: '+job.status+'.');delete row.dataset.cancelRequested;}
+      if(!['queued','running'].includes(job.status)&&row.dataset.cancelRequested){text(row.children[4].querySelector('p'),'Cancellation outcome: '+job.status+'.'+(row.dataset.rechecksPaused==='true'?' Automatic rechecks paused. Resume in Scheduled Scanner.':''));delete row.dataset.cancelRequested;}
       if(row!==position)body.insertBefore(row,position);position=row.nextElementSibling;
     }
     for(const row of existing.values())row.remove();

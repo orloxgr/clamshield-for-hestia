@@ -16,7 +16,7 @@ LABELS=dict(scan='Run website and integrity scans',schedule='Change scan schedul
     quarantine='Quarantine detected website files',restore='Restore quarantined files and undo repairs',
     repair='Prepare and apply trusted or backup replacements',cleanup='Prepare and apply recognized infection cleaning',
     exceptions='Manage website detection exceptions',automatic='Change automatic website actions')
-ACTIONS={'scan':'scan','wordpress-scan':'scan','policy-save':'schedule','policy-reset':'schedule','policy-defaults-save':'schedule','policy-defaults-reset':'schedule','quarantine':'quarantine',
+ACTIONS={'automatic-rechecks-resume':'schedule','scan':'scan','wordpress-scan':'scan','policy-save':'schedule','policy-reset':'schedule','policy-defaults-save':'schedule','policy-defaults-reset':'schedule','quarantine':'quarantine',
     'restore':'restore','repair-preview':'repair','repair-backup-preview':'repair','repair-hestia-preview':'repair',
     'cleanup-preview':'cleanup','repair-undo':'restore','exception-add':'exceptions','exception-remove':'exceptions',
     'remediation-policy-save':'automatic','repair-apply':None}

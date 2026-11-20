@@ -304,8 +304,8 @@ class Application:
                 return {'jobs':jobs,'checks':checks,**(WordPress(self.settings,self.store,self.hestia).status(context,jobs[0]) if scope=='site' else {})}
             return {'jobs': jobs}
         if action == 'cancel':
-            self.store.cancel(context, request.get('job_id'))
-            return {'cancel_requested': True}
+            paused=self.store.cancel(context, request.get('job_id'))
+            return {'cancel_requested':True,'automatic_rechecks_paused':paused}
         if action == 'quarantine':
             operation = Quarantine(self.settings, self.store, self.hestia).capture(context, request.get('finding_id'))
             return {'operation_id': operation}
@@ -362,10 +362,13 @@ class Application:
             if server and not context['admin']:raise AccessDenied('Administrator access required')
             scheduler=Scheduler(self.settings,self.store,self.hestia)
             return {'policy':scheduler.defaults(context,server) if action=='policy-defaults-get' else scheduler.save_defaults(context,request.get('policy'),server,reset=action=='policy-defaults-reset')}
-        if action in ('policy-save','policy-reset'):
+        if action in ('policy-save','policy-reset','automatic-rechecks-resume'):
             site = next((s for s in self.hestia.sites(context['owner']) if s['domain'] == request.get('domain')), None)
             if site is None:
                 raise AccessDenied('Site unavailable')
+            if action=='automatic-rechecks-resume':
+                from .automatic_rechecks import AutomaticRechecks
+                return AutomaticRechecks.resume(self.store,self.hestia,context,site)
             scheduler=Scheduler(self.settings,self.store,self.hestia)
             return {'policy':scheduler.reset(context,site) if action=='policy-reset' else scheduler.save(context,site,request.get('policy'))}
         if action in ('providers-save', 'signature-local-save', 'signature-local-delete', 'signatures-update', 'signatures-activate', 'signatures-rollback'):
@@ -410,7 +413,8 @@ class Application:
     def account_dashboard(self,context,sites=None):
         sites=self.hestia.sites(context['owner']) if sites is None else sites
         scheduler=Scheduler(self.settings,self.store,self.hestia)
-        sites=[site|{'policy':scheduler.policy(context,site)} for site in sites]
+        from .automatic_rechecks import AutomaticRechecks
+        sites=[site|{'policy':scheduler.policy(context,site),'automatic_rechecks_paused':AutomaticRechecks.status(self.store,context,site)} for site in sites]
         data=dict(sites=sites,summary=self.store.dashboard_counts(context),jobs=self.store.list_jobs(context),
                   findings=self.store.list_findings(context),quarantine=Quarantine(self.settings,self.store,self.hestia).list(context),
                   history=self.store.history(context),exceptions=Exceptions(self.store).list(context),

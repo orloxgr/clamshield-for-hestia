@@ -548,11 +548,14 @@ signature download first. Provider/YARA automatic updates follow their saved
 schedules. The separate Full recheck after signature/rule updates choice queues
 a file scan when the active generation changes; the scan is labelled Recheck
 after signature updates. Its internal job source remains signature-update.
-Cancel prevents the same automatic full recheck or initial-monitoring fallback
-from returning for that account identity, website root and active generation.
-A newly activated generation can queue another recheck; manual scans and future
-scheduled scans remain available. Changed-file monitoring continues from its
-existing observations. Clearing cancelled rows retains this cancellation intent.
+Cancel pauses automatic full rechecks and the initial-monitoring fallback for
+that account identity and website root. New signature/rule generations cannot
+restart them. **Scheduled Scanner** marks the website **Automatic rechecks
+paused**; open its section and choose **Resume automatic rechecks** to allow
+them again under its saved policy. Existing retained cancellation decisions are
+honored. Already queued automatic rechecks are also stopped before claiming.
+Manual scans, future calendar scans and changed-file monitoring with existing
+observations remain available. Clearing cancelled rows retains the pause.
 
 Only Forge, community web hosting, local and remote source types are supported.
 Install/update rebuilds a mixed active ruleset from its supported installed source

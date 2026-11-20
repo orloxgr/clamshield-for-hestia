@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.13.1
+
+- Keep cancelled automatic website rechecks paused across signature/rule updates,
+  including retained cancellation decisions and already queued automatic jobs.
+- Show the paused website in Scheduled Scanner with an explicit Resume automatic
+  rechecks control, governed by the account's schedule permission. Manual scans,
+  calendar schedules and changed-file monitoring retain their saved behavior.
+
 ## 1.13.0
 
 - Split personal preferences into ClamShield notifications and HestiaCP

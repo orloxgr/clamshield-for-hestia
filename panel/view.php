@@ -119,7 +119,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  const ownerFor=node=>{const value=node.closest('[data-owner]')?.dataset.owner;return value&&!value.startsWith('@')?value:owner;};
  const websitePermissions=<?=json_encode($data['website_permissions']['effective'])?>;
  const websitePermissionLabels=<?=json_encode($data['website_permissions']['labels'])?>;
- const websiteActions={"scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
+ const websiteActions={"automatic-rechecks-resume":"schedule","scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
  const ruleOverrides=<?=json_encode($data['context']['admin']?$data['rule_manager']['disabled']:[],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  document.getElementById('cs-rules-refresh')?.addEventListener('click',()=>location.reload());
  document.getElementById('cs-history-lists-refresh').addEventListener('click',()=>{for(const kind of ['history','activity','automatic'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));});
