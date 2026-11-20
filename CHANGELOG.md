@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.5
+
+- Remove the Global preview-limit banner from the panel.
+
 ## 1.10.4
 
 - Show unavailable website ClamAV clearly on Dashboard, with an administrator-only

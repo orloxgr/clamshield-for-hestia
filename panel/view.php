@@ -64,7 +64,6 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <?php require __DIR__.'/navigation.php'; ?>
 <?php if(($data['yara_enabled']??true)&&!$data['engines']['yara']['rules_available']): ?><p id="cs-yara-warning" class="notice alert alert-warning">YARA scanning is enabled and needs active rules. <a href="#updates/rules" data-tab="rules">Set up YARA rules</a></p><?php endif ?>
 <?php if(!$data['context']['admin'] && in_array(false,$data['website_permissions']['effective'],true)): ?><p class="notice alert alert-info">Some website actions are disabled by your administrator. Results and history remain available; disabled controls explain the required permission.</p><?php endif ?>
-<?php if(!empty($data['preview_limits'])): ?><p class="notice alert alert-info">Global shows up to 500 recent records per list. Select an account for its history. Dashboard totals cover all accounts.</p><?php endif ?>
 <p id="cs-message" role="status" aria-live="polite"></p>
 <?php require __DIR__.'/dashboard.php'; ?>
 <?php require __DIR__.'/on_demand.php'; ?>
