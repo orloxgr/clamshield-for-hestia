@@ -34,7 +34,7 @@ class RecoveryPolicyTests(unittest.TestCase):
             with self.subTest(text=text),self.assertRaises(Conflict):literal(text,'DB_NAME')
 
     def test_serialized_replacement_recalculates_utf8_byte_lengths(self):
-        before=b'a:1:{s:4:"html";s:20:"<script>bad</script>!";}'
+        before=b'a:1:{s:4:"html";s:21:"<script>bad</script>!";}'
         self.assertEqual(b'a:1:{s:4:"html";s:1:"!";}',replacement(before,'<script>bad</script>',''))
         before='s:2:"é";'.encode();after=replacement(before,'é','κόσμος')
         self.assertEqual(('s:'+str(len('κόσμος'.encode()))+':"κόσμος";').encode(),after)

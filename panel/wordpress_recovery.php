@@ -1,5 +1,5 @@
 <?php // Managed by clamshield; native controls and disclosure appearance. ?>
-<section data-page="wordpress-recovery" id="cs-wp-recovery" hidden data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>">
+<section data-page="wordpress-recovery" id="cs-wp-recovery" hidden data-token="<?=$escape($_SESSION['token']??'')?>" data-owner="<?=$escape($data['context']['owner'])?>" data-scan-allowed="<?=($data['website_permissions']['effective']['scan']??true)?'true':'false'?>">
 <h2>WordPress recovery</h2>
 <p>Analyze WordPress files and database content, review a recovery plan, then apply selected actions. Analysis does not change your website. Originals are retained outside the public root for undo.</p>
 <form id="cs-wp-analyze">

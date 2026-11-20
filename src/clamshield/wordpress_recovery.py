@@ -50,8 +50,8 @@ class WordPressRecovery:
             fcntl.flock(fd,fcntl.LOCK_EX);yield
         finally:os.close(fd)
 
-    def context(self,plan):
-        live=self.hestia.authorize(plan['actor'],plan['owner'])
+    def context(self,plan,actor=None):
+        live=self.hestia.authorize(actor or plan['actor'],plan['owner'])
         if live['identity']!=plan['identity']:raise AccessDenied('Recovery account was replaced')
         self.quarantine.validate_site(live,plan)
         return live
@@ -208,11 +208,13 @@ class WordPressRecovery:
 
     def request(self,context,plan_id,operation,revision,value=None):
         with self.locked():
-            plan=self.get(context,plan_id);self.context(plan)
+            plan=self.get(context,plan_id);self.context(plan,actor=context['actor'])
             if revision!=plan['revision']:raise Conflict('Recovery plan changed; reload it before continuing')
             if plan['work_job']:
                 job=self.store.job(context,plan['work_job'])
                 if job['status'] in ('queued','running'):raise Conflict('Recovery work is already pending')
+                interrupted={'analyzing':'analysis-failed','preparing':'preview-failed','applying':'interrupted','undoing':'undo-interrupted'}
+                self.save(plan,status=interrupted.get(plan['status'],plan['status']),work_job=None)
             if operation=='preview':
                 if plan['status'] not in ('ready','reviewed','preview-failed'):raise Conflict('Analyze a new plan before changing its selection')
                 if not isinstance(value,dict) or set(value)-{'items','edits'}:raise Conflict('Invalid recovery selection')
@@ -289,7 +291,7 @@ class WordPressRecovery:
         with self.locked():
             with self.store.connection() as db:row=db.execute('SELECT id FROM wordpress_recovery WHERE work_job=?',(job['id'],)).fetchone()
             if not row:raise AccessDenied('Recovery work unavailable')
-            plan=self.get(job,row['id']);context=self.context(plan)
+            plan=self.get(job,row['id']);context=self.context(plan,actor=job['actor'])
             if job['source']=='wordpress-recovery':return self.inspect(job,engines)
             operation=job['source'].removeprefix('wordpress-recovery-');items=self.selected(plan)
             counters=dict(seen=len(items),scanned=0,infected=0,detections=0,skipped=0,errors=0,bytes=0)
@@ -307,7 +309,7 @@ class WordPressRecovery:
                         self.save(plan,status='reviewed',revision=uuid.uuid4().hex,work_job=None)
                     else:
                         for item in reversed(items) if operation=='undo' else items:
-                            self.check_cancel(job);self.context(plan)
+                            self.check_cancel(job);self.context(plan,actor=context['actor'])
                             if (operation=='apply' and item['status']=='done') or (operation=='undo' and item['status'] in ('undone','proposed','prepared')):continue
                             self.perform(plan,context,item,undo=operation=='undo')
                             counters['scanned']+=1;self.store.progress(job['id'],counters)
@@ -332,16 +334,27 @@ class WordPressRecovery:
                 self.repairs.recover(context,repair['id']);repair=self.repairs.get(context,repair['id'])
             self.save_item(item,status='undoing' if undo else 'applying')
             if undo:
-                if repair['status']!='undone':self.repairs.undo(context,repair['id'])
+                if repair['status']=='ready':pass  # Intent was saved but publication never began.
+                elif repair['status']=='failed':
+                    original=repair['metadata'].get('recovery_fingerprint',repair['metadata'].get('fingerprint',{}))
+                    if not self.repairs.target_matches(repair,original):raise Conflict('Interrupted repair original needs review')
+                elif repair['status']!='undone':self.repairs.undo(context,repair['id'])
             elif repair['status']=='ready':self.repairs.apply(context,repair['id'])
             elif repair['status'] not in ('repaired','verified','recheck_failed'):raise Conflict('Interrupted replacement needs a fresh preview or undo')
         elif item['action']=='quarantine':
             operation=detail.get('operation_id')
             if operation:
+                with self.store.connection() as db:record=db.execute('SELECT status FROM operations WHERE id=? AND owner=? AND identity=?',(operation,*self.store.scope(context))).fetchone()
+                if record is None:
+                    if not undo:self.quarantine.capture(context,detail['finding_id'],operation_id=operation,extra={'wordpress_recovery':plan['id']})
+                    self.save_item(item,status='undone' if undo else 'done');return
                 row=self.quarantine.recover(context,operation)
                 if undo:
                     self.save_item(item,status='undoing')
                     if row['status']!='restored':self.quarantine.restore(context,operation)
+                elif row['status']=='failed':
+                    operation=uuid.uuid4().hex;self.save_item(item,detail=detail|{'operation_id':operation})
+                    self.quarantine.capture(context,detail['finding_id'],operation_id=operation,extra={'wordpress_recovery':plan['id']})
                 elif row['status']!='quarantined':raise Conflict('Interrupted quarantine needs review before continuing')
             elif not undo:
                 operation=uuid.uuid4().hex;detail=detail|{'operation_id':operation}

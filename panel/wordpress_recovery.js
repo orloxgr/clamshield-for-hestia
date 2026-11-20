@@ -3,7 +3,7 @@
   'use strict';
   const root=document.getElementById('cs-wp-recovery');if(!root)return;
   const by=id=>document.getElementById('cs-wp-'+id),form=by('analyze'),output=by('status'),plans=by('plans');
-  let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null;
+  let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null,epoch=0,refreshWanted=false;
   const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const text=(tag,value)=>{const node=document.createElement(tag);node.textContent=value;return node;};
@@ -65,32 +65,32 @@
     for(const item of value.plans){const option=text('option',item.domain+' · '+item.status+' · '+new Date(item.created*1000).toLocaleString());option.value=item.id;plans.append(option);}plans.value=current;loaded=true;
   }
   async function refresh(append=false){
-    if(loading||busy||!visible())return;stop();loading=true;
-    try{if(!loaded)await list();const id=plans.value||plan?.id;if(id){const value=await api('wordpress-recovery-status',{plan_id:id,offset:append?next||0:0});show(value,append);}}
+    if(loading||busy){refreshWanted=true;return;}if(!visible())return;stop();loading=true;const current=epoch;
+    try{if(!loaded)await list();const id=plans.value||plan?.id;if(id){const value=await api('wordpress-recovery-status',{plan_id:id,offset:append?next||0:0});if(current===epoch&&!closed)show(value,append);}}
     catch(error){output.textContent=error.message;}
-    finally{loading=false;if(visible()&&plan&&(['analyzing','preparing','applying','undoing'].includes(plan.status)||by('rechecks').textContent.includes('queued')||by('rechecks').textContent.includes('running')))timer=setTimeout(refresh,5000);}
+    finally{loading=false;if(refreshWanted&&visible()&&!busy){refreshWanted=false;refresh();}else if(visible()&&plan&&(['analyzing','preparing','applying','undoing'].includes(plan.status)||by('rechecks').textContent.includes('queued')||by('rechecks').textContent.includes('running')))timer=setTimeout(refresh,5000);}
   }
   async function request(operation,policy){
-    if(busy||!plan)return;stop();busy=true;controls();
+    if(busy||!plan)return;stop();busy=true;controls();let failure=null;
     try{await api('wordpress-recovery-'+operation,{plan_id:plan.id,revision:plan.revision,...(policy?{policy:JSON.stringify(policy)}:{})});dirty=false;output.textContent='Recovery '+operation+' queued.';}
-    catch(error){output.textContent=error.message;}
-    finally{busy=false;controls();await refresh();}
+    catch(error){failure=error.message;}
+    finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}
   }
   form.addEventListener('submit',async event=>{
-    event.preventDefault();if(busy)return;busy=true;controls();stop();output.textContent='Queuing WordPress analysis…';
+    event.preventDefault();if(busy)return;busy=true;controls();stop();output.textContent='Queuing WordPress analysis…';let failure=null;
     try{const values=new FormData(form),policy={versions:{},packages:{}};for(const key of ['uploads_php','uploads_js','additional','database'])policy[key]=values.has(key);
       for(const [component,value]of Object.entries(sources)){if(value.version)policy.versions[component]=value.version;if(value.path)policy.packages[component]=value.path;}
       const result=await api('wordpress-recovery-analyze',{domain:values.get('domain'),path:values.get('path'),policy:JSON.stringify(policy)});
-      await list();plans.value=result.plan_id;plan=null;initialized=null;
-    }catch(error){output.textContent=error.message;}
-    finally{busy=false;controls();await refresh();}
+      epoch++;await list();plans.value=result.plan_id;plan=null;initialized=null;
+    }catch(error){failure=error.message;}
+    finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}
   });
   by('add-source').addEventListener('click',()=>{
     const component=by('component').value.trim(),version=by('version').value.trim(),path=by('package').value.trim();if(!version&&!path)return;
     sources[component]={version,path};by('sources').replaceChildren();
     for(const [key,value]of Object.entries(sources)){const row=text('li',(key||'Root WordPress core')+' · '+(value.version||'Installed version')+' · '+(value.path||'WordPress.org'));const remove=text('button','Remove');remove.className='button';remove.type='button';remove.addEventListener('click',()=>{delete sources[key];row.remove();});row.append(remove);by('sources').append(row);}
   });
-  plans.addEventListener('change',()=>{initialized=null;plan=null;by('report').hidden=true;refresh();});by('refresh').addEventListener('click',()=>{loaded=false;refresh();});by('more').addEventListener('click',()=>refresh(true));
+  plans.addEventListener('change',()=>{epoch++;initialized=null;plan=null;by('report').hidden=true;refresh();});by('refresh').addEventListener('click',()=>{loaded=false;refresh();});by('more').addEventListener('click',()=>refresh(true));
   by('recommended').addEventListener('click',()=>{selected=new Set(recommended);draw([...rows.values()]);change();});
   by('clear').addEventListener('click',()=>{selected.clear();draw([...rows.values()]);change();});
   by('review').addEventListener('click',()=>{const changes=Object.fromEntries(Object.entries(edits).filter(([id])=>selected.has(id)));request('preview',{items:[...selected],edits:changes});});

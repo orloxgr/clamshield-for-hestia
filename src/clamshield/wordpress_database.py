@@ -6,6 +6,7 @@ Reports contain evidence, never credentials. Changes use exact row/content guard
 import base64
 from contextlib import contextmanager
 import hashlib
+import json
 import re
 import time
 
@@ -50,13 +51,21 @@ def unpacked(value):
     return base64.b64decode(value, validate=True)
 
 
+def json_guard(before, after):
+    if not before.lstrip().startswith((b'{',b'[')):return
+    try:json.loads(before)
+    except (ValueError,UnicodeError):return
+    try:json.loads(after)
+    except (ValueError,UnicodeError) as exc:raise Conflict('Replacement would invalidate JSON data') from exc
+
+
 def serialized_replace(data, old, new):
     """Rewrite strings with byte-correct PHP serialization lengths; no PHP eval.
 
     Objects/references are refused rather than instantiated or silently corrupted.
     """
     offset = 0
-    def parse(depth=0):
+    def parse(depth=0, replace_strings=True):
         nonlocal offset
         if depth > 64 or offset >= len(data): raise Conflict('Unsupported serialized database value')
         start = offset; kind = data[offset:offset+2]; offset += 2
@@ -71,14 +80,19 @@ def serialized_replace(data, old, new):
             length = int(data[offset:end]); offset = end + 2
             value = data[offset:offset+length]; offset += length
             if len(value) != length or data[offset:offset+2] != b'";': raise Conflict('Invalid serialized string length')
-            offset += 2; value = value.replace(old, new)
+            offset += 2
+            changed=value.replace(old,new) if replace_strings else value
+            json_guard(value,changed);value=changed
             return b's:' + str(len(value)).encode() + b':"' + value + b'";'
         if kind == b'a:':
             end = data.find(b':{', offset)
             if end < 0 or not data[offset:end].isdigit(): raise Conflict('Invalid serialized array')
             count = int(data[offset:end])
             if count > 100000: raise Conflict('Serialized array exceeds limit')
-            offset = end + 2; values = [parse(depth+1) for _ in range(count*2)]
+            offset = end + 2; values=[]
+            for _ in range(count):
+                if data[offset:offset+2] not in (b'i:',b's:'):raise Conflict('Invalid serialized array key')
+                values.extend((parse(depth+1,False),parse(depth+1,replace_strings)))
             if data[offset:offset+1] != b'}': raise Conflict('Invalid serialized array')
             offset += 1
             return b'a:' + str(count).encode() + b':{' + b''.join(values) + b'}'
@@ -94,6 +108,7 @@ def replacement(data, find, replace):
     old, new = find.encode('utf-8'), replace.encode('utf-8')
     if old not in data: raise Conflict('The selected fragment does not match this database value')
     result = serialized_replace(data, old, new) if re.match(rb'^(?:[abisdOCRr]:|N;)', data) else data.replace(old, new)
+    json_guard(data,result)
     if result == data or len(result) > 1024**2: raise Conflict('Database change is empty or exceeds limits')
     return result
 
@@ -102,6 +117,11 @@ class WordPressDatabase:
     def __init__(self, settings, hestia, context, root, installation):
         self.settings, self.hestia, self.context = settings, hestia, context
         self.root, self.installation = root, installation
+
+    @staticmethod
+    def schema(cursor,table):
+        cursor.execute('SELECT COLUMN_NAME,COLUMN_TYPE,IS_NULLABLE,COLLATION_NAME,EXTRA FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=%s ORDER BY ORDINAL_POSITION',(table,))
+        return hashlib.sha256(repr(cursor.fetchall()).encode()).hexdigest()
 
     def config(self):
         with snapshot(self.root, joined(self.installation, 'wp-config.php'), self.settings.snapshots, 256*1024) as (copy, fingerprint):
@@ -114,6 +134,12 @@ class WordPressDatabase:
         if live['identity'] != self.context['identity']: raise AccessDenied('Database account was replaced')
         rows = self.hestia.call('v-list-databases', self.context['owner'], 'json')
         if values['NAME'] not in rows: raise AccessDenied('WordPress database is not owned by the selected hosting account')
+        native_user=rows[values['NAME']].get('USER',rows[values['NAME']].get('DBUSER'))
+        if (not isinstance(native_user,str) or native_user!=values['USER'] or
+                not values['USER'].startswith(self.context['owner']+'_')):
+            raise AccessDenied('WordPress must use its native hosting database user')
+        if self.hestia.authorize(self.context['actor'],self.context['owner'])['identity']!=self.context['identity']:
+            raise AccessDenied('Database account changed during discovery')
         # Remote database hosts are not inferred from a compromised PHP file.
         match = re.fullmatch(r'(localhost|127\.0\.0\.1)(?::([0-9]{1,5}|/[^\r\n\0]+))?', values['HOST'])
         if not match: raise Conflict('Database host requires a native local connection')
@@ -150,6 +176,7 @@ class WordPressDatabase:
             for table, columns in tables.items():
                 cursor.execute('SHOW KEYS FROM ' + ident(table) + " WHERE Key_name='PRIMARY'")
                 keys = [row[4].decode() if isinstance(row[4],bytes) else row[4] for row in sorted(cursor.fetchall(), key=lambda row:row[3])]
+                schema=self.schema(cursor,table)
                 text_columns = [name for name,kind in columns if kind in ('char','varchar','tinytext','text','mediumtext','longtext','json')]
                 for column in text_columns:
                     offset = 0
@@ -181,6 +208,7 @@ class WordPressDatabase:
                                 emit(dict(table=table,column=column,keys=keys,key_values=[packed(str(v).encode() if not isinstance(v,bytes) else v) for v in row[:-2]],
                                           before=packed(raw),sha256=hashlib.sha256(raw).hexdigest(),config=fingerprint,
                                           installation=self.installation,evidence=evidence,editable=bool(keys),
+                                          schema=schema,
                                           excerpt=text[:8192]))
                                 if matches >= 1000: raise Conflict('Database findings exceed the report limit')
                         offset += len(rows)
@@ -198,6 +226,7 @@ class WordPressDatabase:
             cursor.execute('SELECT CAST('+ident(item['column'])+' AS BINARY) FROM '+ident(item['table'])+' WHERE '+predicate+' FOR UPDATE',keys)
             rows = cursor.fetchall()
             if len(rows)!=1 or rows[0][0] is None: raise Conflict('Database row is no longer uniquely available')
+            if self.schema(cursor,item['table'])!=item['schema']:raise Conflict('Database table definition changed; analyze again')
             current = bytes(rows[0][0])
             if current == after and not inspect_only: db.rollback();return 'already-applied'
             if current != before: raise Conflict('Database content changed; no row was overwritten')
