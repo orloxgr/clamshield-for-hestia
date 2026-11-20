@@ -128,6 +128,16 @@ CREATE TABLE IF NOT EXISTS review_clears (
 CREATE TABLE IF NOT EXISTS review_confirmations (
  token TEXT PRIMARY KEY,actor TEXT NOT NULL,identity TEXT NOT NULL,created REAL NOT NULL,detail TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS review_confirmation_items (
+ token TEXT NOT NULL REFERENCES review_confirmations(token) ON DELETE CASCADE,
+ record_id TEXT NOT NULL,owner TEXT NOT NULL,identity TEXT NOT NULL,
+ state TEXT NOT NULL DEFAULT 'pending',error TEXT,
+ PRIMARY KEY(token,record_id,owner,identity)
+);
+CREATE TABLE IF NOT EXISTS review_deleted (
+ kind TEXT NOT NULL,record_id TEXT NOT NULL,owner TEXT NOT NULL,identity TEXT NOT NULL,
+ PRIMARY KEY(kind,record_id,owner,identity)
+);
 CREATE TABLE IF NOT EXISTS notification_preferences (
  actor TEXT NOT NULL, identity TEXT NOT NULL, bell INTEGER NOT NULL DEFAULT 0,
  categories TEXT NOT NULL, starts_after REAL NOT NULL, revision TEXT NOT NULL,

@@ -465,7 +465,8 @@ class MailPolicies:
         self.targets(context)
         if not isinstance(search, str) or len(search) > 300 or type(offset) is not int or not 0 <= offset <= 10000000:
             raise ClamShieldError('Invalid mail history search')
-        query = ' FROM mail_decisions WHERE owner=? AND identity=? AND (instr(sender,?)>0 OR instr(recipient,?)>0 OR instr(exim_id,?)>0)'
+        from .review import visible
+        query = ' FROM mail_decisions r WHERE owner=? AND identity=? AND (instr(sender,?)>0 OR instr(recipient,?)>0 OR instr(exim_id,?)>0) AND '+visible('email-decisions')
         args = (*self.store.scope(context), search, search, search)
         with self.store.connection() as db:
             total = db.execute('SELECT count(*)' + query, args).fetchone()[0]

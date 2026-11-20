@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import stat
+import re
 import time
 import uuid
 from contextlib import contextmanager, nullcontext
@@ -186,6 +187,51 @@ class Quarantine:
             metadata=row['metadata'];metadata.update(phase='restore',restore_staged=operation_id+'.restore-'+uuid.uuid4().hex)
             self.operation(context,row,'restoring')
             return self.recover_operation(context,row)
+
+    def delete(self,context,operation_id):
+        """Delete only the verified private quarantine copy, never a website path."""
+        live=self.hestia.authorize(context['actor'],context['owner'])
+        if not live['admin'] or live['identity']!=context['identity']:raise AccessDenied('Administrator access required to delete quarantine files')
+        if not isinstance(operation_id,str) or not re.fullmatch('[a-f0-9]{32}',operation_id):raise AccessDenied('Invalid quarantine object')
+        with self.locked():
+            row=self.get(live,operation_id);metadata=row['metadata']
+            if row['kind']!='quarantine' or row['status'] not in ('quarantined','deleting','deleted'):raise Conflict('Quarantine recovery must complete before deletion')
+            if row['status']=='deleted':return dict(deleted=True)
+            if metadata.get('object')!=operation_id or metadata.get('changed_capture_retained'):raise Conflict('Retained capture requires manual recovery')
+            if metadata.get('wordpress_recovery'):
+                with self.store.connection() as db:plan=db.execute('SELECT status FROM wordpress_recovery WHERE id=? AND owner=? AND identity=?',(metadata['wordpress_recovery'],*self.store.scope(live))).fetchone()
+                if not plan or plan['status'] not in ('applied','undone'):raise Conflict('WordPress recovery must finish before its quarantine files can be deleted')
+            base=Path(metadata['storage'])
+            if base!=self.settings.quarantine and base.name!='.clamshield-quarantine':raise AccessDenied('Unexpected quarantine storage')
+            with directory(base) as fd:
+                info=os.fstat(fd)
+                if info.st_uid!=os.geteuid() or stat.S_IMODE(info.st_mode)!=0o700:raise AccessDenied('Quarantine storage is not private')
+                if base!=self.settings.quarantine:
+                    with file_handle(base,'.clamshield-owner') as (marker,marker_info):
+                        if marker_info.st_uid!=os.geteuid() or marker_info.st_nlink!=1 or os.read(marker,64)!=b'clamshield\n':raise AccessDenied('Unrecognized quarantine storage')
+                # An unresolved capture is retained independently of the private copy.
+                try:os.stat(operation_id+'.capture',dir_fd=fd,follow_symlinks=False)
+                except FileNotFoundError:pass
+                else:raise Conflict('A retained capture still requires recovery')
+                try:
+                    with file_handle(base,operation_id) as (content,copy_info):
+                        before=attributes(copy_info);expected=metadata['fingerprint']
+                        if copy_info.st_uid!=os.geteuid() or stat.S_IMODE(copy_info.st_mode)!=0o600 or copy_info.st_nlink!=1 or copy_info.st_size!=expected['size'] or hash_fd(content)!=expected['sha256']:raise Conflict('Quarantine content changed; file retained')
+                        if attributes(os.fstat(content))!=before:raise Conflict('Quarantine content changed during verification')
+                        if row['status']=='deleting' and metadata.get('delete_fingerprint')!=before:raise Conflict('Quarantine identity changed after deletion was requested')
+                        metadata['delete_fingerprint']=before
+                        if row['status']!='deleting':self.operation(live,row,'deleting')
+                        if attributes(os.stat(operation_id,dir_fd=fd,follow_symlinks=False))!=before:raise Conflict('Quarantine object was replaced; file retained')
+                        current=self.hestia.authorize(context['actor'],context['owner'])
+                        if not current['admin'] or current['identity']!=live['identity']:raise AccessDenied('Hosting account changed during deletion')
+                        os.unlink(operation_id,dir_fd=fd);os.fsync(fd)
+                except FileNotFoundError:
+                    if row['status']!='deleting' or not metadata.get('delete_fingerprint'):raise Conflict('Quarantine object is missing without deletion proof') from None
+            with self.store.connection(True) as db:
+                db.execute("UPDATE operations SET status='deleted',error=NULL WHERE id=? AND owner=? AND identity=? AND status='deleting'",(operation_id,*self.store.scope(live)))
+                db.execute("UPDATE findings SET status='quarantine_deleted' WHERE id=? AND owner=? AND identity=? AND status='quarantined'",(row['finding_id'],*self.store.scope(live)))
+                self.store.audit(live,'quarantine.deleted',operation_id,dict(sha256=metadata['fingerprint']['sha256']),db)
+            return dict(deleted=True)
 
     def get(self,context,operation_id):
         with self.store.connection() as db:

@@ -69,6 +69,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!is_string($_POST['filters'])) $respond(400,['ok'=>false,'error'=>'Invalid Review filters.']);
         $request['filters']=json_decode($_POST['filters'],true);
     }
+    if (isset($_POST['selected'])) {
+        if (!is_string($_POST['selected'])) $respond(400,['ok'=>false,'error'=>'Invalid Review selection.']);
+        $request['selected']=json_decode($_POST['selected'],true);
+        if (!is_array($request['selected'])) $respond(400,['ok'=>false,'error'=>'Invalid Review selection.']);
+    }
     if (isset($_POST['limit'])) {
         if (!is_string($_POST['limit']) || !ctype_digit($_POST['limit'])) $respond(400,['ok'=>false,'error'=>'Invalid page size.']);
         $request['limit']=(int)$_POST['limit'];
@@ -110,6 +115,7 @@ if ($_SERVER['REQUEST_METHOD']==='POST' && $request['action']==='review-list' &&
     if ($renderer===false || !is_readable($renderer)) $respond(503,['ok'=>false,'error'=>'Review templates are unavailable. Rerun the installer.']);
     $escape=static fn($value)=>htmlspecialchars((string)$value,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');
     $result=$data;
+    $result['selection']=array_map(static fn($row)=>['id'=>(string)$row['id'],'allowed'=>!empty($row['review_selectable'])],$data['records']);
     ob_start();require $renderer;$html=ob_get_clean();
     unset($result['records'],$result['view_data']);$result['html']=$html;
     $respond(200,$result);

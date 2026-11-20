@@ -222,6 +222,16 @@ class MailCustodyTests(unittest.TestCase):
         self.assertEqual(1, self.custody.recover()['mail_recovered'])
         self.assertEqual(0, self.custody.list(self.alice)['total'])
 
+    def test_explicit_delete_can_resume_its_existing_verified_deletion_journal(self):
+        self.request=self.request_for(recipients=('inbox@alice.test',));staged=self.capture(actions=('quarantine',));delivery=self.delivery(self.alice)
+        audit=self.store.audit
+        def interrupt(context,action,*args,**kwargs):
+            if action=='mail.deleted':raise Interrupted()
+            return audit(context,action,*args,**kwargs)
+        with patch.object(self.store,'audit',side_effect=interrupt),self.assertRaises(Interrupted):self.custody.delete(self.alice,delivery)
+        self.assertFalse(self.blob(staged['transaction_id']).exists());self.custody.delete(self.alice,delivery)
+        self.assertEqual(0,self.custody.list(self.alice)['total'])
+
     def test_changed_inodes_hardlinks_symlinks_and_bytes_cannot_be_previewed_or_deleted(self):
         staged = self.capture(); delivery = self.delivery(self.alice); blob = self.blob(staged['transaction_id'])
         old = blob.with_suffix('.saved'); os.rename(blob, old)

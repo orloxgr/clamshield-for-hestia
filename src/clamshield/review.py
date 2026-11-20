@@ -26,9 +26,11 @@ SPECS={
 
 
 def visible(kind,alias='r'):
-    if kind not in ('history','notices'):return '1=1'
+    if kind not in SPECS:return '1=1'
+    deleted=f"NOT EXISTS(SELECT 1 FROM review_deleted d WHERE d.kind='{kind}' AND d.record_id=CAST({alias}.id AS TEXT) AND d.owner={alias}.owner AND d.identity={alias}.identity)"
+    if kind not in ('history','notices'):return deleted
     ident='CAST(c.before_id AS INTEGER)' if kind=='history' else 'c.before_id'
-    return f"NOT EXISTS(SELECT 1 FROM review_clears c WHERE c.kind='{kind}' AND c.owner={alias}.owner AND c.identity={alias}.identity AND ({alias}.created<c.before_created OR ({alias}.created=c.before_created AND {alias}.id<={ident})))"
+    return deleted+' AND '+f"NOT EXISTS(SELECT 1 FROM review_clears c WHERE c.kind='{kind}' AND c.owner={alias}.owner AND c.identity={alias}.identity AND ({alias}.created<c.before_created OR ({alias}.created=c.before_created AND {alias}.id<={ident})))"
 
 
 class Review:
@@ -98,7 +100,8 @@ class Review:
             total=db.execute('SELECT count(*) FROM '+source+' WHERE '+where,args).fetchone()[0]
             last=max(0,((total-1)//limit)*limit);offset=min(offset,last)
             direction='ASC' if filters.get('order')=='oldest' else 'DESC'
-            rows=db.execute('SELECT '+columns+' FROM '+source+' WHERE '+where+f' ORDER BY r.created {direction},r.id {direction} LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
+            from .review_bulk import eligible
+            rows=db.execute('SELECT '+columns+',CASE WHEN '+eligible(kind)+' THEN 1 ELSE 0 END AS review_selectable FROM '+source+' WHERE '+where+f' ORDER BY r.created {direction},r.id {direction} LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
             options={}
             for key,expr in [('status',status),('type',type_expr),('provider',provider)]:
                 options[key]=[row[0] for row in db.execute('SELECT DISTINCT '+expr+' FROM '+source+' WHERE '+base_where+' ORDER BY 1 LIMIT 256',base_args) if row[0] is not None] if expr else []
@@ -119,44 +122,23 @@ class Review:
                 condition,values=self.condition(scopes,'j')
                 with self.store.connection() as db:jobs=db.execute('SELECT j.* FROM jobs j WHERE '+condition+' AND j.id IN ('+','.join('?' for _ in subjects)+')',(*values,*subjects)).fetchall()
                 view['jobs']=[dict(row) for row in jobs]
-        return dict(list=kind,records=records,total=total,offset=offset,limit=limit,next_offset=offset+len(records) if offset+len(records)<total else None,options=options,accounts=[owner for owner,_identity in all_scopes],can_clear=kind in ('history','notices') and (live['admin'] or kind=='notices' or self.history_allowed(live)),view_data=view)
+        return dict(list=kind,records=records,total=total,offset=offset,limit=limit,next_offset=offset+len(records) if offset+len(records)<total else None,options=options,accounts=[owner for owner,_identity in all_scopes],can_clear=bool(live['admin'] or kind=='notices' or (kind=='history' and self.history_allowed(live))),view_data=view)
 
     def history_allowed(self,context):
         with self.store.connection() as db:row=db.execute('SELECT allowed FROM history_permissions WHERE owner=? AND identity=?',self.store.scope(context)).fetchone()
         return row is None or bool(row[0])
 
-    def bulk(self,context,kind,scope,operation,token=None):
-        if kind not in ('history','notices') or operation not in ('preview','clear','read'):raise AccessDenied('Unsupported bulk operation')
-        if operation=='read' and kind!='notices':raise AccessDenied('Only notifications can be marked read')
-        live,scopes,_sites=self.scopes(context,scope)
-        own=self.hestia.authorize(context['actor'],context['actor'])
-        if not live['admin'] and kind=='history':
-            with self.store.connection() as db:permission=db.execute('SELECT allowed FROM history_permissions WHERE owner=? AND identity=?',self.store.scope(live)).fetchone()
-            if permission and not permission[0]:raise AccessDenied('History management is disabled by your administrator')
-        table='audit' if kind=='history' else 'notifications';condition,args=self.condition(scopes)
-        now=time.time()
-        with self.store.connection(True) as db:
-            if operation=='read':
-                count=db.execute('UPDATE notifications AS r SET read_at=? WHERE '+condition+' AND '+visible(kind)+' AND read_at IS NULL',(now,*args)).rowcount
-                return dict(changed=count)
-            if operation=='preview':
-                anchor=db.execute('SELECT r.created,r.id FROM '+table+' r WHERE '+condition+' AND '+visible(kind)+' ORDER BY r.created DESC,r.id DESC LIMIT 1',args).fetchone()
-                count=db.execute('SELECT count(*) FROM '+table+' r WHERE '+condition+' AND '+visible(kind),args).fetchone()[0]
-                value=dict(kind=kind,scope=scope,scopes=scopes,anchor=list(anchor) if anchor else [0,''],count=count)
-                proof=uuid.uuid4().hex
-                db.execute('DELETE FROM review_confirmations WHERE created<?',(now-86400,))
-                db.execute('INSERT INTO review_confirmations VALUES(?,?,?,?,?)',(proof,own['owner'],own['identity'],now,encode(value)))
-                return dict(token=proof,count=count,scope=scope)
-            proof=db.execute('SELECT * FROM review_confirmations WHERE token=? AND actor=? AND identity=?',(token,own['owner'],own['identity'])).fetchone()
-            if not proof or now-proof['created']>300:raise Conflict('Confirmation expired; preview the deletion again')
-            value=json.loads(proof['detail'])
-            if value['kind']!=kind or value['scope']!=scope or value['scopes']!=[list(pair) for pair in scopes]:raise Conflict('The view or account identities changed; preview again')
-            stamp,ident=value['anchor'];bound=' AND (r.created<? OR (r.created=? AND r.id<=?))'
-            count=db.execute('SELECT count(*) FROM '+table+' r WHERE '+condition+' AND '+visible(kind)+bound,(*args,stamp,stamp,ident)).fetchone()[0]
-            for owner,identity in scopes:
-                old=db.execute('SELECT before_created,before_id FROM review_clears WHERE kind=? AND owner=? AND identity=?',(kind,owner,identity)).fetchone()
-                if old and (old[0],int(old[1]) if kind=='history' else old[1])>=(stamp,int(ident or 0) if kind=='history' else ident):continue
-                db.execute('INSERT INTO review_clears VALUES(?,?,?,?,?) ON CONFLICT(kind,owner,identity) DO UPDATE SET before_created=excluded.before_created,before_id=excluded.before_id',(kind,owner,identity,stamp,str(ident)))
-            if kind=='notices':db.execute('UPDATE notifications AS r SET read_at=COALESCE(read_at,?) WHERE '+condition+bound,(now,*args,stamp,stamp,ident))
-            db.execute('DELETE FROM review_confirmations WHERE token=?',(token,))
-        return dict(changed=count)
+    def bulk(self,context,kind,scope,operation,token=None,selected=None):
+        from .review_bulk import ReviewBulk
+        return ReviewBulk(self).run(context,kind,scope,operation,token,selected)
+
+    def hide_deleted_previews(self,data):
+        # Presentation only: workers and recovery continue to use original evidence.
+        mapping={'findings':'findings','repairs':'repairs','exceptions':'exceptions','quarantine':'quarantine','history':'history','notices':'notifications','activity':'maintenance','automatic':'remediation_history'}
+        with self.store.connection() as db:
+            for kind,key in mapping.items():
+                rows=data.get(key,[])
+                if not rows:continue
+                ids=[str(row['id']) for row in rows]
+                removed={(row['record_id'],row['owner'],row['identity']) for row in db.execute('SELECT record_id,owner,identity FROM review_deleted WHERE kind=? AND record_id IN ('+','.join('?' for _ in ids)+')',(kind,*ids))}
+                data[key]=[row for row in rows if (str(row['id']),row['owner'],row['identity']) not in removed]

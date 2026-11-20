@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.11.1
+
+- Add page checkboxes and scoped selected/all actions throughout Review, with
+  explicit Clear findings, Remove exceptions and Delete quarantine files labels.
+- Keep active work visible when clearing completed maintenance and action lists.
+- Delete verified private quarantine copies with a resumable journal; batch
+  quarantined-email deletion through the existing recipient custody checks.
+- Label the existing confirmed-recipient email release action Deliver anyway.
+
 ## 1.11.0
 
 - Add native search/date/account/type/status controls and server pagination to

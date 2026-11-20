@@ -217,7 +217,7 @@ test('Review supplies separate scoped controls for all-account email records and
     assert.deepEqual([...f.document.querySelectorAll('[data-review-list]')].map(form=>form.dataset.reviewList).sort(),['activity','automatic','email-decisions','email-stored','exceptions','findings','history','notices','quarantine','repairs']);
     for(const kind of ['email-stored','email-decisions'])assert.ok(f.requests.find(r=>r.action==='review-list'&&r.list===kind&&r.scope==='server'));
     const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-mail-activity-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+2);
-    assert.equal(f.document.querySelector('[data-review-pager=quarantine] [data-review-command=delete-all]'),null);
+    assert.equal(f.document.querySelector('[data-review-pager=quarantine] [data-review-command=delete-all]').textContent,'Delete quarantine files');
     assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
@@ -225,6 +225,34 @@ test('Review supplies separate scoped controls for all-account email records and
 test('navigation controls in paged automatic actions still open their Review destination',async()=>{
   const f=fixture({hash:'#review/activity',api:async body=>reviewResponse(body,{html:'<tr><td><button class="button" data-tab="repairs">Review repair</button></td></tr>'})});
   try{await settle();f.click('#cs-review-automatic-rows [data-tab=repairs]');await settle();assert.deepEqual(f.visible(),['repairs']);assert.equal(f.w.location.hash,'#review/repairs');assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('left row checkboxes select only eligible page records and Clear selected sends their exact IDs',async()=>{
+  const f=fixture({hash:'#review/findings',api:async body=>body.action==='review-bulk-preview'?{ok:true,json:async()=>({ok:true,token:'selected-proof',count:2,scope:'account'})}:body.action==='review-bulk-clear'?{ok:true,json:async()=>({ok:true,changed:2})}:reviewResponse(body,{html:'<tr><td>One</td></tr><tr><td>Two</td></tr><tr><td>Protected</td></tr>',selection:[{id:'one',allowed:true},{id:'two',allowed:true},{id:'protected',allowed:false}]})});
+  try{await settle();const bar=f.document.querySelector('[data-review-pager=findings]'),rows=f.document.querySelectorAll('#cs-review-findings-rows tr');
+    assert.equal(bar.querySelector('[data-review-command=delete-all]').textContent,'Clear all findings');assert.ok(rows[0].firstElementChild.querySelector('input[type=checkbox]'));assert.equal(rows[2].querySelector('input').disabled,true);
+    bar.querySelector('[aria-label="Select this page"]').click();assert.match(bar.textContent,/2 selected/);bar.querySelector('[data-review-command=clear-selected]').click();await settle();
+    const sent=f.requests.find(r=>r.action==='review-bulk-preview');assert.deepEqual(JSON.parse(sent.selected),['one','two']);assert.equal(f.requests.some(r=>r.action==='review-bulk-clear'),false);
+    const confirmation=f.document.querySelector('[data-review-confirmation=findings]');assert.match(confirmation.textContent,/selected 2 finding records/);assert.match(confirmation.textContent,/Website files.*unchanged/);confirmation.querySelector('button').click();await settle();
+    assert.equal(f.requests.find(r=>r.action==='review-bulk-clear').confirmation,'selected-proof');assert.match(bar.textContent,/0 selected/);assert.equal(bar.querySelector('[data-review-command=clear-selected]').disabled,true);
+  }finally{await f.close();}
+});
+
+test('quarantine deletion follows bounded batches and reports retained errors as plain text',async()=>{
+  let step=0;
+  const f=fixture({hash:'#review/quarantine',api:async body=>body.action==='review-bulk-preview'?{ok:true,json:async()=>({ok:true,token:'delete-proof',count:7,retained:1,scope:'account'})}:body.action==='review-bulk-clear'?{ok:true,json:async()=>({ok:true,changed:++step===1?5:6,pending:step===1,failed:step===1?0:1,failures:[{error:'<b>Changed content retained</b>'}]})}:reviewResponse(body)});
+  try{await settle();f.click('[data-review-pager=quarantine] [data-review-command=delete-all]');await settle();const confirmation=f.document.querySelector('[data-review-confirmation=quarantine]');assert.match(confirmation.textContent,/Permanently deletes.*Restore will no longer/);assert.match(confirmation.textContent,/1 active or protected/);
+    confirmation.querySelector('button').click();confirmation.querySelector('button').click();await settle();assert.equal(step,2);assert.equal(f.requests.filter(r=>r.action==='review-bulk-clear').length,2);
+    const status=f.document.querySelector('[data-review-pager=quarantine]').nextElementSibling;assert.match(status.textContent,/6 processed; 1 retained.*Changed content retained/);assert.equal(status.querySelector('b'),null);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('account email bulk controls retain the original preview and delivery row actions',async()=>{
+  const f=fixture({hash:'#review/email-review',api:async body=>body.action==='review-list'?reviewResponse(body):{ok:false,json:async()=>({ok:false,error:'Unused fixture API'})}});
+  try{await settle();const body=f.document.getElementById('cs-mail-history');body.innerHTML='<tr data-review-id="decision-one" data-review-allowed="true"><td>Original mail details</td><td><button>Existing review action</button></td></tr>';
+    f.document.dispatchEvent(new f.w.CustomEvent('clamshield-mail-rows',{detail:body}));assert.equal(body.querySelector('button').textContent,'Existing review action');assert.equal(body.querySelector('input[type=checkbox]').value,'decision-one');assert.equal(body.closest('table').querySelector('th').textContent,'Select');
+    const bar=f.document.querySelector('[data-review-pager=email-decisions]');bar.querySelector('[aria-label="Select this page"]').click();assert.match(bar.textContent,/1 selected/);assert.equal(bar.querySelector('[data-review-command=clear-selected]').disabled,false);assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 

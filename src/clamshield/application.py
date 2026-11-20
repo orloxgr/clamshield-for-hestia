@@ -416,7 +416,7 @@ class Application:
             from .review import Review
             review=Review(self.settings,self.store,self.hestia)
             if action=='review-list':return review.query(context,request.get('list'),request.get('scope','account'),request.get('filters',{}),request.get('offset',0),request.get('limit',50))
-            return review.bulk(context,request.get('list'),request.get('scope','account'),{'review-bulk-preview':'preview','review-bulk-clear':'clear','review-read-all':'read'}[action],request.get('confirmation'))
+            return review.bulk(context,request.get('list'),request.get('scope','account'),{'review-bulk-preview':'preview','review-bulk-clear':'clear','review-read-all':'read'}[action],request.get('confirmation'),request.get('selected'))
         if action == 'notification-read':
             self.store.read_notification(context, request.get('notification_id'))
             return {'read': True}
@@ -493,6 +493,8 @@ class Application:
                         maintenance=self.store.list_tasks(self.hestia.authorize(context['actor'],context['actor'])),
                         accounts=[dict(owner=a['owner'],role=a['role'],suspended=a['suspended'],sites=len(a['sites'])) for a in inventory])
             data['yara_settings']=yara_policy
+        from .review import Review
+        Review(self.settings,self.store,self.hestia).hide_deleted_previews(data)
         return data
 
     def generation(self):

@@ -169,10 +169,20 @@ test('all unconfirmed source states hide release and deletion while legacy and a
     try {
       await until(()=>f.byId('quarantine').textContent.includes('Preview plain text'));
       const confirmed=sourceStatus===null || sourceStatus==='accepted';
-      assert.equal(f.byId('quarantine').textContent.includes('Queue release'),confirmed,sourceStatus);
+      assert.equal(f.byId('quarantine').textContent.includes('Deliver anyway'),confirmed,sourceStatus);
       assert.equal(f.byId('quarantine').textContent.includes('Delete quarantined email'),confirmed,sourceStatus);
     } finally {f.close();}
   }
+});
+
+test('Deliver anyway uses the original quarantine recipient binding and requires a recorded reason',async()=>{
+  const f=await fixture();
+  try{await until(()=>f.byId('quarantine').textContent.includes('Deliver anyway'));
+    const button=[...f.byId('quarantine').querySelectorAll('button')].find(b=>b.textContent==='Deliver anyway'),form=button.closest('form'),reason=form.querySelector('input');
+    assert.equal(reason.required,true);reason.value='Reviewed false positive';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));
+    await until(()=>f.requests.some(r=>r.action==='mail-release'));
+    assert.deepEqual(f.requests.find(r=>r.action==='mail-release'),{token:'fixture-token',owner:'alice',action:'mail-release',delivery_id:'delivery-one',note:'Reviewed false positive'});
+  }finally{f.close();}
 });
 
 test('retention applies only a previewed period with its scoped server revision',async()=>{

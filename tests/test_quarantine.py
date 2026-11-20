@@ -50,6 +50,49 @@ class ReversibleCapture(unittest.TestCase):
         self.assertEqual(self.original['mtime_ns'], self.file.stat().st_mtime_ns)
         self.assertEqual('restored_unverified', self.store.finding(self.context, self.finding_id)['status'])
 
+    def deletion_admin(self):
+        admin=self.context|dict(actor='admin',admin=True);self.hestia.authorize.return_value=admin;return admin
+
+    def test_delete_removes_only_verified_private_copy_and_keeps_website_replacement(self):
+        operation=self.quarantine.capture(self.context,self.finding_id);admin=self.deletion_admin()
+        self.file.write_text('replacement website file');self.quarantine.delete(admin,operation)
+        self.assertFalse((self.settings.quarantine/operation).exists());self.assertEqual('replacement website file',self.file.read_text())
+        self.assertEqual('deleted',self.quarantine.get(admin,operation)['status']);self.assertEqual('quarantine_deleted',self.store.finding(admin,self.finding_id)['status'])
+        self.assertTrue(self.quarantine.delete(admin,operation)['deleted'])
+        with self.assertRaises(Conflict):self.quarantine.restore(admin,operation)
+
+    def test_delete_keeps_changed_private_content_and_rejects_tenant_authority(self):
+        operation=self.quarantine.capture(self.context,self.finding_id)
+        with self.assertRaises(AccessDenied):self.quarantine.delete(self.context,operation)
+        admin=self.deletion_admin();copy=self.settings.quarantine/operation;copy.write_text('changed bytes')
+        with self.assertRaises(Conflict):self.quarantine.delete(admin,operation)
+        self.assertEqual('changed bytes',copy.read_text());self.assertEqual('quarantined',self.quarantine.get(admin,operation)['status'])
+
+    def test_delete_rejects_links_and_unjournaled_missing_content(self):
+        operation=self.quarantine.capture(self.context,self.finding_id);admin=self.deletion_admin();copy=self.settings.quarantine/operation
+        linked=self.settings.quarantine/'link';os.link(copy,linked)
+        with self.assertRaises(Conflict):self.quarantine.delete(admin,operation)
+        linked.unlink();copy.unlink();copy.symlink_to(self.file)
+        with self.assertRaises(OSError):self.quarantine.delete(admin,operation)
+        copy.unlink()
+        with self.assertRaises(Conflict):self.quarantine.delete(admin,operation)
+        self.assertEqual('quarantined',self.quarantine.get(admin,operation)['status'])
+
+    def test_delete_resumes_after_unlink_before_database_commit(self):
+        operation=self.quarantine.capture(self.context,self.finding_id);admin=self.deletion_admin();audit=self.store.audit
+        def interrupt(context,action,*args,**kwargs):
+            if action=='quarantine.deleted':raise RuntimeError('Injected interruption')
+            return audit(context,action,*args,**kwargs)
+        with patch.object(self.store,'audit',side_effect=interrupt),self.assertRaises(RuntimeError):self.quarantine.delete(admin,operation)
+        self.assertFalse((self.settings.quarantine/operation).exists());self.assertEqual('deleting',self.quarantine.get(admin,operation)['status'])
+        self.quarantine.delete(admin,operation);self.assertEqual('deleted',self.quarantine.get(admin,operation)['status'])
+
+    def test_native_generation_change_during_delete_keeps_private_file(self):
+        operation=self.quarantine.capture(self.context,self.finding_id);admin=self.deletion_admin()
+        self.hestia.authorize.side_effect=[admin,admin|dict(identity='recreated')]
+        with self.assertRaises(AccessDenied):self.quarantine.delete(admin,operation)
+        self.assertTrue((self.settings.quarantine/operation).is_file())
+
     def test_restore_never_overwrites_a_replacement_file(self):
         operation = self.quarantine.capture(self.context, self.finding_id)
         self.file.write_text('replacement clean file')

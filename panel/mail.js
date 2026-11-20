@@ -179,7 +179,7 @@
       if (selected !== historyRevision) return;
       byId('history-status').textContent = result.total + ' recorded recipient decisions';
       for (const decision of result.decisions) {
-        const row = document.createElement('tr');
+        const row = document.createElement('tr');row.dataset.reviewId=decision.id;row.dataset.reviewAllowed='true';
         const values = [new Date(decision.created * 1000).toISOString(), decision.sender + ' → ' + decision.recipient,
           decision.action + ' · ' + decision.classification,
           (decision.detail.spamassassin ? 'SpamAssassin: ' + decision.detail.spamassassin.score +
@@ -192,6 +192,7 @@
         for (const value of values) { const cell = document.createElement('td'); cell.textContent = value; row.append(cell); }
         body.append(row);
       }
+      document.dispatchEvent(new CustomEvent('clamshield-mail-rows',{detail:body}));
       historyOffset = result.next_offset ?? 0; more.hidden = result.next_offset === null;
     } catch (error) { if (selected === historyRevision) byId('history-status').textContent = error.message; }
     finally { if (selected === historyRevision) more.disabled = false; }
@@ -288,6 +289,7 @@
       for (const mail of result.messages) {
         const row = document.createElement('tr');
         const sourcePending = mail.source_status != null && mail.source_status !== 'accepted';
+        row.dataset.reviewId=mail.id;row.dataset.reviewAllowed=String(!sourcePending&&['quarantined','deleting'].includes(mail.status));
         const handlingStatus = sourcePending ?
           (mail.source_status === 'uncertain' || mail.source_error ? 'Mail handling needs review' : 'Awaiting mail server confirmation') :
           ({native_queued: 'Queued with mail server', delivery_pending: 'Preparing delivery',
@@ -322,8 +324,8 @@
         actions.append(preview, exceptionEditor);
         if (mail.status === 'quarantined' && !sourcePending && (root.dataset.admin === 'true' || result.permissions.release)) {
           const form = document.createElement('form'), note = nativeControl('input'), release = nativeControl('button');
-          note.required = true; note.maxLength = 1000; note.placeholder = 'Reason for release'; note.setAttribute('aria-label', 'Email release reason');
-          release.type = 'submit'; release.textContent = 'Queue release'; form.append(note, release);
+          note.required = true; note.maxLength = 1000; note.placeholder = 'Reason for delivering this email'; note.setAttribute('aria-label', 'Email release reason');
+          release.type = 'submit'; release.textContent = 'Deliver anyway'; form.append(note, release);
           form.addEventListener('submit', async event => {
             event.preventDefault(); release.disabled = true;
             try { await api('mail-release', {delivery_id: mail.id, note: note.value}); await quarantine(); }
@@ -342,6 +344,7 @@
         }
         actions.append(output); row.append(actions); body.append(row);
       }
+      document.dispatchEvent(new CustomEvent('clamshield-mail-rows',{detail:body}));
       quarantineOffset = result.next_offset ?? 0; more.hidden = result.next_offset === null;
     } catch (error) { if (selected === quarantineRevision) byId('quarantine-status').textContent = error.message; }
     finally { if (selected === quarantineRevision) more.disabled = false; }
@@ -478,6 +481,7 @@
     } catch (error) { if (selected === reviewRevision) byId('review-status').textContent = error.message; }
     finally { if (selected === reviewRevision) { more.disabled = false; byId('review-refresh').disabled = false; } }
   }
+  document.addEventListener('clamshield-mail-refresh',event=>{if(event.detail==='email-stored')quarantine();if(event.detail==='email-decisions')history();});
   function syncMirrors(){for(const [kind,original] of [['domain',domain],['box',mailbox]])for(const select of document.querySelectorAll('.cs-mail-'+kind+'-mirror')){select.replaceChildren(...[...original.options].map(option=>option.cloneNode(true)));select.value=original.value;select.onchange=()=>{original.value=select.value;original.dispatchEvent(new Event('change'));};}}
   byId('review-search').addEventListener('submit', event => { event.preventDefault(); reviewSearch = new FormData(event.target).get('search'); byId('review-result').textContent = ''; review(); });
   byId('review-more').addEventListener('click', () => review(false));

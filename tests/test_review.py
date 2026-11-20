@@ -13,6 +13,7 @@ from clamshield.hestia import Hestia
 from clamshield.review import Review,SPECS
 from clamshield.settings import Settings
 from clamshield.store import Store,encode
+from clamshield.exceptions import Exceptions
 
 
 class ReviewTests(unittest.TestCase):
@@ -137,6 +138,55 @@ class ReviewTests(unittest.TestCase):
         self.notice(self.alice);result=self.app.dispatch(dict(actor='alice',action='review-list',list='notices',filters={},scope='account'))
         self.assertEqual(1,result['total'])
         with self.assertRaises(AccessDenied):self.app.dispatch(dict(actor='alice',admin=True,identity='admin-generation',action='review-list',list='notices',filters={},scope='server'))
+
+    def test_selected_findings_clear_exact_snapshot_without_deleting_detection_evidence(self):
+        self.findings(3);admin=self.hestia.authorize('admin','alice')
+        rows=self.page('findings')['records'];selected=[rows[0]['id']]
+        proof=self.review.bulk(admin,'findings','account','preview',selected=selected)
+        self.assertEqual(1,proof['count']);self.store.add_finding(self.store.job(self.alice,rows[0]['job_id']),'new.php',{'sha256':'b'*64},dict(engine='yara',provider='local',signature='NewFixture'))
+        self.assertEqual(1,self.review.bulk(admin,'findings','account','clear',proof['token'])['changed'])
+        self.assertEqual(3,self.page('findings')['total']);self.assertEqual('open',self.store.finding(self.alice,selected[0])['status'])
+        data=dict(findings=rows);self.review.hide_deleted_previews(data);self.assertEqual(2,len(data['findings']))
+        for values in ([],['missing'],[rows[1]['id']]*2):
+            with self.assertRaises(ClamShieldError):self.review.bulk(admin,'findings','account','preview',selected=values)
+        with self.assertRaises(AccessDenied):self.review.bulk(self.alice,'findings','account','preview')
+
+    def test_activity_clearing_keeps_running_work_and_rechecks_status_after_preview(self):
+        ids=[self.store.enqueue_task(self.alice,'fixture',{'n':n}) for n in range(3)]
+        with self.store.connection() as db:db.execute("UPDATE maintenance SET status='completed' WHERE id IN (?,?)",ids[:2])
+        proof=self.review.bulk(self.admin,'activity','server','preview');self.assertEqual(2,proof['count']);self.assertEqual(1,proof['retained'])
+        with self.store.connection() as db:db.execute("UPDATE maintenance SET status='running' WHERE id=?",(ids[0],))
+        self.assertEqual(1,self.review.bulk(self.admin,'activity','server','clear',proof['token'])['changed'])
+        rows=self.page('activity',self.admin,'server')['records'];self.assertEqual(set(ids[::2]),{row['id'] for row in rows})
+
+    def test_removing_all_exceptions_disables_them_without_affecting_other_accounts(self):
+        self.findings(1);finding=self.page('findings')['records'][0]['id'];exception=Exceptions(self.store).add(self.alice,finding)
+        admin=self.hestia.authorize('admin','alice');proof=self.review.bulk(admin,'exceptions','account','preview')
+        self.assertEqual(1,self.review.bulk(admin,'exceptions','account','clear',proof['token'])['changed']);self.assertEqual(0,self.page('exceptions')['total'])
+        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT enabled FROM exceptions WHERE id=?',(exception,)).fetchone()[0])
+
+    def test_quarantine_batches_report_failures_keep_new_records_and_preserve_recovery(self):
+        import uuid
+        self.findings(1);finding=self.page('findings')['records'][0]['id'];ids=[uuid.uuid4().hex for _ in range(12)]
+        with self.store.connection() as db:
+            for index,ident in enumerate(ids):db.execute('INSERT INTO operations VALUES(?,?,?,?,?,?,?,?,?,?)',(ident,finding,*self.store.scope(self.alice),'alice','quarantine','restoring' if index==11 else 'quarantined',1,encode(dict(root=str(self.base/'alice'),path='fixture.php')),None))
+        admin=self.hestia.authorize('admin','alice');proof=self.review.bulk(admin,'quarantine','account','preview')
+        self.assertEqual(11,proof['count']);self.assertEqual(1,proof['retained'])
+        def delete(context,ident):
+            self.assertEqual('alice',context['owner']);self.assertEqual(self.alice['identity'],context['identity'])
+            if ident==ids[0]:raise Conflict('Changed private content retained')
+        with patch('clamshield.quarantine.Quarantine.delete',side_effect=delete) as action:
+            first=self.review.bulk(admin,'quarantine','account','clear',proof['token']);self.assertTrue(first['pending']);self.assertEqual(5,action.call_count)
+            result=first
+            while result['pending']:result=self.review.bulk(admin,'quarantine','account','clear',proof['token'])
+        self.assertEqual(10,result['changed']);self.assertEqual(1,result['failed']);self.assertEqual(2,self.page('quarantine')['total'])
+        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM review_confirmation_items').fetchone()[0])
+
+    def test_selected_notifications_cannot_clear_another_account_and_keep_new_items(self):
+        target=self.notice(self.alice);other=self.notice(self.bob)
+        with self.assertRaises(AccessDenied):self.review.bulk(self.alice,'notices','account','preview',selected=[other])
+        proof=self.review.bulk(self.alice,'notices','account','preview',selected=[target]);new=self.notice(self.alice,subject='new')
+        self.review.bulk(self.alice,'notices','account','clear',proof['token']);self.assertEqual([new],[row['id'] for row in self.page('notices')['records']])
 
     @unittest.skipUnless(shutil.which('php'),'PHP renderer')
     def test_shared_php_fragments_render_all_lists_and_escape_notifications(self):

@@ -379,17 +379,18 @@ class MailCustody:
                 if not context['admin'] and not self.policies.permissions(context,db)['delete']:
                     raise AccessDenied('Email deletion is disabled for this account')
                 row = self.row(context, delivery_id, db)
-                if row['status'] != 'quarantined':
+                if row['status'] not in ('quarantined','deleting'):
                     raise Conflict('Only quarantined email can be deleted')
                 transaction = self.transaction(row['transaction_id'], db)
                 self.confirmed(transaction, db)
-                with self.blob(root, transaction):
-                    pass
-                if expiry is not None:
-                    manager, now = expiry
-                    manager.prepare(context, row, transaction, db, now)
-                db.execute("UPDATE mail_recipients SET status='deleting',updated=? WHERE id=? AND owner=? AND identity=?", (time.time(), row['id'], *self.store.scope(context)))
-                self.store.audit(context, 'mail.delete_requested', row['id'], {}, db)
+                if row['status']=='quarantined':
+                    with self.blob(root, transaction):
+                        pass
+                    if expiry is not None:
+                        manager, now = expiry
+                        manager.prepare(context, row, transaction, db, now)
+                    db.execute("UPDATE mail_recipients SET status='deleting',updated=? WHERE id=? AND owner=? AND identity=?", (time.time(), row['id'], *self.store.scope(context)))
+                    self.store.audit(context, 'mail.delete_requested', row['id'], {}, db)
             self._finish_delete(root, row)
         return {'deleted': True, 'id': row['id']}
 

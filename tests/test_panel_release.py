@@ -67,7 +67,7 @@ require $argv[1].'/route.php';
         if templates:shutil.copytree(ROOT/'panel',self.base/'old/panel',dirs_exist_ok=True)
         (self.base/'hestia/web/inc/main.php').write_text('<?php $_SESSION=["user"=>"admin","token"=>"fixture-token"];')
         value=dict(ok=True,list='notices',total=1,offset=0,limit=50,next_offset=None,options={},accounts=['alice'],can_clear=True,
-                   records=[dict(private_marker='ROOT_RECORD_ONLY')],view_data=dict(context=dict(owner='admin',view_scope='server'),notifications=[dict(owner='alice',id='notice',event='scan.malware_found',subject='<img src=x>',created=1,read_at=None,detail={})]))
+                   records=[dict(id='notice',review_selectable=True,private_marker='ROOT_RECORD_ONLY')],view_data=dict(context=dict(owner='admin',view_scope='server'),notifications=[dict(owner='alice',id='notice',event='scan.malware_found',subject='<img src=x>',created=1,read_at=None,detail={})]))
         (self.base/'response.json').write_text(json.dumps(value),encoding='utf-8')
         (self.base/'bridge').write_text('#!/usr/bin/python3\nimport pathlib,sys\nsys.stdin.read()\nprint(pathlib.Path(__file__).with_name("response.json").read_text())\n')
         (self.base/'runner.php').write_text('''<?php
