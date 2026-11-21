@@ -7,7 +7,7 @@ function data(admin=true){
   const permissions=Object.fromEntries(['scan','schedule','quarantine','restore','repair','cleanup','exceptions','automatic'].map(key=>[key,true]));
   return {context:{owner:'alice',admin},accounts:[{owner:'alice'}],
     sites:[{domain:'site.test',root:'/home/alice/web/site.test/public_html',suspended:false,
-      policy:{watch:false,frequency:'never',time:'03:00',timezone:'UTC',weekday:0,monthday:1,rescan_updates:true},
+      policy:{watch:false,frequency:'never',time:'03:00',timezone:'UTC',weekday:0,monthday:1},
       remediation:{site:{mode:'inherit'},effective:{mode:'report'}}}],
     summary:{open_findings:0,active_scans:0,quarantined:0},findings:[],jobs:[],repairs:[],quarantine:[],history:[],wordpress:[],exceptions:[],notifications:[],remediation_history:[],
     remediation_policy:{account:{mode:'report'}},website_permissions:{effective:permissions,permissions,labels:permissions},
@@ -42,6 +42,16 @@ function fixture(options={}){
     visible:()=>[...new Set([...w.document.querySelectorAll('[data-page]')].filter(section=>!section.hidden).map(section=>section.dataset.page))]};
 }
 const labels=['Dashboard','Email Shield','On-Demand Actions','Scheduled Scanner','Review','Updates','Settings'];
+
+test('scan schedules have no post-update rescan checkbox or policy field',async()=>{
+  const f=fixture({hash:'#scheduled'});
+  try{assert.equal(f.document.querySelector('[name=rescan_updates]'),null);
+    assert.equal(f.document.querySelector('[data-action=automatic-rechecks-resume]'),null);
+    const form=f.document.querySelector('form.cs-policy');form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const request=f.requests.find(value=>value.action==='policy-defaults-save');assert.ok(request);
+    assert.equal(Object.hasOwn(JSON.parse(request.policy),'rescan_updates'),false);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
 
 test('scripts initialize during normal document parsing and SpamAssassin controls remain connected',async()=>{
   const f=fixture({parser:true,hash:'#settings/spamassassin'});
@@ -644,13 +654,13 @@ test('full panel opens Dashboard and keeps the seven native menu links while nav
   }finally{await f.close();}
 });
 test('Scheduled Scanner shows a closed paused site with an authorized explicit Resume control',async()=>{
-  const f=fixture({hash:'#scheduled',change:v=>{v.context.view_scope='server';v.sites[0].owner='bob';v.sites[0].automatic_rechecks_paused=true;}});
-  try{const button=f.document.querySelector('[data-action=automatic-rechecks-resume]'),section=button.closest('details');
-    assert.equal(section.open,false);assert.match(section.querySelector('summary').textContent,/Automatic rechecks paused/);
-    assert.equal(button.dataset.capability,'schedule');assert.equal(button.textContent,'Resume automatic rechecks');
-    button.click();button.click();await settle();const request=f.requests.find(r=>r.action==='automatic-rechecks-resume');
+  const f=fixture({hash:'#scheduled',change:v=>{v.context.view_scope='server';v.sites[0].owner='bob';v.sites[0].initial_monitoring_paused=true;}});
+  try{const button=f.document.querySelector('[data-action=initial-monitoring-resume]'),section=button.closest('details');
+    assert.equal(section.open,false);assert.match(section.querySelector('summary').textContent,/Initial monitoring paused/);
+    assert.equal(button.dataset.capability,'schedule');assert.equal(button.textContent,'Resume initial monitoring');
+    button.click();button.click();await settle();const request=f.requests.find(r=>r.action==='initial-monitoring-resume');
     assert.equal(request.owner,'bob');assert.equal(request.domain,'site.test');assert.equal(request.token,'fixture-token');
-    assert.equal(f.requests.filter(r=>r.action==='automatic-rechecks-resume').length,1);assert.deepEqual(f.errors,[]);
+    assert.equal(f.requests.filter(r=>r.action==='initial-monitoring-resume').length,1);assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 

@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.14.1** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.15.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -104,7 +104,7 @@ establish active scanning coverage or access to a public blocklist.
 - Discover Hestia accounts, domains and actual document roots, including custom
   roots and account/site lifecycle changes.
 - Scan a file, folder, website, account or all accounts; schedule scans, monitor
-  new/changed files and recheck existing files after scanning-data updates.
+  new/changed files. Signature/rule updates do not start scans.
 - Follow live progress, cancel jobs and review checked/skipped/error coverage.
   Encryption, limits, unreadable files and unavailable engines remain incomplete.
 - Review engine, rule/signature, source, severity, scanning generation and
@@ -275,7 +275,6 @@ flow; uncertain delivery states continue to use recovery checks.
 Scans supports search, active-job filtering and 25/50/100-row pagination.
 Administrators can Clear non-active scans for the selected account or server
 view after confirming its count. This removes terminal jobs from the scan list;
-queued/running jobs, findings and recovery evidence remain. Cancelling an
-automatic full recheck prevents it from returning for the same active signature/
-rule generation. New generations, manual scans and future scheduled scans remain
-available. Clearing the list retains the cancellation decision.
+queued/running jobs, findings and recovery evidence remain. Cancelling an initial
+monitoring scan pauses its baseline until explicitly resumed in Scheduled Scanner.
+Manual scans and calendar schedules remain independent.

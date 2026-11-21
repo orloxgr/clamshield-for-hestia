@@ -138,7 +138,7 @@ CREATE TABLE IF NOT EXISTS review_deleted (
  kind TEXT NOT NULL,record_id TEXT NOT NULL,owner TEXT NOT NULL,identity TEXT NOT NULL,
  PRIMARY KEY(kind,record_id,owner,identity)
 );
-CREATE TABLE IF NOT EXISTS automatic_rechecks (
+CREATE TABLE IF NOT EXISTS monitoring_pauses (
  owner TEXT NOT NULL,identity TEXT NOT NULL,domain TEXT NOT NULL,root TEXT NOT NULL,
  paused INTEGER NOT NULL,updated REAL NOT NULL,PRIMARY KEY(owner,identity,domain,root)
 );
@@ -313,14 +313,15 @@ class Store:
     def enqueue(self, context, site, target='', source='manual', generation='unknown', dedup_key=None, *, reuse_active=False):
         if (site['owner'], site['identity']) != self.scope(context):
             raise AccessDenied('Site does not belong to this account generation')
+        if source=='signature-update':return None
         job_id = uuid.uuid4().hex
         with self.connection(True) as db:
-            if source in ('signature-update','watch-initial') and not target:
-                from .automatic_rechecks import AutomaticRechecks
+            if source=='watch-initial' and not target:
+                from .initial_monitoring import InitialMonitoring
                 scope=(*self.scope(context),site['domain'],site['root'])
                 active=db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
                   AND target='' AND status IN ('queued','running') AND source NOT IN ('wordpress-integrity','repair-preview','yara-trial') LIMIT 1""",scope).fetchone()
-                if AutomaticRechecks.paused(db,context,site) or active:return None
+                if InitialMonitoring.paused(db,context,site) or active:return None
             if reuse_active:
                 existing=db.execute('''SELECT id FROM jobs WHERE owner=? AND identity=? AND domain=?
                   AND root=? AND source=? AND target=? AND status IN ('queued','running')
@@ -372,13 +373,7 @@ class Store:
                              (job_id, *self.scope(context))).fetchone()
             if not row:
                 raise AccessDenied('Scan unavailable')
-            automatic=row['source'] in ('signature-update','watch-initial') and not row['target']
-            cancelled_generation=row['generation']
-            if automatic and cancelled_generation=='unknown':
-                from .generations import current
-                from .settings import Settings
-                cancelled_generation=current(Settings(state=self.path.parent))
-                db.execute('UPDATE jobs SET generation=? WHERE id=?',(cancelled_generation,job_id))
+            automatic=row['source']=='watch-initial' and not row['target']
             if row['status'] == 'queued':
                 db.execute("UPDATE jobs SET status='cancelled',cancel_requested=1,finished=? WHERE id=?",
                            (time.time(), job_id))
@@ -387,24 +382,28 @@ class Store:
             else:
                 raise Conflict('Scan has already finished')
             if automatic:
-                from .automatic_rechecks import AutomaticRechecks
-                AutomaticRechecks.set(db,context,dict(row),True)
+                from .initial_monitoring import InitialMonitoring
+                InitialMonitoring.set(db,context,dict(row),True)
                 db.execute("""UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?
                   WHERE owner=? AND identity=? AND domain=? AND root=? AND target=''
-                  AND source IN ('signature-update','watch-initial') AND status='queued'""",
+                  AND source='watch-initial' AND status='queued'""",
                   (time.time(),*self.scope(context),row['domain'],row['root']))
-            self.audit(context, 'scan.cancel_requested', job_id, {'automatic_rechecks_paused':automatic}, db)
+            self.audit(context, 'scan.cancel_requested', job_id, {'initial_monitoring_paused':automatic}, db)
             return automatic
 
     def claim(self, worker):
         with self.connection(True) as db:
-            from .automatic_rechecks import AutomaticRechecks
+            from .initial_monitoring import InitialMonitoring
             row=None
             for candidate in db.execute("SELECT * FROM jobs WHERE status='queued' ORDER BY created,id LIMIT 100").fetchall():
-                if (candidate['source'] in ('signature-update','watch-initial') and not candidate['target'] and
-                        AutomaticRechecks.paused(db,dict(candidate),dict(candidate))):
+                if candidate['source']=='signature-update':
                     db.execute("UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?,error=? WHERE id=?",
-                      (time.time(),'Automatic rechecks paused after cancellation',candidate['id']))
+                      (time.time(),'Automatic scans after signature updates have been removed',candidate['id']))
+                    continue
+                if (candidate['source']=='watch-initial' and not candidate['target'] and
+                        InitialMonitoring.paused(db,dict(candidate),dict(candidate))):
+                    db.execute("UPDATE jobs SET status='cancelled',cancel_requested=1,finished=?,error=? WHERE id=?",
+                      (time.time(),'Initial monitoring paused after cancellation',candidate['id']))
                     continue
                 row=candidate;break
             if row is None:return None
@@ -423,7 +422,7 @@ class Store:
         The whole transition commits together, so installer retries cannot add
         duplicate replacement jobs or lose the interruption record.
         """
-        restartable={'manual','scheduled','signature-update','watch-initial','watch',
+        restartable={'manual','scheduled','watch-initial','watch',
                      'wordpress-integrity','wordpress-recovery-recheck'}
         interrupted=requeued=0
         with self.connection(True) as db:
@@ -465,7 +464,7 @@ class Store:
         if not self.website_control_pending():return False
         with self.connection(True) as db:
             row=db.execute("SELECT * FROM jobs WHERE id=? AND worker=? AND status='running' AND cancel_requested=0",(job['id'],job['worker'])).fetchone()
-            if (not row or row['source'] not in ('manual','scheduled','signature-update','watch-initial','watch') or
+            if (not row or row['source'] not in ('manual','scheduled','watch-initial','watch') or
                     not db.execute("SELECT 1 FROM maintenance WHERE action IN ('website-engine-start','website-engine-stop') AND status IN ('queued','running') LIMIT 1").fetchone()):return False
             replacement=uuid.uuid4().hex;now=time.time()
             db.execute('''INSERT INTO jobs(id,owner,identity,domain,root,target,source,actor,created,generation,dedup_key)

@@ -63,17 +63,17 @@ class WebsiteDelegation(unittest.TestCase):
                     self.request(action,admin=True,owner='alice',policy={'mode':'quarantine'})
 
     def test_explicit_resume_is_scoped_and_cannot_bypass_schedule_permission(self):
-        from clamshield.automatic_rechecks import AutomaticRechecks
-        job=self.store.enqueue(self.context,self.site,source='signature-update',generation='rules')
+        from clamshield.initial_monitoring import InitialMonitoring
+        job=self.store.enqueue(self.context,self.site,source='watch-initial',generation='rules')
         self.store.cancel(self.context,job)
         self.save(schedule=False)
         with self.assertRaisesRegex(AccessDenied,'disabled by the administrator'):
-            self.request('automatic-rechecks-resume',domain=self.site['domain'])
-        self.assertTrue(AutomaticRechecks.status(self.store,self.context,self.site))
+            self.request('initial-monitoring-resume',domain=self.site['domain'])
+        self.assertTrue(InitialMonitoring.status(self.store,self.context,self.site))
         self.save(schedule=True)
-        result=self.request('automatic-rechecks-resume',domain=self.site['domain'])
-        self.assertFalse(result['automatic_rechecks_paused'])
-        self.assertFalse(AutomaticRechecks.status(self.store,self.context,self.site))
+        result=self.request('initial-monitoring-resume',domain=self.site['domain'])
+        self.assertFalse(result['initial_monitoring_paused'])
+        self.assertFalse(InitialMonitoring.status(self.store,self.context,self.site))
 
     def test_apply_checks_actual_frozen_plan_kind_instead_of_browser_capability(self):
         cleanup=self.repairs.queue(self.context,self.finding,cleanup=True)

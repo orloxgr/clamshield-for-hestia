@@ -34,6 +34,7 @@ class Worker:
 
     def validate(self, job):
         if job['source']=='yara-trial':raise Conflict('Trial scans were removed')
+        if job['source']=='signature-update':raise Conflict('Automatic scans after signature updates have been removed')
         context = self.hestia.authorize(job['owner'], job['owner'])
         if context['identity'] != job['identity']:
             raise Conflict('Account was replaced after this scan was queued')
@@ -99,9 +100,9 @@ class Worker:
             return True
 
     def run(self, job):
-        if job['source']=='yara-trial':
+        if job['source'] in ('yara-trial','signature-update'):
             counters=json.loads(job['counters']) if isinstance(job['counters'],str) else job['counters']
-            self.store.finish(job,'cancelled',counters,'Trial scans were removed; this comparison will not run')
+            self.store.finish(job,'cancelled',counters,'Trial scans were removed; this comparison will not run' if job['source']=='yara-trial' else 'Automatic scans after signature updates have been removed')
             return
         try:
             self.validate(job)
@@ -110,7 +111,7 @@ class Worker:
                 from .yara_settings import YaraSettings
                 policy = YaraSettings(self.settings).read()
                 # Repairs/recovery retain their independent validation contract.
-                ordinary = job['source'] in ('manual','scheduled','signature-update','watch-initial','watch')
+                ordinary = job['source'] in ('manual','scheduled','watch-initial','watch')
                 if ordinary:
                     engines = [engine for engine in self.engines if not isinstance(engine,Yara)]
                     if policy['enabled']:

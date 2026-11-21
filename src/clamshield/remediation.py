@@ -20,7 +20,7 @@ from .website_generation import advisory_kind
 from .rule_sources import finding_supported
 
 MODES=('report','quarantine','cleanup','cleanup-or-quarantine')
-SOURCES=('manual','scheduled','watch','watch-initial','signature-update')
+SOURCES=('manual','scheduled','watch','watch-initial')
 PENDING=('queued','preparing','applying','verifying')
 
 

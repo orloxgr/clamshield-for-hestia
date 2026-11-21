@@ -532,7 +532,7 @@ PayPal, SaneSecurity and SecuriteInfo links plus upstream acknowledgements.
 ### Scan queue waiting reasons
 
 Website scans share one worker across the server, including manual, WordPress
-integrity and automatic scans after signature updates. Queued rows show their
+integrity and changed-file monitoring scans. Queued rows show their
 position in that shared FIFO queue and elapsed wait. A scan already in progress
 continues to completion; reading queue status does not interrupt or restart it.
 
@@ -551,21 +551,21 @@ activation links open Review / History for administrators. Unknown service or
 lock state is reported explicitly rather than presented as normal waiting.
 
 
-### Signature updates and file rechecks
+### Signature updates and scanning
 
-Normal scans use the already active signatures and rules. They do not run a
-signature download first. Provider/YARA automatic updates follow their saved
-schedules. The separate Full recheck after signature/rule updates choice queues
-a file scan when the active generation changes; the scan is labelled Recheck
-after signature updates. Its internal job source remains signature-update.
-Cancel pauses automatic full rechecks and the initial-monitoring fallback for
-that account identity and website root. New signature/rule generations cannot
-restart them. **Scheduled Scanner** marks the website **Automatic rechecks
-paused**; open its section and choose **Resume automatic rechecks** to allow
-them again under its saved policy. Existing retained cancellation decisions are
-honored. Already queued automatic rechecks are also stopped before claiming.
-Manual scans, future calendar scans and changed-file monitoring with existing
-observations remain available. Clearing cancelled rows retains the pause.
+Scans use the active signatures and rules without downloading them first.
+Provider/YARA automatic updates follow their saved schedules; installing updated
+scanning data does not queue a scan. Full scans run manually or on an explicit
+calendar schedule. Monitoring scans new/changed files when enabled.
+
+The former post-update full scan option has been removed. Saved values are
+ignored, new requests cannot create those jobs, queued old jobs are cancelled
+before claim, and interrupted old jobs are not restarted by installation.
+Historical records remain visible as Retired automatic scan until cleared.
+
+Cancelling the initial scan for explicitly enabled changed-file monitoring
+pauses that baseline. Scheduled Scanner offers Resume initial monitoring;
+manual/calendar scans and monitoring with existing observations are independent.
 
 Only Forge, community web hosting, local and remote source types are supported.
 Install/update rebuilds a mixed active ruleset from its supported installed source

@@ -1,4 +1,4 @@
-"""Persistent schedules, changed-file scans and generation-aware full rescans."""
+"""Persistent calendar schedules and explicitly enabled changed-file monitoring."""
 from datetime import datetime, timedelta, timezone
 import calendar
 import json
@@ -14,14 +14,20 @@ from .generations import current as current_generation
 from .health import Health
 
 DEFAULTS = {'watch': False, 'frequency': 'never', 'time': '02:00',
-            'timezone': 'UTC', 'weekday': 0, 'monthday': 1, 'rescan_updates': True}
+            'timezone': 'UTC', 'weekday': 0, 'monthday': 1}
+
+
+def saved_policy(value):
+    policy=json.loads(value)
+    policy.pop('rescan_updates',None)
+    return policy
 
 
 def validate_policy(value):
     if not isinstance(value, dict) or set(value) - set(DEFAULTS):
         raise ClamShieldError('Invalid scan policy')
     result = DEFAULTS | value
-    if any(type(result[k]) is not bool for k in ('watch', 'rescan_updates')):
+    if type(result['watch']) is not bool:
         raise ClamShieldError('Invalid scan policy toggle')
     if result['frequency'] not in ('never', 'daily', 'weekly', 'monthly'):
         raise ClamShieldError('Invalid schedule frequency')
@@ -71,14 +77,14 @@ class Scheduler:
             row = db.execute('SELECT settings,root FROM policies WHERE owner=? AND identity=? AND domain=?',
                              (*self.store.scope(context), site['domain'])).fetchone()
         defaults=self.defaults(context)
-        return validate_policy(defaults|json.loads(row['settings'])) if row and row['root'] == site['root'] else defaults
+        return validate_policy(defaults|saved_policy(row['settings'])) if row and row['root'] == site['root'] else defaults
 
     def defaults(self,context,server=False):
         if server and not context.get('admin'):raise AccessDenied('Administrator access required')
         with self.store.connection() as db:
             global_row=db.execute("SELECT settings FROM policies WHERE owner='@server' AND identity='' AND domain=''").fetchone()
             row=None if server else db.execute("SELECT settings FROM policies WHERE owner=? AND identity=? AND domain=''",self.store.scope(context)).fetchone()
-        return validate_policy((json.loads(global_row['settings']) if global_row else {}) | (json.loads(row['settings']) if row else {}))
+        return validate_policy((saved_policy(global_row['settings']) if global_row else {}) | (saved_policy(row['settings']) if row else {}))
 
     def save_defaults(self,context,value,server=False,reset=False):
         live=self.hestia.authorize(context['actor'],context['owner'])
@@ -176,9 +182,6 @@ class Scheduler:
         with self.store.connection() as db:
             row = db.execute('SELECT last_slot FROM policies WHERE owner=? AND identity=? AND domain=?',
                              (*self.store.scope(context), site['domain'])).fetchone()
-            last = db.execute('''SELECT generation FROM jobs WHERE owner=? AND identity=? AND domain=?
-              AND root=? AND target='' AND source NOT IN ('wordpress-integrity','repair-preview','yara-trial') AND status='completed' ORDER BY finished DESC LIMIT 1''',
-              (*self.store.scope(context), site['domain'], site['root'])).fetchone()
             observations = {row['path']: json.loads(row['fingerprint']) for row in db.execute(
                 'SELECT path,fingerprint FROM observations WHERE owner=? AND identity=? AND domain=? AND root=?',
                 (*self.store.scope(context), site['domain'], site['root'])).fetchall()}
@@ -190,9 +193,6 @@ class Scheduler:
                 db.execute('UPDATE policies SET last_slot=? WHERE owner=? AND identity=? AND domain=?',
                            (slot, *self.store.scope(context), site['domain']))
             return [job_id]
-        if last and policy['rescan_updates'] and last['generation'] != generation:
-            job_id=self.store.enqueue(context, site, source='signature-update', generation=generation)
-            if job_id:return [job_id]
         if not policy['watch']:
             return []
         if not observations and not pending:

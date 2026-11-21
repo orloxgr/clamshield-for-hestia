@@ -126,7 +126,7 @@ class ReviewTests(unittest.TestCase):
         baseline=self.findings(1);claimed=self.store.job(self.alice,baseline)
         self.store.finish(claimed,'completed',{})
         site=dict(owner='alice',identity=self.alice['identity'],domain='alice.test',root=str(self.base/'alice'))
-        cancelled=self.store.enqueue(self.alice,site,source='signature-update',generation='new-rules')
+        cancelled=self.store.enqueue(self.alice,site,source='watch-initial',generation='new-rules')
         self.store.cancel(self.alice,cancelled)
         running=self.store.enqueue(self.alice,site);self.store.claim('test')
         queued=self.store.enqueue(self.alice,site)

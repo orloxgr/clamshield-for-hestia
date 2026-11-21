@@ -53,4 +53,4 @@ class ScanStatus:
             if live['identity']!=row['identity']:raise AccessDenied('Recorded scan account was replaced; no cancellation was performed')
             context=live
         paused=self.store.cancel(context,job_id)
-        return dict(cancel_requested=True,job_id=job_id,automatic_rechecks_paused=paused)
+        return dict(cancel_requested=True,job_id=job_id,initial_monitoring_paused=paused)

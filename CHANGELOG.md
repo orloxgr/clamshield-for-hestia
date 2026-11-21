@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.15.0
+
+- Remove automatic full website scans after signature/rule updates, including
+  schedule controls and the generation-change trigger. Data updates never queue
+  these scans, and old saved settings cannot re-enable them.
+- Refuse new post-update scan jobs, cancel retained queued jobs before claim and
+  prevent interrupted old jobs from being restarted. Historical records remain.
+- Keep manual/calendar scans and explicitly enabled changed-file monitoring;
+  its initial-baseline cancellation/resume is now independent of signature updates.
+
 ## 1.14.1
 
 - Match uploads cleanup policies by script extension, avoiding PHP marker bytes

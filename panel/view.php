@@ -118,7 +118,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  const ownerFor=node=>{const value=node.closest('[data-owner]')?.dataset.owner;return value&&!value.startsWith('@')?value:owner;};
  const websitePermissions=<?=json_encode($data['website_permissions']['effective'])?>;
  const websitePermissionLabels=<?=json_encode($data['website_permissions']['labels'])?>;
- const websiteActions={"automatic-rechecks-resume":"schedule","scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
+ const websiteActions={"initial-monitoring-resume":"schedule","scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
  const ruleOverrides=<?=json_encode($data['context']['admin']?$data['rule_manager']['disabled']:[],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  document.getElementById('cs-rules-refresh')?.addEventListener('click',()=>location.reload());
  document.getElementById('cs-history-lists-refresh').addEventListener('click',()=>{for(const kind of ['history','activity','automatic'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));});
@@ -162,7 +162,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
   catch(error){message.textContent=error.message;message.className='error';button.disabled=false;}
  });
  document.querySelectorAll('.cs-policy').forEach(form=>form.addEventListener('submit',async event=>{
-  event.preventDefault();const data=new FormData(form);const policy={watch:data.has('watch'),rescan_updates:data.has('rescan_updates'),frequency:data.get('frequency'),time:data.get('time'),timezone:data.get('timezone'),weekday:Number(data.get('weekday')),monthday:Number(data.get('monthday'))};
+  event.preventDefault();const data=new FormData(form);const policy={watch:data.has('watch'),frequency:data.get('frequency'),time:data.get('time'),timezone:data.get('timezone'),weekday:Number(data.get('weekday')),monthday:Number(data.get('monthday'))};
   const message=document.getElementById('cs-message');message.textContent='Saving policy...';
   try{const response=await fetch(location.pathname,{method:'POST',body:new URLSearchParams({token,owner:ownerFor(form),action:form.dataset.saveAction||'policy-save',scope:form.dataset.scope||'site',domain:form.dataset.domain||'',policy:JSON.stringify(policy)}),credentials:'same-origin'});const result=await response.json();if(!result.ok)throw new Error(result.error);message.textContent='Policy saved.';}catch(error){message.textContent=error.message;}
  }));

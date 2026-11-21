@@ -15,7 +15,7 @@ async function fixture(options={}){
     const body=Object.fromEntries(request.body);requests.push(body);
     if(body.action==='scan-cancel'){
       if(options.cancelError)return {ok:false,json:async()=>({ok:false,error:options.cancelError})};
-      cancelled=true;return {ok:true,json:async()=>({ok:true,cancel_requested:true,automatic_rechecks_paused:!!options.rechecksPaused})};
+      cancelled=true;return {ok:true,json:async()=>({ok:true,cancel_requested:true,initial_monitoring_paused:!!options.monitoringPaused})};
     }
     if(body.action==='review-bulk-preview'){
       if(options.previewWait)await options.previewWait;
@@ -73,9 +73,9 @@ test('visible scans poll current counters without replacing focused native contr
   }finally{f.close();}
 });
 
-test('signature-update job means a file recheck and has a readable label rather than an update action',async()=>{
+test('retained post-update jobs are labelled as retired',async()=>{
   const f=await fixture({source:'signature-update'});try{
-    const cell=f.byId('list').querySelector('tr').children[0];assert.match(cell.textContent,/Recheck after signature updates/);assert.doesNotMatch(cell.textContent,/signature-update/);
+    const cell=f.byId('list').querySelector('tr').children[0];assert.match(cell.textContent,/Retired automatic scan/);assert.doesNotMatch(cell.textContent,/signature-update/);
     assert.equal(f.requests[0].action,'scans-status');assert.equal(f.requests.some(row=>row.action==='signatures-update'),false);
   }finally{f.close();}
 });
@@ -92,10 +92,10 @@ test('cancel binds the recorded job/scope and retains running state until worker
   }finally{f.close();}
 });
 
-test('cancelling an automatic recheck explains its persistent pause without duplicate requests',async()=>{
-  const f=await fixture({source:'signature-update',rechecksPaused:true});try{
+test('cancelling initial monitoring explains its persistent pause without duplicate requests',async()=>{
+  const f=await fixture({source:'watch-initial',monitoringPaused:true});try{
     const button=f.byId('list').querySelector('button');button.click();button.click();
-    await until(()=>f.byId('list').textContent.includes('Automatic rechecks paused'));
+    await until(()=>f.byId('list').textContent.includes('Initial monitoring paused'));
     assert.match(f.byId('list').textContent,/Resume in Scheduled Scanner/);
     assert.equal(f.requests.filter(r=>r.action==='scan-cancel').length,1);
   }finally{f.close();}

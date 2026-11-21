@@ -66,7 +66,7 @@ class ScanQueue:
             elif busy is True:
                 code,message=('scan-running','Waiting for another scan to finish.') if running else ('scanner-busy','The scanner lock is held by another operation; waiting for it to finish.')
                 if running and admin:
-                    names={'signature-update':'automatic scan after signature updates','wordpress-integrity':'WordPress integrity check','manual':'manual scan','scheduled':'scheduled scan','watch':'changed-file scan','watch-initial':'initial monitoring scan'}
+                    names={'wordpress-integrity':'WordPress integrity check','manual':'manual scan','scheduled':'scheduled scan','watch':'changed-file scan','watch-initial':'initial monitoring scan'}
                     message='Waiting for '+names.get(running['source'],'another scan')+': '+running['owner']+' / '+running['domain']+'.'
             elif busy is None:code,message='unknown','The scanner lock could not be checked. Administrator attention is required.'
             elif running:code,message='recovery','A previous scan is still marked running, but its worker lock is free. Waiting for worker recovery.'

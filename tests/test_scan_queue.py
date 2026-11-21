@@ -40,7 +40,7 @@ class ScanQueueTests(unittest.TestCase):
         return fd
 
     def test_fifo_position_is_global_and_independent_of_search_scope_and_kind(self):
-        first=self.job('foreign',owner='bob',source='signature-update',created=1)
+        first=self.job('foreign',owner='bob',source='watch-initial',created=1)
         second=self.job('integrity',source='wordpress-integrity',created=2)
         third=self.job('manual',created=3)
         page=ScanStatus(self.store,self.hestia,self.settings).list(self.context,search='manual')
@@ -57,11 +57,11 @@ class ScanQueueTests(unittest.TestCase):
         self.assertEqual('waiting',job['queue']['code']);self.assertEqual(5,job['queue']['wait_seconds'])
 
     def test_active_oneshot_worker_is_not_misreported_as_starting_or_failed(self):
-        self.job('foreign',owner='bob',source='signature-update',status='running')
+        self.job('foreign',owner='bob',source='watch-initial',status='running')
         self.locked();job=self.job('sample')
         self.units.return_value=HEALTHY|{'clamshield-worker.service':{'LoadState':'loaded','ActiveState':'activating','SubState':'start'}}
         self.queue.describe([job],admin=True)
-        self.assertEqual('scan-running',job['queue']['code']);self.assertIn('automatic scan after signature updates: bob / foreign.test',job['queue']['message'])
+        self.assertEqual('scan-running',job['queue']['code']);self.assertIn('initial monitoring scan: bob / foreign.test',job['queue']['message'])
         self.queue.describe([job],admin=False)
         self.assertEqual('Waiting for another scan to finish.',job['queue']['message']);self.assertNotIn('bob',json.dumps(job['queue']))
 

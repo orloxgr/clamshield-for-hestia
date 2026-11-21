@@ -26,7 +26,7 @@
     cancel.removeAttribute('data-action');cancel.removeAttribute('data-job_id');
     cancel.addEventListener('click',async()=>{
       if(row.dataset.cancelling)return;version++;stop();row.dataset.cancelling='true';cancel.disabled=true;text(message,'Requesting cancellation…');
-      try{const result=await api('scan-cancel',{job_id:row.dataset.job,scope:row.dataset.scope});row.dataset.cancelRequested='true';row.dataset.rechecksPaused=String(Boolean(result.automatic_rechecks_paused));text(message,'Cancellation requested. Waiting for the recorded scan state.'+(result.automatic_rechecks_paused?' Automatic rechecks paused. Resume in Scheduled Scanner.':''));}
+      try{const result=await api('scan-cancel',{job_id:row.dataset.job,scope:row.dataset.scope});row.dataset.cancelRequested='true';row.dataset.monitoringPaused=String(Boolean(result.initial_monitoring_paused));text(message,'Cancellation requested. Waiting for the recorded scan state.'+(result.initial_monitoring_paused?' Initial monitoring paused. Resume in Scheduled Scanner.':''));}
       catch(error){text(message,error.message);}
       finally{delete row.dataset.cancelling;load();}
     });
@@ -36,7 +36,7 @@
     let position=body.firstElementChild;
     for(const job of value.jobs){
       const row=existing.get(job.id)||makeRow(job.id);existing.delete(job.id);row.dataset.scope=value.scope;
-      const sources={'signature-update':'Recheck after signature updates',manual:'Manual scan','wordpress-integrity':'WordPress integrity check',scheduled:'Scheduled scan',watch:'Changed-file scan','watch-initial':'Initial monitoring scan'};
+      const sources={'signature-update':'Retired automatic scan',manual:'Manual scan','wordpress-integrity':'WordPress integrity check',scheduled:'Scheduled scan',watch:'Changed-file scan','watch-initial':'Initial monitoring scan'};
       text(row.children[0],job.owner+' / '+job.domain+'\n'+(job.target||'Whole website')+'\n'+(sources[job.source]||job.source)+(row.dataset.availability?'\n'+row.dataset.availability:''));
       const queue=job.status==='queued'?job.queue:null;
       text(row.children[1],job.status+(job.cancel_requested&&['queued','running'].includes(job.status)?' · cancellation requested':'')+
@@ -54,7 +54,7 @@
       text(row.children[3],c.detections??0);
       const cancel=row.children[4].querySelector('button');cancel.hidden=!['queued','running'].includes(job.status);
       cancel.disabled=!job.can_cancel||!!row.dataset.cancelling;
-      if(!['queued','running'].includes(job.status)&&row.dataset.cancelRequested){text(row.children[4].querySelector('p'),'Cancellation outcome: '+job.status+'.'+(row.dataset.rechecksPaused==='true'?' Automatic rechecks paused. Resume in Scheduled Scanner.':''));delete row.dataset.cancelRequested;}
+      if(!['queued','running'].includes(job.status)&&row.dataset.cancelRequested){text(row.children[4].querySelector('p'),'Cancellation outcome: '+job.status+'.'+(row.dataset.monitoringPaused==='true'?' Initial monitoring paused. Resume in Scheduled Scanner.':''));delete row.dataset.cancelRequested;}
       if(row!==position)body.insertBefore(row,position);position=row.nextElementSibling;
     }
     for(const row of existing.values())row.remove();
