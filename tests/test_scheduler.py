@@ -129,8 +129,9 @@ class Monitoring(unittest.TestCase):
 
     def test_retired_running_job_does_not_scan_or_get_requeued_by_installation(self):
         retired=self.store.enqueue(self.context,self.site)
+        self.store.claim('fixture-worker')
         with self.store.connection(True) as db:
-            db.execute("UPDATE jobs SET source='signature-update',status='running' WHERE id=?",(retired,))
+            db.execute("UPDATE jobs SET source='signature-update' WHERE id=?",(retired,))
         from clamshield.worker import Worker
         engine=Mock();worker=Worker(self.settings,self.store,self.scheduler.hestia,[engine])
         worker.run(self.store.job(self.context,retired));engine.scan.assert_not_called()
