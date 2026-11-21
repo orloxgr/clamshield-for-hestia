@@ -16,9 +16,10 @@ class InitialMonitoring:
         scope=cls.scope(context,site)
         row=db.execute('SELECT paused FROM monitoring_pauses WHERE owner=? AND identity=? AND domain=? AND root=?',scope).fetchone()
         if row is not None:return bool(row['paused'])
-        # Retained cancellation evidence also honors stops made before this control.
+        # Do not replace an earlier cancelled post-update scan with a monitoring
+        # baseline when no observations exist. Explicit Resume overrides this.
         return db.execute("""SELECT 1 FROM jobs WHERE owner=? AND identity=? AND domain=? AND root=?
-          AND target='' AND source='watch-initial' AND cancel_requested=1 LIMIT 1""",scope).fetchone() is not None
+          AND target='' AND source IN ('watch-initial','signature-update') AND cancel_requested=1 LIMIT 1""",scope).fetchone() is not None
 
     @classmethod
     def set(cls,db,context,site,paused):

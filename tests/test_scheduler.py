@@ -139,6 +139,15 @@ class Monitoring(unittest.TestCase):
         self.assertEqual(dict(interrupted=1,requeued=0),self.store.interrupt_for_update())
         self.assertEqual(1,len(self.store.list_jobs(self.context)))
 
+    def test_removed_scan_cannot_reappear_as_an_initial_monitoring_baseline(self):
+        self.scheduler.save(self.context,self.site,{'watch':True})
+        retired=self.store.enqueue(self.context,self.site)
+        with self.store.connection(True) as db:
+            db.execute("UPDATE jobs SET source='signature-update',status='cancelled',cancel_requested=1 WHERE id=?",(retired,))
+        self.assertEqual([],self.tick_site('new-rules'))
+        self.assertEqual([],self.tick_site('even-newer-rules'))
+        self.assertTrue(InitialMonitoring.status(self.store,self.context,self.site))
+
     def baseline(self):
         self.store.enqueue(self.context,self.site,generation='old-rules')
         job=self.store.claim('test');self.store.finish(job,'completed',{})
