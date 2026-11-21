@@ -101,6 +101,39 @@ class RecoveryBatchTests(unittest.TestCase):
         self.assertNotIn('wp-content/uploads/.htaccess',[item['path'] for item in status['items']])
         self.assertNotIn('wp-content/uploads/app.js',[item['path'] for item in status['items']])
 
+    def test_media_markers_and_inert_index_do_not_generate_cleanup_findings(self):
+        paths=['wp-content/uploads/photo.'+suffix for suffix in ('png','avif','webp','jpg')]
+        for path in paths:self.write(path,b'\x00\xff<?=\x12<?php\x80')
+        index='wp-content/uploads/smush/index.php';self.write(index,b'<?php\n// Silence is golden.\n')
+        key=self.analyze();status=self.status(key)
+        self.assertEqual([],status['items'])
+        self.assertEqual([],self.store.list_findings(self.context))
+        self.assertTrue(all((self.root/path).exists() for path in paths+[index]))
+
+    def test_exempt_media_and_index_still_receive_actual_engine_scans(self):
+        paths=['wp-content/uploads/logo.jpg','wp-content/uploads/smush/index.php','wp-content/plugins/example/test.inc']
+        for path in paths:self.write(path,b'<?php // Silence is golden.\n' if path.endswith('index.php') else b'\x00<?=fixture')
+        self.engines[0].scan.side_effect=lambda copy:[dict(engine='clamav',provider='fixture',signature='Fixture.RealDetection')] if copy.read_bytes() in (b'<?php // Silence is golden.\n',b'\x00<?=fixture') else []
+        key=self.analyze();findings=self.store.list_findings(self.context)
+        self.assertEqual(set(paths),{finding['path'] for finding in findings if finding['engine']=='clamav'})
+        self.assertFalse(any(finding['engine']=='recovery-policy' for finding in findings))
+
+    def test_earlier_media_policy_proposal_cannot_be_previewed_or_applied(self):
+        path='wp-content/uploads/logo.jpg';self.write(path,b'\x00<?=image')
+        key=self.analyze();plan=self.recovery.get(self.context,key);job=self.store.job(self.context,key)
+        with snapshot(self.root,path,self.settings.snapshots,self.settings.max_file_bytes) as (_,fingerprint):
+            finding=self.store.add_finding(job,path,fingerprint,dict(engine='recovery-policy',provider='local-policy',signature='WordPress.Uploads.Policy'))
+        item=self.recovery.add(plan,path,'uploads-policy','quarantine',dict(finding_id=finding,reason='Selected uploads cleanup policy'))
+        self.request(key,'preview',dict(items=[item['id']]))
+        status=self.run_until(key,{'preview-failed'})
+        self.assertIn('does not match the uploads cleanup policy',status['plan']['error'])
+        self.recovery.save(plan,status='reviewed',selection=[item['id']],work_job=None)
+        self.request(key,'apply');status=self.run_until(key,{'interrupted'})
+        self.assertIn('does not match the uploads cleanup policy',status['plan']['error'])
+        self.assertEqual(b'\x00<?=image',(self.root/path).read_bytes())
+        with self.store.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM operations').fetchone()[0])
+
     def test_bulk_repair_quarantine_and_undo_keep_every_original(self):
         self.write('wp-settings.php',b'modified core');self.write('wp-includes/extra.php',b'extra code')
         self.write('wp-content/plugins/example/backdoor.php',b'extra plugin code')

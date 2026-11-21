@@ -238,8 +238,14 @@ the cleanup actions to propose and press **Analyze website**. Analysis and revie
 do not change website files or its database; only **Apply selected changes**
 executes the reviewed mutations. Default PHP/server-script
 cleanup and optional all-JavaScript cleanup are separate controls. Their matches
-are recorded as selected cleanup policy, not proof of malware. Ordinary uploads
-are retained; legitimate deny-only `.htaccess` files are not removed simply
+are recorded as selected cleanup policy, not proof of malware. The cleanup policy
+matches script extensions, not PHP-looking bytes inside images or other media.
+An `index.php` containing only the standard "Silence is golden" placeholder is
+excluded from cleanup suggestions. All these files still receive ClamAV/YARA
+scans. Retained uploads-policy rows point back to WordPress analysis, rather than
+suggesting replacement from a backup. Earlier media/placeholder cleanup proposals
+are rejected during preview/apply preflight; run a new analysis to replace them.
+Ordinary uploads are retained; legitimate deny-only `.htaccess` files are not removed simply
 because of their filename. Configuration directives and scanner findings have
 separate review evidence.
 

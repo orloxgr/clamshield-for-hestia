@@ -17,10 +17,11 @@ from .quarantine import Quarantine
 from .repairs import Repairs, preview
 from .store import encode
 from .website_permissions import WebsitePermissions
-from .wordpress import WordPress, joined
+from .wordpress import WordPress
 from .wordpress_database import WordPressDatabase, packed, unpacked, replacement as db_replacement
 from .wordpress_sources import token
 from .recovery_references import RecoveryReferences
+from .wordpress_uploads import cleanup_match
 
 
 def options(value):
@@ -168,9 +169,7 @@ class WordPressRecovery:
                     detections=[]
                     for engine in engines:detections.extend(engine.scan(copy))
                     counters['scanned']+=1;counters['infected']+=bool(detections)
-                    installation=next((row['path'] for row in sorted(report['installations'],key=lambda row:len(row['path']),reverse=True) if path.startswith(joined(row['path'],'wp-content/uploads')+'/')),None)
-                    suffix=PurePosixPath(path).suffix.lower()
-                    policy=installation is not None and ((plan['options']['uploads_php'] and (suffix in ('.php','.php3','.php4','.php5','.php7','.php8','.phtml','.pht','.phar','.cgi','.pl','.py','.sh') or re.search(rb'<\?(?:php|=)',copy.read_bytes()[:1048576],re.I))) or (plan['options']['uploads_js'] and suffix in ('.js','.mjs','.cjs')))
+                    policy=cleanup_match(path,report['installations'],plan['options'],copy)
                     reason='Selected uploads cleanup policy' if policy else 'Scanner detection' if detections else None
                     name=PurePosixPath(path).name
                     if not reason and name in ('.htaccess','.user.ini','php.ini','wp-config.php'):
@@ -178,7 +177,7 @@ class WordPressRecovery:
                         if re.search(rb'auto_(?:prepend|append)_file|(?:RewriteRule|Redirect)\s+[^\r\n]*https?://|AddHandler[^\r\n]*(?:php|phtml)',content,re.I):
                             reason='Configuration directive requires review'
                     if reason and path not in known:
-                        finding_id=self.store.add_finding(job,path,fp,dict(engine='recovery-policy' if policy else 'recovery-review',signature='WordPress.Uploads.Policy' if policy else 'WordPress.Recovery.Review',provider='local-policy',severity='review'))
+                        finding_id=self.store.add_finding(job,path,fp,dict(engine='recovery-policy' if policy else 'recovery-review',signature='WordPress.Uploads.Policy' if policy else 'WordPress.Recovery.Review',provider='local-policy',severity='review',review_only=True))
                         item=self.add(plan,path,'uploads-policy' if policy else 'scanner' if detections else 'configuration','quarantine',
                                       dict(finding_id=finding_id,reason=reason,recommended=bool(policy or detections),detections=detections))
                         known[path]=item
@@ -366,7 +365,9 @@ class WordPressRecovery:
                 expected={key:value for key,value in finding['fingerprint'].items() if key!='wordpress'}
                 actual=absence(plan['root'],item['path']) if expected.get('missing') else None
                 if actual is None:
-                    with snapshot(plan['root'],item['path'],self.settings.snapshots,self.settings.max_file_bytes) as (_,actual):pass
+                    with snapshot(plan['root'],item['path'],self.settings.snapshots,self.settings.max_file_bytes) as (copy,actual):
+                        if item['kind']=='uploads-policy' and not cleanup_match(item['path'],plan['report'].get('installations',[]),plan['options'],copy):
+                            raise Conflict('This file does not match the uploads cleanup policy. Run a new analysis before selecting changes.')
                 if expected!=actual:raise Conflict('A selected file changed after analysis: '+item['path'])
 
     def work(self,job,engines):

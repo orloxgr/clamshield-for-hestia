@@ -305,6 +305,19 @@ test('retained findings from removed sources are explicitly historical',async()=
   }finally{await f.close();}
 });
 
+test('uploads cleanup suggestions explain policy and route to WordPress instead of backup repair',async()=>{
+  const make=(engine,id)=>({id,owner:'alice',domain:'site.test',path:id+'.jpg',engine,provider:'local-policy',signature:engine==='recovery-policy'?'WordPress.Uploads.Policy':'Fixture.Detection',status:'open',detail:{},fingerprint:{},site_availability:{available:true}});
+  const f=fixture({change:v=>{v.findings=[make('recovery-policy','old-policy'),make('clamav','actual-detection')];}});
+  try{const rows=f.document.querySelectorAll('#cs-review-findings-rows tr'),policy=rows[0],actual=rows[1];
+    assert.match(policy.textContent,/Uploads cleanup suggestion.*not a malware detection/);
+    assert.equal(policy.querySelector('[data-action=repair-backup-preview]'),null);
+    assert.equal(policy.querySelector('[data-action=quarantine]'),null);
+    assert.ok(actual.querySelector('[data-action=repair-backup-preview]'));
+    policy.querySelector('[data-tab=wordpress-recovery]').click();assert.deepEqual(f.visible(),['wordpress-recovery']);
+    assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('Delete all history requires a scoped count confirmation and guards repeated confirmation clicks',async()=>{
   let finish;
   const f=fixture({hash:'#review/history',change:v=>{v.context.view_scope='server';},api:async body=>{

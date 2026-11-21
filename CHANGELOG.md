@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.14.1
+
+- Match uploads cleanup policies by script extension, avoiding PHP marker bytes
+  inside images/media; exclude exact inert Silence is golden index placeholders.
+  All files continue to receive normal engine scans.
+- Explain uploads-policy rows as cleanup suggestions and route them to WordPress
+  actions instead of offering malware backup replacement. Reject obsolete media
+  cleanup proposals before recovery preview or apply.
+
 ## 1.14.0
 
 - Combine WordPress integrity and recovery in one WordPress view. Analyze checks
