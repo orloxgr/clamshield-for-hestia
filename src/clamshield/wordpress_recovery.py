@@ -24,7 +24,7 @@ from .recovery_references import RecoveryReferences
 
 
 def options(value):
-    defaults=dict(uploads_php=True,uploads_js=False,additional=True,database=True,release_policy='latest',versions={},packages={})
+    defaults=dict(uploads_php=True,uploads_js=False,additional=True,database=True,release_policy='installed',versions={},packages={})
     if not isinstance(value,dict) or set(value)-set(defaults):raise Conflict('Invalid recovery options')
     result=defaults|value
     if result['release_policy'] not in ('latest','installed'):raise Conflict('Choose latest stable or installed recovery releases')
@@ -111,44 +111,52 @@ class WordPressRecovery:
     def inspect(self,job,engines):
         plan=self.get(job,job['id']);context=self.context(plan)
         refs=self.references or RecoveryReferences(self.settings,plan['root'],plan['options'],owner=context['owner'])
-        result=WordPress(self.settings,self.store,self.hestia,refs).run(job,finish=False)
+        comparison=refs.installed() if callable(getattr(type(refs),'installed',None)) else refs
+        result=WordPress(self.settings,self.store,self.hestia,comparison).run(job,finish=False)
         report=result['report'];counters=result['counters'];counters.setdefault('suppressed',0)
         if result['status'] in ('failed','cancelled'):raise Conflict(report.get('error','WordPress analysis was not completed'))
         if not report['installations']:raise Conflict('No WordPress installation was discovered in the selected folder')
         if len(report['installations'])>50 or len(report['components'])>500:raise Conflict('Select a smaller WordPress folder; the recovery inventory exceeds its limit')
-        plan['report']=dict(installations=report['installations'],components=report['components'],coverage=counters,
+        plan['report']=dict(comparison='installed',installations=report['installations'],components=report['components'],integrity=dict(counters),coverage=counters,
                             database=[],errors=[],investigation=[],packages={},warning='Integrity differences and cleanup-policy matches are not malware verdicts. Pause website writes before applying recovery. Updates may require application/database migration and compatibility checks.')
         discovered={component['path'] for component in report['components']}
         unused=(plan['options']['versions'].keys()|plan['options']['packages'].keys())-discovered
         for path in sorted(unused):
             plan['report']['errors'].append('Component selection was not found: '+(path or 'WordPress root'));counters['errors']+=1
-        for component in report['components']:
-            if 'recovery_version' not in component:
-                component['recovery_version']=plan['options']['versions'].get(component['path']) or (component.get('version') if plan['options'].get('release_policy')=='installed' else None)
         if {engine.name for engine in engines}!={'clamav','yara'}:raise Conflict('Recovery analysis requires both ClamAV and YARA')
+        from .recovery_comparison import target_findings
+        updates=target_findings(self,plan,job,refs,report['components'],counters)
         with self.store.connection() as db:
             findings=[dict(row)|{'fingerprint':json.loads(row['fingerprint'])} for row in db.execute('SELECT * FROM findings WHERE job_id=? ORDER BY path',(job['id'],))]
-        known={}
+        known={};updated={change['path'] for change in updates}
+        components={component['path']:component for component in report['components']}
         for finding in findings:
             self.check_cancel(job)
+            if finding['path'] in updated:continue
             detail=finding['fingerprint'].get('wordpress',{});component=detail.get('component',{})
+            recorded=components.get(component.get('path'),component)
+            if detail.get('expected') and recorded.get('recovery_version') and recorded['recovery_version']!=recorded.get('version'):continue
+            # A selected but unavailable release must not silently fall back.
             action='replace' if detail.get('expected') else 'quarantine'
             item=self.add(plan,finding['path'],'integrity',action,dict(finding_id=finding['id'],reason=finding['signature'],
-                           component={key:component.get(key) for key in ('kind','path','slug','version','recovery_version')},
+                           component={key:recorded.get(key) for key in ('kind','path','slug','version','recovery_version')},
                            recommended=action=='replace' or (plan['options']['additional'] and component.get('kind')!='core') or
                            (plan['options']['additional'] and detail.get('file','').startswith(('wp-admin/','wp-includes/')))))
             known[finding['path']]=item
             if action=='replace':
-                try:
-                    content,provenance=refs.replacement(component,detail['file'],detail['expected'])
-                    if len(content)>self.settings.max_file_bytes:raise Conflict('Replacement exceeds the file limit')
-                    destination=self.artifact(plan,item['id'],'replacement');write(destination,content)
-                    hits=[hit for engine in engines for hit in engine.scan(destination)]
-                    if hits:raise Conflict('Replacement was flagged by a scanning engine')
-                    self.save_item(item,detail=item['detail']|dict(replacement=provenance|{'sha256':hashlib.sha256(content).hexdigest()},candidate=True))
-                except (OSError,ClamShieldError) as exc:
-                    self.save_item(item,status='blocked',detail=item['detail']|dict(error=self.message(exc)))
-                    plan['report']['errors'].append('Replacement unavailable: '+finding['path'])
+                if recorded.get('recovery_error'):
+                    self.save_item(item,status='blocked',detail=item['detail']|dict(error=recorded['recovery_error']))
+                else:self.candidate(plan,item,recorded,detail['file'],detail['expected'],refs,engines)
+        for change in updates:
+            self.check_cancel(job)
+            component=change['component'];detail=change['fingerprint']['wordpress']
+            hit=change['hit']|dict(engine='recovery-version',signature='WordPress.VersionChange',severity='review')
+            finding_id=self.store.add_finding(job,change['path'],change['fingerprint'],hit)
+            item=self.add(plan,change['path'],'version-update','replace',dict(finding_id=finding_id,
+              reason='Selected version change: '+component['version']+' to '+component['recovery_version'],
+              component={key:component.get(key) for key in ('kind','path','slug','version','recovery_version')},recommended=True))
+            known[change['path']]=item
+            self.candidate(plan,item,component,detail['file'],detail['expected'],refs,engines)
         recent=[]
         for path,state,_ in walk(plan['root'],plan['target']):
             self.check_cancel(job)
@@ -201,6 +209,17 @@ class WordPressRecovery:
         if len(encode(plan['report']).encode())>1024**2:raise Conflict('Recovery report exceeds its limit; select a smaller folder')
         self.save(plan,status='ready',report=plan['report'],work_job=None,error=None,revision=uuid.uuid4().hex)
         self.store.finish(job,'partial' if counters.get('errors') or counters.get('skipped') or counters.get('unverified') else 'completed',counters)
+
+    def candidate(self,plan,item,component,path,expected,refs,engines):
+        try:
+            content,provenance=refs.replacement(component,path,expected)
+            if len(content)>self.settings.max_file_bytes:raise Conflict('Replacement exceeds the file limit')
+            destination=self.artifact(plan,item['id'],'replacement');write(destination,content)
+            if any(engine.scan(destination) for engine in engines):raise Conflict('Replacement was flagged by a scanning engine')
+            self.save_item(item,detail=item['detail']|dict(replacement=provenance|{'sha256':hashlib.sha256(content).hexdigest()},candidate=True))
+        except (OSError,ClamShieldError) as exc:
+            self.save_item(item,status='blocked',detail=item['detail']|dict(error=self.message(exc)))
+            plan['report']['errors'].append('Replacement unavailable: '+item['path'])
 
     @staticmethod
     def message(exc):
@@ -259,6 +278,8 @@ class WordPressRecovery:
                 if job['status'] in ('queued','running'):raise Conflict('Recovery work is already pending')
                 interrupted={'analyzing':'analysis-failed','preparing':'preview-failed','applying':'interrupted','undoing':'undo-interrupted'}
                 self.save(plan,status=interrupted.get(plan['status'],plan['status']),work_job=None)
+            if operation in ('preview','apply') and plan['report'].get('comparison')!='installed':
+                raise Conflict('Run a new installed-version analysis before preparing these changes')
             if operation=='preview':
                 if plan['status'] not in ('ready','reviewed','preview-failed'):raise Conflict('Analyze a new plan before changing its selection')
                 if not isinstance(value,dict) or set(value)-{'items','edits'}:raise Conflict('Invalid recovery selection')
@@ -433,28 +454,44 @@ class WordPressRecovery:
             WordPressDatabase(self.settings,self.hestia,context,plan['root'],detail['installation']).change(detail,after if undo else before,before if undo else after)
         self.save_item(item,status='undone' if undo else 'done')
 
-    def status(self,context,plan_id,offset=0):
-        plan=self.get(context,plan_id)
-        if type(offset) is not int or not 0<=offset<=10000:raise AccessDenied('Invalid recovery page')
-        items=self.items(plan);work=self.store.job(context,plan['work_job']) if plan['work_job'] else None
+    def status(self,context,plan_id,offset=0,limit=50,filters=None):
+        plan=self.get(context,plan_id);filters={} if filters is None else filters
+        if type(offset) is not int or not 0<=offset<=10000 or type(limit) is not int or limit not in (25,50,100):raise AccessDenied('Invalid recovery page')
+        if (not isinstance(filters,dict) or set(filters)-{'search','action','type','state'} or
+                any(not isinstance(value,str) or len(value)>300 for value in filters.values())):raise Conflict('Invalid recovery filters')
+        where='plan_id=?';args=[plan_id]
+        for key,column in [('action','action'),('type','kind'),('state','status')]:
+            if filters.get(key):where+=' AND '+column+'=?';args.append(filters[key])
+        if filters.get('search'):
+            where+=" AND instr(lower(path||' '||COALESCE(json_extract(detail,'$.reason'),'')),lower(?))>0";args.append(filters['search'])
+        with self.store.connection() as db:
+            db.execute('BEGIN')
+            total=db.execute('SELECT count(*) FROM wordpress_recovery_items WHERE plan_id=?',(plan_id,)).fetchone()[0]
+            filtered=db.execute('SELECT count(*) FROM wordpress_recovery_items WHERE '+where,args).fetchone()[0]
+            if offset>=filtered:offset=max(0,((filtered-1)//limit)*limit)
+            rows=db.execute('SELECT * FROM wordpress_recovery_items WHERE '+where+' ORDER BY path,id LIMIT ? OFFSET ?',(*args,limit,offset)).fetchall()
+            selectable=[row[0] for row in db.execute("SELECT id FROM wordpress_recovery_items WHERE "+where+" AND status<>'blocked' ORDER BY path,id",args)]
+            recommended=[row[0] for row in db.execute("SELECT id FROM wordpress_recovery_items WHERE plan_id=? AND status<>'blocked' AND json_extract(detail,'$.recommended')=1",(plan_id,))]
+            choices={key:[row[0] for row in db.execute('SELECT DISTINCT '+column+' FROM wordpress_recovery_items WHERE plan_id=? ORDER BY 1',(plan_id,))] for key,column in [('action','action'),('type','kind'),('state','status')]}
+        work=self.store.job(context,plan['work_job']) if plan['work_job'] else None
         if work and work['status'] not in ('queued','running'):
             interrupted={'analyzing':'analysis-failed','preparing':'preview-failed','applying':'interrupted','undoing':'undo-interrupted'}
-            # Expose interrupted worker state without changing evidence in a read.
             plan=plan|dict(status=interrupted.get(plan['status'],plan['status']),error=work.get('error') or 'Recovery worker stopped; review or resume retained work')
         pages=[];page_bytes=0
-        for item in items[offset:offset+100]:
-            detail=item['detail']
+        for row in rows:
+            item=dict(row);detail=json.loads(item['detail'])
             public={key:detail[key] for key in ('reason','recommended','component','error','detections','replacement','preview','excerpt','evidence','editable','table','column','installation') if key in detail}
             if detail.get('repair_id'):public['preview']=self.repairs.get(context,detail['repair_id'])['metadata'].get('preview',detail.get('preview',{}))
             entry=dict(id=item['id'],path=item['path'],kind=item['kind'],action=item['action'],status=item['status'],selected=item['id'] in plan['selection'],detail=public)
             amount=len(encode(entry).encode())
-            if pages and page_bytes+amount>2*1024**2:break
+            if pages and page_bytes+amount>1024**2:break
             pages.append(entry);page_bytes+=amount
         checks=[self.store.job(context,key) for key in plan['report'].get('recheck_jobs',[])]
-        return dict(plan={key:plan[key] for key in ('id','domain','target','created','status','revision','options','report','error')},items=pages,total=len(items),
-                    recommended=[item['id'] for item in items if item['detail'].get('recommended') and item['status']!='blocked'],selection=plan['selection'],
-                    next_offset=offset+len(pages) if offset+len(pages)<len(items) else None,
-                    work={key:work[key] for key in ('id','status','counters','error')} if work else None,
+        return dict(plan={key:plan[key] for key in ('id','domain','target','created','status','revision','options','report','error')},items=pages,total=total,
+                    filtered_total=filtered,offset=offset,limit=limit,choices=choices,selectable=selectable,
+                    recommended=recommended,selection=plan['selection'],
+                    next_offset=offset+len(pages) if offset+len(pages)<filtered else None,
+                    work={key:work[key] for key in ('id','status','counters','error','cancel_requested')} if work else None,
                     rechecks=[{key:check[key] for key in ('id','source','status','counters','error')} for check in checks])
 
     def list(self,context):

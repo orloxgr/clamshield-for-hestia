@@ -12,12 +12,16 @@ from .wordpress_sources import References, ReferenceUnavailable, archive_files, 
 
 
 class RecoveryReferences(References):
-    def __init__(self, settings, root, options, *, owner=None, fetch=None):
+    def __init__(self, settings, root, options, *, owner=None, fetch=None, comparison=False):
         super().__init__(settings)
         if fetch is not None:self.fetch=fetch
         self.root,self.options,self.packages,self.receipts=root,options,{},{}
         self.manifests,self.archives,self.targets={},{},{}
-        self.owner=owner
+        self.owner,self.comparison=owner,comparison
+
+    def installed(self):
+        return type(self)(self.settings,self.root,self.options|dict(release_policy='installed',versions={}),
+                          owner=self.owner,fetch=self.fetch,comparison=True)
 
     def budget(self):
         if sum(len(value) for archive in [*self.packages.values(),*self.archives.values()] for value in archive.values())>256*1024**2:
@@ -26,10 +30,11 @@ class RecoveryReferences(References):
     def target(self, component):
         path=component['path']
         if path not in self.targets:
-            if path in self.options['packages']:
+            if self.comparison:version=component['version']
+            elif path in self.options['packages']:
                 self.package(component);version=self.receipts[path]['version']
             elif path in self.options['versions']:version=self.options['versions'][path]
-            elif self.options.get('release_policy','latest')=='installed':version=component['version']
+            elif self.options.get('release_policy','installed')=='installed':version=component['version']
             else:version=self.latest(component)
             self.targets[path]=component|dict(version=token(version,'version'))
         component['recovery_version']=self.targets[path]['version']
@@ -81,6 +86,8 @@ class RecoveryReferences(References):
             if marker not in files:raise Conflict('Trusted ZIP is missing its component release header')
             version=header(files[marker][:8192].decode('utf-8',errors='replace'),'Version')
             token(version,'version')
+            if self.comparison and version!=component['version']:
+                raise ReferenceUnavailable('The vendor ZIP is a different version; it cannot verify the installed version')
             expected=self.options['versions'].get(path)
             if expected and version!=expected:raise Conflict('Trusted ZIP version differs from the selected version')
             self.packages[path]=files

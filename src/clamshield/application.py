@@ -82,7 +82,7 @@ class Application:
                         plans.extend(dict(row,owner=live['owner']) for row in recovery.list(live))
                     return {'plans':sorted(plans,key=lambda row:row['created'],reverse=True)}
                 return {'plans':[dict(row,owner=context['owner']) for row in recovery.list(context)]}
-            if action=='wordpress-recovery-status':return recovery.status(context,request.get('plan_id'),request.get('offset',0))
+            if action=='wordpress-recovery-status':return recovery.status(context,request.get('plan_id'),request.get('offset',0),request.get('limit',50),request.get('filters',{}))
             return recovery.request(context,request.get('plan_id'),action.removeprefix('wordpress-recovery-'),request.get('revision'),request.get('policy'))
         if action=='scan-targets':
             return {'sites':[{'domain':site['domain'],'suspended':site['suspended']}

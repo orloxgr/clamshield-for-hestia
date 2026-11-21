@@ -69,7 +69,6 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 <?php require __DIR__.'/dashboard.php'; ?>
 <?php require __DIR__.'/on_demand.php'; ?>
 <?php require __DIR__.'/scheduled.php'; ?>
-<?php require __DIR__.'/wordpress_integrity.php'; ?>
 <?php require __DIR__.'/scans.php'; ?>
 <section data-page="findings" hidden><h2>Findings</h2><p>Findings retain their recorded status when a website is removed, suspended or moved. Unavailable website actions require the original site configuration to be restored and reviewed; this does not establish that a file is clean.</p><div class="scroll"><table><thead><tr><th>Site / file</th><th>Detection</th><th>Engine</th><th>Status</th><th>Action</th></tr></thead><tbody id="cs-review-findings-rows">
 <?php require __DIR__.'/review_rows/findings.php'; ?>
@@ -148,11 +147,6 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  }
  bindReviewRows();
  document.addEventListener('clamshield-review-rows',event=>{prepareReviewControls(event.detail);bindReviewRows(event.detail);});
- document.querySelectorAll('.cs-wp-report').forEach(button=>button.addEventListener('click',async()=>{
-  const output=button.nextElementSibling;button.disabled=true;
-  try{const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner:ownerFor(button),action:'wordpress-report',job_id:button.dataset.job,offset:button.dataset.offset})});const result=await response.json();if(!result.ok)throw new Error(result.error);output.textContent+=result.files.map(file=>file.status+' · '+file.path+'\n'+JSON.stringify(file.detail)).join('\n\n')+'\n';if(result.next_offset!==null){button.dataset.offset=String(result.next_offset);button.textContent='Show more issues';button.disabled=false;}else{button.textContent='All reported issues shown';}}
-  catch(error){output.textContent=error.message;button.disabled=false;}
- }));
  document.getElementById('cs-owner')?.addEventListener('change',e=>{const url=new URL(location.href);if(e.target.value){url.searchParams.set('owner',e.target.value);url.searchParams.delete('scope');}else{url.searchParams.delete('owner');url.searchParams.set('scope','server');}url.searchParams.delete('scan_scope');location.href=url.href;});
  document.getElementById('cs-rule-source')?.addEventListener('submit',async event=>{event.preventDefault();const source=Object.fromEntries(new FormData(event.target));try{const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner,action:'rules-source-save',apply:'true',source:JSON.stringify(source)})});const result=await response.json();if(!result.ok)throw new Error(result.error);location.reload();}catch(error){document.getElementById('cs-message').textContent=error.message;}});
  let catalogOffset=0,catalogSearch='';

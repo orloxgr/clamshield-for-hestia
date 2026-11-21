@@ -3,7 +3,7 @@ const path=require('node:path'),{spawnSync}=require('node:child_process');
 const {JSDOM}=require('jsdom');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const item={id:'file-one',path:'wp-content/uploads/custom.js',kind:'uploads-policy',action:'quarantine',status:'proposed',detail:{reason:'Selected uploads cleanup policy',recommended:true}};
-function snapshot(status,options={}){return {plan:{id:'plan-one',domain:'site.test',target:'',created:1,status,revision:'revision-'+status,report:{coverage:{scanned:5,errors:0,skipped:0,unverified:0}},error:null},items:[item],recommended:[item.id],selection:status==='ready'?[]:[item.id],next_offset:null,total:1,work:['analyzing','preparing','applying'].includes(status)?{id:'job',status:'running',counters:{scanned:2}}:null,rechecks:[],...options};}
+function snapshot(status,options={}){return {plan:{id:'plan-one',domain:'site.test',target:'',created:1,status,revision:'revision-'+status,report:{comparison:'installed',coverage:{scanned:5,errors:0,skipped:0,unverified:0}},error:null},items:[item],recommended:[item.id],selection:['ready','analyzing'].includes(status)?[]:[item.id],next_offset:null,total:1,work:['analyzing','preparing','applying'].includes(status)?{id:'job',status:'running',counters:{scanned:2}}:null,rechecks:[],...options};}
 function fixture(snapshots,options={}){
   const data={context:{owner:'alice',admin:options.admin!==false,view_scope:options.global?'server':'account'},accounts:[{owner:'alice'},{owner:'bob'}],sites:[{owner:options.global?'bob':'alice',domain:'site.test',suspended:false}],website_permissions:{effective:{scan:options.scan!==false}}};
   const rendered=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',"set_error_handler(function($s,$m){throw new ErrorException($m,0,$s);});$data=json_decode(stream_get_contents(STDIN),true);$_SESSION=['token'=>'csrf'];$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.resolve(__dirname,'../../panel/wordpress_recovery.php')],{input:JSON.stringify(data),encoding:'utf8'});
@@ -24,10 +24,10 @@ test('analysis sends separate PHP/JS policies and never automatically applies a 
   try{await settle();const form=f.by('analyze');assert.equal(form.elements.uploads_php.checked,true);assert.equal(form.elements.uploads_js.checked,false);
     form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();
     form.elements.uploads_js.checked=true;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
-    const request=f.requests.find(value=>value.action==='wordpress-recovery-analyze');assert.deepEqual(JSON.parse(request.policy),{versions:{},packages:{},release_policy:'latest',uploads_php:true,uploads_js:true,additional:true,database:true});
+    const request=f.requests.find(value=>value.action==='wordpress-recovery-analyze');assert.deepEqual(JSON.parse(request.policy),{versions:{},packages:{},release_policy:'installed',uploads_php:true,uploads_js:true,additional:true,database:true});
     assert.equal(request.domain,'site.test');assert.equal(request.owner,'alice');assert.equal(f.by('apply').disabled,true);
     await f.tick();assert.match(f.by('status').textContent,/ready/);assert.equal(f.requests.some(value=>value.action==='wordpress-recovery-apply'),false);
-    assert.equal(f.by('items').querySelector('input').checked,true);
+    assert.equal(f.by('items').querySelector('input').checked,false);
   }finally{f.close();}
 });
 
@@ -39,9 +39,9 @@ test('recovery explains three stages, keeps empty history hidden and opens a new
     return null;
   }});try{
     await settle();assert.equal(f.by('history').hidden,true);assert.equal(f.by('report').hidden,true);
-    const page=f.w.document.getElementById('cs-wp-recovery');assert.match(page.textContent,/1\. Analyze website/);assert.match(page.textContent,/2\. Review proposed changes/);assert.match(page.textContent,/3\. Apply selected changes/);
+    const page=f.w.document.getElementById('cs-wp-recovery');assert.match(page.textContent,/1\. Analyze website/);assert.match(page.textContent,/2\. Findings and recovery actions/);assert.match(page.textContent,/3\. Apply selected changes/);
     assert.doesNotMatch(page.textContent,/Remove PHP|Also remove all|Without a selection, repair uses the installed version|Recovery plans/);
-    const form=f.by('analyze');assert.equal(form.elements.release_policy.value,'latest');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();
+    const form=f.by('analyze');assert.equal(form.elements.release_policy.value,'installed');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.by('report').hidden,false);assert.equal(f.by('plans').value,'plan-one');assert.equal(f.by('history').hidden,false);
     assert.match(f.by('status').textContent,/Website unchanged/);assert.equal(f.by('apply').disabled,true);
     assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-preview'||r.action==='wordpress-recovery-apply'),false);
@@ -54,13 +54,13 @@ test('installed release policy is explicit and pinned component versions render 
     const form=f.by('analyze');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));await settle();form.elements.release_policy.value='installed';
     form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     assert.equal(JSON.parse(f.requests.find(r=>r.action==='wordpress-recovery-analyze').policy).release_policy,'installed');
-    const rows=f.by('versions').querySelectorAll('tr');assert.deepEqual([...rows[0].children].map(td=>td.textContent),['plugin / example','1.0','2.0','Verified release reference']);assert.match(rows[1].textContent,/Unavailable.*Reference unavailable/);assert.equal(f.by('versions').querySelector('img'),null);
-    assert.equal(f.by('version-summary').hidden,false);assert.equal(f.by('apply').disabled,true);f.by('review').click();await settle();assert.equal(f.requests.filter(r=>r.action==='wordpress-recovery-preview').length,1);assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-apply'),false);
+    const rows=f.by('versions').querySelectorAll('tr');assert.deepEqual([...rows[0].children].map(td=>td.textContent),['plugin / example','1.0','2.0','Installed-version comparison: different']);assert.match(rows[1].textContent,/Unavailable.*Reference unavailable/);assert.equal(f.by('versions').querySelector('img'),null);
+    assert.equal(f.by('version-summary').hidden,false);assert.equal(f.by('apply').disabled,true);f.by('recommended').click();f.by('review').click();await settle();assert.equal(f.requests.filter(r=>r.action==='wordpress-recovery-preview').length,1);assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-apply'),false);
   }finally{f.close();}
 });
 test('review then apply bind the server revision and changing selection invalidates review',async()=>{
   const f=fixture([snapshot('ready'),snapshot('reviewed'),snapshot('applied')]);
-  try{await f.select();assert.equal(f.by('apply').disabled,true);f.by('review').click();await settle();
+  try{await f.select();assert.equal(f.by('apply').disabled,true);f.by('recommended').click();f.by('review').click();await settle();
     const request=f.requests.find(value=>value.action==='wordpress-recovery-preview');assert.deepEqual(JSON.parse(request.policy),{items:['file-one'],edits:{}});assert.equal(request.revision,'revision-ready');
     assert.equal(f.by('apply').disabled,false);
     f.by('items').querySelector('input').click();assert.equal(f.by('apply').disabled,true);
@@ -85,7 +85,7 @@ test('database evidence is escaped and a change requires an explicit exact fragm
 });
 test('permission or stale revision errors remain visible as text after refresh',async()=>{
   const f=fixture([snapshot('ready')],{api:body=>body.action==='wordpress-recovery-preview'?{ok:false,json:async()=>({ok:false,error:'<b>Permission revoked</b>'})}:null});
-  try{await f.select();f.by('review').click();await settle();assert.equal(f.by('status').textContent,'<b>Permission revoked</b>');assert.equal(f.by('status').children.length,0);assert.equal(f.by('apply').disabled,true);}finally{f.close();}
+  try{await f.select();f.by('recommended').click();f.by('review').click();await settle();assert.equal(f.by('status').textContent,'<b>Permission revoked</b>');assert.equal(f.by('status').children.length,0);assert.equal(f.by('apply').disabled,true);}finally{f.close();}
 });
 test('hidden recovery view makes no request and delegated scan denial stays disabled',async()=>{
   const f=fixture([snapshot('ready')],{hidden:true,scan:false});
@@ -100,7 +100,7 @@ test('Global recovery analysis and retained plans use their native hosting owner
   try{await f.select();
     assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-list').scope,'server');
     assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-status').owner,'bob');
-    f.by('review').click();await settle();assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-preview').owner,'bob');
+    f.by('recommended').click();f.by('review').click();await settle();assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-preview').owner,'bob');
     const form=f.by('analyze');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));
     f.by('analyze').dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
     assert.equal(f.requests.find(row=>row.action==='wordpress-recovery-analyze').owner,'bob');
@@ -141,5 +141,32 @@ test('an account-view administrator can analyze another account and load its new
     assert.equal(f.requests.filter(r=>r.action==='wordpress-recovery-list').at(-1).scope,'account');
     form.elements.owner.value='alice';form.elements.owner.dispatchEvent(new f.w.Event('change'));assert.equal(f.by('report').hidden,true);assert.equal(f.by('apply').disabled,true);await settle();
     assert.equal(f.by('plans').querySelector('option[value="plan-one"]'),null);
+  }finally{f.close();}
+});
+
+
+test('action filters and pagination preserve selections and Select all spans eligible matching pages',async()=>{
+  const many=Array.from({length:113},(_,n)=>({...item,id:'file-'+n,path:'uploads/file-'+n+'.js'}));
+  const f=fixture([snapshot('ready')],{api:body=>{
+    if(body.action!=='wordpress-recovery-status')return null;
+    const filter=JSON.parse(body.filters||'{}'),offset=Number(body.offset),limit=Number(body.limit),all=filter.action==='replace'?[]:many;
+    return {ok:true,json:async()=>({ok:true,...snapshot('ready'),total:113,filtered_total:all.length,items:all.slice(offset,offset+limit),offset,limit,next_offset:offset+limit<all.length?offset+limit:null,selectable:all.map(row=>row.id),choices:{action:['quarantine','replace'],type:['uploads-policy'],state:['proposed']}})};
+  }});
+  try{await f.select();assert.equal(f.by('items').children.length,50);assert.match(f.by('page').textContent,/Showing 1–50 of 113/);
+    assert.equal(f.by('recommended').textContent,'Select all');assert.equal(f.by('review').textContent,'Preview selected changes');
+    f.by('items').querySelector('input').click();f.by('next').click();await settle();assert.match(f.by('page').textContent,/Showing 51–100 of 113/);
+    f.by('items').querySelector('input').click();f.by('recommended').click();assert.match(f.by('selected').textContent,/113 selected/);
+    f.by('previous').click();await settle();assert.equal(f.by('items').querySelector('input').checked,true);
+    const form=f.by('filter');form.elements.action.value='replace';form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.by('items').children.length,0);assert.equal(f.requests.at(-1).offset,'0');assert.deepEqual(JSON.parse(f.requests.at(-1).filters),{search:'',action:'replace',type:'',state:''});
+    assert.match(f.by('selected').textContent,/113 selected/);f.by('clear').click();assert.match(f.by('selected').textContent,/0 selected/);
+  }finally{f.close();}
+});
+
+test('recovery version preparation keeps the analysis website and requests the chosen release without applying',async()=>{
+  const value=snapshot('ready');value.plan.options={release_policy:'installed',versions:{},packages:{},database:false};
+  const f=fixture([value]);try{await f.select();f.by('analyze').elements.release_policy.value='latest';f.by('prepare-versions').click();await settle();
+    const request=f.requests.find(row=>row.action==='wordpress-recovery-analyze');assert.equal(request.domain,'site.test');assert.equal(JSON.parse(request.policy).release_policy,'latest');
+    assert.equal(f.requests.some(row=>row.action==='wordpress-recovery-apply'),false);
   }finally{f.close();}
 });

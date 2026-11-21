@@ -1,7 +1,7 @@
 # ClamShield for HestiaCP
 
 Website malware scanning and email protection inside HestiaCP, using Ubuntu's
-ClamAV and YARA packages. Version **1.13.2** · [GPL-2.0](LICENSE).
+ClamAV and YARA packages. Version **1.14.0** · [GPL-2.0](LICENSE).
 
 ClamShield adds its own application, services and supported integrations.
 Existing Hestia panel files, scripts, templates and package units are not patched.
@@ -113,11 +113,11 @@ establish active scanning coverage or access to a public blocklist.
   targeted cleaning or verified reference/backup repairs, recheck and undo.
 - Discover WordPress and check core/plugin/theme integrity where trusted
   references are available, including changed, added and missing files.
-- Use **On-Demand Actions → WordPress recovery** to analyze, review and apply a
+- Use **On-Demand Actions → WordPress** to analyze, review and apply a
   batch of verified replacements, additional-file quarantine and optional
   uploads cleanup. PHP/server scripts and all JavaScript are separate policies.
-  Use latest stable WordPress.org releases by default, keep installed versions
-  when selected, or provide explicit versions/trusted premium ZIPs; retain originals,
+  Analyze against installed versions by default; choose same-version recovery
+  or explicitly prepare latest stable WordPress.org version updates, or provide explicit versions/trusted premium ZIPs; retain originals,
   resume interrupted work, recheck and undo completed changes.
 - Inspect native account-owned WordPress databases without running site PHP.
   Review suspicious strings and prepare exact database edits, with guarded

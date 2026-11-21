@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.14.0
+
+- Combine WordPress integrity and recovery in one WordPress view. Analyze checks
+  installed releases; same-version recovery is the default and optional newer
+  release changes are labelled Version updates rather than integrity findings.
+- Add action search, action/type/state filters and 25/50/100-row pagination with
+  persistent selection. Select all covers eligible matching rows across pages.
+- Start with no actions selected, rename review preparation to Preview selected
+  changes, and retain separate explicit Apply and Undo operations.
+
 ## 1.13.2
 
 - Accept WordPress.org's multiple official checksum variants for individual files

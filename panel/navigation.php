@@ -2,7 +2,7 @@
 $cs_navigation = [
     'dashboard'=>['Dashboard', ['dashboard'=>'Overview']],
     'email'=>['Email Shield', ['mail'=>'Email protection']],
-    'scan'=>['On-Demand Actions', ['sites'=>'Websites', 'jobs'=>'Scan progress', 'wordpress'=>'WordPress integrity', 'wordpress-recovery'=>'WordPress recovery']],
+    'scan'=>['On-Demand Actions', ['sites'=>'Websites', 'jobs'=>'Scan progress', 'wordpress-recovery'=>'WordPress']],
     'scheduled'=>['Scheduled Scanner', ['scheduled'=>'Schedules and monitoring']],
     'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Repairs and cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'email-review'=>'Email', 'history'=>'History', 'notices'=>'Notifications']],
     'updates'=>['Updates', ['rules'=>'YARA rules', 'providers'=>'Signature providers']],

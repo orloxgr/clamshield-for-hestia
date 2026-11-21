@@ -193,6 +193,18 @@ class RecoveryBatchTests(unittest.TestCase):
         self.assertEqual(b'a:1:{s:1:"x";s:1:"y";}',replacement(value,'x','y'))
         with self.assertRaises(Conflict):replacement(b'{"code":"hello"}','"hello"','broken')
 
+    def test_action_pages_and_filters_are_scoped_and_select_all_covers_the_filtered_list(self):
+        key=self.analyze();plan=self.recovery.get(self.context,key)
+        for number in range(113):self.recovery.add(plan,'file-'+str(number).zfill(3),'configuration','quarantine',dict(reason='Review '+str(number),recommended=False))
+        first=self.recovery.status(self.context,key,limit=25,filters={'action':'quarantine'})
+        self.assertEqual(113,first['filtered_total']);self.assertEqual(25,len(first['items']));self.assertEqual(113,len(first['selectable']))
+        second=self.recovery.status(self.context,key,first['next_offset'],25,{'action':'quarantine'})
+        self.assertFalse({r['id'] for r in first['items']}&{r['id'] for r in second['items']})
+        filtered=self.recovery.status(self.context,key,limit=50,filters={'search':'file-112','type':'configuration','state':'proposed'})
+        self.assertEqual(1,filtered['filtered_total']);self.assertEqual('file-112',filtered['items'][0]['path'])
+        with self.assertRaises(AccessDenied):self.recovery.status(self.context|{'identity':'foreign'},key)
+        with self.assertRaises(Conflict):self.recovery.status(self.context,key,filters={'unknown':'value'})
+
     def test_large_previews_are_paginated_within_panel_response_limits(self):
         key=self.analyze();plan=self.recovery.get(self.context,key)
         for number in range(12):self.recovery.add(plan,'file-'+str(number),'configuration','quarantine',dict(reason='review',recommended=False,preview={'diff':'x'*(256*1024)}))
@@ -210,6 +222,7 @@ class VendorReferencesTests(unittest.TestCase):
             (base/'premium.zip').write_bytes(data.getvalue())
             component=dict(kind='plugin',slug='premium',path='wp-content/plugins/premium',release_path='wp-content/plugins/premium/premium.php',version='1.0')
             refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'},'versions':{component['path']:'2.0'}}))
+            with self.assertRaises(ClamShieldError):refs.installed().manifest(component)
             manifest=refs.manifest(component);content,proof=refs.replacement(component,'premium.php',manifest['files']['premium.php'])
             self.assertIn(b'2.0',content);self.assertEqual('user-supplied',proof['authenticity'])
             refs=RecoveryReferences(settings,str(base),options({'packages':{component['path']:'premium.zip'},'versions':{component['path']:'1.0'}}))

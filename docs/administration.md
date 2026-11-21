@@ -184,23 +184,12 @@ a website override; **Use global scan defaults** removes an account override.
 Administrator-configured automatic protection retains administrator authority
 when user controls are restricted. Policy changes still fence queued actions.
 
-**On-Demand Actions → WordPress integrity** offers Account and Website selectors,
-with Global selected by default in the administrator's Global view. **Check**
-queues the chosen website, all active websites in an account, or the entire
-server when Global is selected. **Check all** always queues all active server
-websites. Suspended accounts and websites are skipped for server-wide checks.
-Choosing dropdowns only loads/filters websites; it never starts work. A relative
-folder is available only for a single website. The website table retains last
-check, live status, coverage counters and reports. **Discover and verify**
-searches the whole website, including nested installations. **Folder (optional)**
-contains the relative folder path and its explanation.
-The row immediately shows submission, queue and running states; active checks
-refresh while the page is visible and resume after reopening. Repeated clicks
-or concurrent identical requests reuse the pending check. **Check again** becomes
-available once it finishes. **View report** loads differences and unverified
-entries inline; **Previous integrity reports** retains the detailed component
-history. Failed or partial coverage remains explicit rather than implying a
-clean website. File integrity checking does not modify site files.
+**On-Demand Actions → WordPress** combines installed-version integrity checking
+and recovery. Select Account and Website, then **Analyze website**. Analysis reads
+files without changing the website. It compares core/plugins/themes with their
+installed releases, performs scanner and selected cleanup-policy checks, and
+shows coverage gaps separately. Prior analyses remain available in the same view.
+The standalone Integrity tab is removed; former links open the unified workflow.
 **On-Demand Actions → Scan progress** shows queue, live progress and cancellation. Check coverage, not just
 the absence of findings: unreadable, skipped, encrypted and limit-affected files
 or an unavailable engine cannot establish a clean site. Independent YARA results
@@ -230,7 +219,7 @@ is accepted, while unlisted content remains a difference. This also applies to
 independently verified recovery downloads. Old reports retain their recorded
 coverage; run a fresh check to reassess previously unreadable references.
 
-**On-Demand Actions → WordPress integrity** discovers installations and checks core/plugin/theme integrity
+**On-Demand Actions → WordPress** discovers installations and checks core/plugin/theme integrity
 where reliable references exist. **Review → Repairs and cleaning** can prepare a nonmutating diff from
 a verified reference or selected backup member. Review the preview before
 applying it. Changes retain the original or its absence, recheck the published
@@ -240,7 +229,7 @@ Quarantine, deletion, cleaning and replacement remain distinct actions.
 
 ### WordPress recovery
 
-**On-Demand Actions → WordPress recovery** uses separate Account and Website
+**On-Demand Actions → WordPress** uses separate Account and Website
 selectors. Choose an account and a specific active website before analysis;
 there is no server-wide repair action. Loading/changing accounts clears stale
 website and folder choices. It provides a nonmutating analysis followed
@@ -261,13 +250,15 @@ quarantine. Unrecognized root code and configuration changes remain reviewable.
 Unavailable references, unsafe files, limits and scanner failures remain visible
 as coverage gaps. Replacement preparation requires the ClamAV and YARA engines.
 
-Recovery defaults to the latest stable core/plugin/theme versions from WordPress.org.
-Release metadata is read afresh through the official core version-check and
-plugin/theme information APIs. Exact releases, verified references and candidate
-bytes are pinned during analysis; preview/apply do not resolve a newer release.
-Installed and recovery versions appear together in the review. Unavailable or
-invalid release metadata leaves components unverified; there is no silent
-fallback to installed versions. **Same as installed** is an explicit alternative.
+Recovery defaults to **Same as installed**, when its reference is available.
+Analysis always compares installed versions, even when a different recovery
+version is requested. After analysis, choose **Latest stable from WordPress.org**
+and **Prepare selected recovery version** to create a fresh read-only analysis
+with separately labelled **Version updates**. Upgrades do not count as installed
+file modifications or missing files. Exact release metadata, references and
+candidate bytes are pinned; preview/apply do not resolve a newer release.
+Unavailable targets never silently fall back to another version. A vendor ZIP
+with a different version cannot verify the installed component's integrity.
 **Specific versions and vendor ZIPs (optional)** accepts a component's website-relative path,
 an optional target version, and a premium/custom ZIP. Prefer a private account
 path such as `~/tmp/example.zip`, where `~` means the selected hosting account's
@@ -278,7 +269,7 @@ Vendor authenticity remains the operator's responsibility and is stated in the
 receipt. Core always uses an official release. Invalid/ambiguous component
 metadata remains unverified. A typo in a component mapping is reported.
 
-The screen follows **1. Analyze website → 2. Review proposed changes →
+The screen follows **1. Analyze website → 2. Findings and recovery actions →
 3. Apply selected changes**. A new analysis opens automatically. Empty history
 is hidden; retained runs appear under **Previous analyses and recoveries**.
 The analysis result records proposed changes and is not a prerequisite to start.
@@ -582,3 +573,15 @@ evidence and are excluded from automatic remediation. Clear selected findings
 or Clear all findings can remove those entries from the Review list.
 
 WordPress.org release discovery follows the official [WordPress.org API](https://codex.wordpress.org/WordPress.org_API), [plugin information API](https://developer.wordpress.org/reference/functions/plugins_api/) and [core version check](https://developer.wordpress.org/reference/functions/wp_version_check/).
+
+
+WordPress recovery actions support server pagination (25/50/100 rows), Previous
+and Next, search, action, type and state filters. Large previews may shorten a
+page to respect response limits. Selection persists across pages. **Select all**
+selects all eligible matching actions across pages; blocked actions remain
+unselectable, and **Clear selection** clears the full selection. Nothing is
+selected automatically. **Preview selected changes** validates and stages the
+selected replacements and exact diffs without changing the website. Apply stays
+separate and is invalidated by changed selection or recovery-version choices.
+Earlier analyses that compared recovery releases need a fresh installed-version
+analysis before preview/apply; retained applied recoveries remain undoable.
