@@ -21,7 +21,7 @@
     by('review').disabled=!plan||loading||pending||!['ready','reviewed','preview-failed'].includes(plan.status)||versionDirty||selected.size===0;
     by('apply').disabled=!plan||loading||pending||dirty||versionDirty||!['reviewed','interrupted'].includes(plan.status);
     by('apply').textContent=plan?.status==='interrupted'?'Resume selected changes':'Apply selected changes';
-    by('apply-help').textContent=plan?.status==='interrupted'?'Resume applies remaining reviewed changes. Completed changes are retained for undo.':plan?.status==='reviewed'&&!dirty?'Review ready. Apply will change the selected website files/database entries; file removals go to quarantine.':'Use Preview selected changes to prepare your selection before applying. Analysis and review leave your website unchanged.';
+    by('apply-help').textContent=versionDirty?'Prepare the selected recovery version, select its actions and preview them before applying.':plan?.status==='interrupted'?'Resume applies remaining reviewed changes. Completed changes are retained for undo.':plan?.status==='reviewed'&&!dirty?'Review ready. Apply will change the selected website files/database entries; file removals go to quarantine.':'Use Preview selected changes to prepare your selection before applying. Analysis and review leave your website unchanged.';
     by('undo').hidden=!plan||!['applied','interrupted','undo-interrupted','undone'].includes(plan.status);
     by('undo').disabled=pending;by('recommended').disabled=by('clear').disabled=pending||loading;
     by('selected').textContent=selected.size+' selected actions'+(versionDirty?' · Prepare the selected recovery version before previewing.':dirty?' · Review the changed selection before applying.':'');
@@ -104,7 +104,7 @@
     finally{busy=false;controls();await refresh();if(failure)output.textContent=failure;}
   });
   by('prepare-versions').addEventListener('click',async()=>{
-    if(busy||!plan)return;stop();busy=true;controls();let failure=null;
+    if(busy||!plan)return;stop();busy=true;controls();output.textContent='Preparing selected recovery version… Website unchanged.';let failure=null;
     try{const policy={...plan.options,release_policy:form.elements.release_policy.value,versions:{},packages:{}};
       for(const [component,value]of Object.entries(sources)){if(value.version)policy.versions[component]=value.version;if(value.path)policy.packages[component]=value.path;}
       const result=await api('wordpress-recovery-analyze',{domain:plan.domain,path:plan.target,policy:JSON.stringify(policy)});

@@ -170,3 +170,14 @@ test('recovery version preparation keeps the analysis website and requests the c
     assert.equal(f.requests.some(row=>row.action==='wordpress-recovery-apply'),false);
   }finally{f.close();}
 });
+
+
+test('a changed recovery version invalidates preview and Apply until new candidates are prepared',async()=>{
+  const value=snapshot('reviewed');value.plan.options={release_policy:'installed',versions:{},packages:{}};
+  const f=fixture([value]);try{await f.select();assert.equal(f.by('apply').disabled,false);
+    const choice=f.by('analyze').elements.release_policy;choice.value='latest';choice.dispatchEvent(new f.w.Event('change'));
+    assert.equal(f.by('apply').disabled,true);assert.equal(f.by('review').disabled,true);assert.equal(f.by('prepare-versions').disabled,false);
+    assert.match(f.by('apply-help').textContent,/Prepare the selected recovery version/);
+    assert.equal(f.requests.some(row=>row.action==='wordpress-recovery-apply'),false);
+  }finally{f.close();}
+});

@@ -209,8 +209,12 @@ class RecoveryBatchTests(unittest.TestCase):
         key=self.analyze();plan=self.recovery.get(self.context,key)
         for number in range(12):self.recovery.add(plan,'file-'+str(number),'configuration','quarantine',dict(reason='review',recommended=False,preview={'diff':'x'*(256*1024)}))
         first=self.status(key);self.assertLess(len(first['items']),12);self.assertIsNotNone(first['next_offset'])
-        seen=[item['id'] for item in first['items']];second=self.recovery.status(self.context,key,first['next_offset']);seen.extend(item['id'] for item in second['items'])
-        self.assertEqual(12,len(set(seen)));self.assertLess(len(json.dumps(first).encode()),4*1024**2)
+        page=first;seen=[]
+        while True:
+            seen.extend(item['id'] for item in page['items']);self.assertLess(len(json.dumps(page).encode()),4*1024**2)
+            if page['next_offset'] is None:break
+            page=self.recovery.status(self.context,key,page['next_offset'])
+        self.assertEqual(12,len(seen));self.assertEqual(12,len(set(seen)))
 
 
 class VendorReferencesTests(unittest.TestCase):
