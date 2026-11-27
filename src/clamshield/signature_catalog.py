@@ -241,6 +241,20 @@ class SignatureCatalog:
     def __exit__(self, *_args):
         self.close()
 
+    def selected(self,signature,*,sources):
+        """Ignore only known names belonging exclusively to unselected feeds.
+
+        Unknown results stay conservative. Collisions are resolved over selected
+        origins, so an irrelevant spam origin cannot hide selected malware.
+        """
+        if sources is None:return self.resolve(signature)
+        if isinstance(signature,str) and signature.endswith('.UNOFFICIAL'):
+            name=signature.removesuffix('.UNOFFICIAL')
+            available={row[0] for row in self.db.execute('SELECT source_id FROM signatures WHERE name=? LIMIT 33',(name,))}
+            if len(available)>32:raise EngineError('Signature provenance collision limit exceeded')
+            if available and not available.intersection(sources):return None
+        return self.resolve(signature,sources=sources)
+
     def resolve(self, signature, *, sources=None):
         if not isinstance(signature, str) or not 1 <= len(signature) <= 512:
             raise EngineError('Invalid signature lookup')

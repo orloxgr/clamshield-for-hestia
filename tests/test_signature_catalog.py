@@ -56,6 +56,16 @@ class CatalogTests(unittest.TestCase):
             self.assertEqual('phishing', catalog.resolve('Heuristics.Phishing.Email.SpoofedDomain')['category'])
             self.assertEqual('engine-heuristic', catalog.resolve('Heuristics.Phishing.Email.SpoofedDomain')['attribution'])
 
+    def test_shared_engine_selection_ignores_known_other_feeds_but_not_unknown_or_selected_malware(self):
+        self.add('securiteinfo','spam_marketing.ndb','Ignored.Spam:0:*:4142434445464748\nShared.Name:0:*:4142434445464748\n')
+        self.add('local','malware.ndb','Selected.Malware:0:*:4142434445464749\nShared.Name:0:*:4142434445464749\n')
+        with self.finish() as catalog:
+            sources=['local--malware.ndb']
+            self.assertIsNone(catalog.selected('Ignored.Spam.UNOFFICIAL',sources=sources))
+            for name in ('Selected.Malware.UNOFFICIAL','Shared.Name.UNOFFICIAL','Uncatalogued.UNOFFICIAL','Official.Malware'):
+                self.assertEqual('malware',catalog.selected(name,sources=sources)['category'])
+            self.assertEqual('spam',catalog.selected('Ignored.Spam.UNOFFICIAL',sources=None)['category'])
+
     def test_same_name_in_different_feeds_retains_all_origins_and_strongest_category(self):
         for provider, name in [('securiteinfo','spam_marketing.ndb'),('local','malware.ndb')]:
             self.add(provider, name, 'Shared.Name:0:*:4142434445464748\n')

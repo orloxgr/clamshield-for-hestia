@@ -15,12 +15,16 @@ from .rule_sources import KINDS
 
 
 @contextmanager
-def sealed_file(path):
+def sealed_file(path, maximum=None):
     """An inherited anonymous file, readable after dropping engine privileges."""
     fd = os.memfd_create('clamshield-readonly', os.MFD_ALLOW_SEALING)
     try:
         with open(path, 'rb') as stream:
+            total=0
             while chunk := stream.read(1024 * 1024):
+                total+=len(chunk)
+                if maximum is not None and total>maximum:
+                    raise EngineError('Captured engine input exceeds the file limit')
                 view = memoryview(chunk)
                 while view:
                     view = view[os.write(fd, view):]
