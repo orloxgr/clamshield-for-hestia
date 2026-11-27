@@ -207,14 +207,14 @@ class SignatureMemory:
                 required=sum(row['size'] for case in cases for row in case['files'])
                 native.prepare_runtime()
                 if shutil.disk_usage(native.snapshots).free<required+128*1024**2:raise EngineError('Insufficient free disk space for signature memory measurement')
-                token=uuid.uuid4().hex;folder=native.snapshots/('memory-'+token);folder.mkdir(mode=0o750);gid=pwd.getpwnam('clamav').pw_gid;os.chown(folder,0,gid)
+                token=uuid.uuid4().hex;folder=native.snapshots/('memory-'+token);folder.mkdir(mode=0o750);gid=pwd.getpwnam('clamav').pw_gid;os.chown(folder,0,gid);folder.chmod(0o750)
                 write(folder/'.owner',token+'\n',0o440);os.chown(folder/'.owner',0,gid);info=folder.stat()
                 record=dict(owner='clamshield',schema=1,token=token,unit='clamshield-signature-memory-'+token+'.service',directory=str(folder),device=info.st_dev,inode=info.st_ino)
                 write_json(self.work,record)
                 try:
                     progress('preparing')
                     for case in cases:
-                        target=folder/case['id'];target.mkdir(mode=0o750);os.chown(target,0,gid)
+                        target=folder/case['id'];target.mkdir(mode=0o750);os.chown(target,0,gid);target.chmod(0o750)
                         for row in case['files']:
                             destination=target/row['name']
                             if regular_copy(stage/row['name'],destination)!=row['sha256']:raise Conflict('Signature data changed while preparing measurement')

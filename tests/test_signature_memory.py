@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import subprocess
+import stat
 import sys
 import tempfile
 import unittest
@@ -97,7 +98,9 @@ class SignatureMemoryTests(unittest.TestCase):
         self.assertIn('MemorySwapMax=0',command);self.assertIn('PrivateNetwork=yes',command)
         self.assertIn('RuntimeMaxSec=180',command);self.assertLessEqual(timeout,200)
         plan=json.loads(Path(command[-1]).read_text());self.assertEqual(2,len(plan['cases']))
+        self.assertEqual(0o750,stat.S_IMODE(Path(command[-1]).parent.stat().st_mode))
         for case in plan['cases']:
+            self.assertEqual(0o750,stat.S_IMODE(Path(case['directory']).stat().st_mode))
             for path in Path(case['directory']).iterdir():self.assertEqual(0,path.stat().st_mode&0o022)
         stdout.write(json.dumps({'complete':True,'rows':report()['rows']}).encode()+b'\n')
         return subprocess.CompletedProcess(command,0)
@@ -108,6 +111,13 @@ class SignatureMemoryTests(unittest.TestCase):
         self.assertEqual(6,value['samples']);self.assertEqual(['preparing','measuring'],phases)
         self.assertFalse(self.memory.work.exists());self.assertEqual([],list(self.snapshots.iterdir()))
         self.assertFalse(self.memory.status()['report']['stale']);self.assertEqual(60*1024**2,self.memory.status()['report']['providers'][0]['delta_bytes'])
+
+    def test_strict_maintenance_umask_still_allows_clamav_to_traverse_prepared_data(self):
+        old=os.umask(0o077)
+        try:
+            with patch('clamshield.signature_memory.subprocess.run',side_effect=self.runner):value=self.memory.measure()
+        finally:os.umask(old)
+        self.assertEqual(6,value['samples']);self.assertFalse(self.memory.work.exists())
 
     def test_failed_or_partial_probe_retains_previous_measurement(self):
         self.save();before=self.memory.path.read_bytes()
