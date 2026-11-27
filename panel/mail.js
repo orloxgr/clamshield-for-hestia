@@ -11,15 +11,29 @@
   }
   const root = document.getElementById('cs-mail');
   if(!root)return;
+  const decisionOutputs=new WeakMap();
+  let decisionOutputId=0;
   document.addEventListener('click',async event=>{
     const button=event.target?.closest?.('.cs-mail-decision-show');if(!button)return;
-    const row=button.closest('tr'),output=button.nextElementSibling;
-    if(!row||!output?.classList.contains('cs-mail-decision-output'))return;
-    if(button.dataset.loaded==='true'){
-      output.hidden=!output.hidden;button.textContent=output.hidden?'Show decision details':'Hide decision details';return;
+    const row=button.closest('tr');if(!row)return;
+    let expanded=decisionOutputs.get(button);
+    if(!expanded){
+      const output=button.nextElementSibling;
+      if(!output?.classList.contains('cs-mail-decision-output'))return;
+      const detailRow=document.createElement('tr'),cell=document.createElement('td');
+      detailRow.dataset.reviewDetail='true';detailRow.hidden=true;
+      cell.colSpan=row.cells.length;detailRow.append(cell);cell.append(output);row.after(detailRow);
+      output.id='cs-mail-decision-detail-'+(++decisionOutputId);
+      button.setAttribute('aria-controls',output.id);button.setAttribute('aria-expanded','false');
+      expanded={output,detailRow};decisionOutputs.set(button,expanded);
     }
-    button.disabled=true;output.hidden=false;output.textContent='Loading decision details…';
-    output.style.whiteSpace='pre-wrap';
+    const {output,detailRow}=expanded;
+    const show=visible=>{output.hidden=detailRow.hidden=!visible;button.setAttribute('aria-expanded',String(visible));};
+    if(button.dataset.loaded==='true'){
+      show(output.hidden);button.textContent=output.hidden?'Show decision details':'Hide decision details';return;
+    }
+    button.disabled=true;show(true);output.textContent='Loading decision details…';
+    output.style.whiteSpace='pre-wrap';output.style.overflowWrap='anywhere';output.style.margin='0';
     try{
       const value=await api('mail-decision-get',{owner:row.dataset.owner,decision_id:button.dataset.decision});
       const decision=value.decision,detail=decision.detail;

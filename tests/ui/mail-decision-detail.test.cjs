@@ -24,13 +24,20 @@ test('Global native row opens scoped historical explanation on demand and toggle
   let release;const wait=new Promise(resolve=>release=resolve);const f=fixture({wait});
   try{
     assert.deepEqual(f.requests,[]);assert.equal(f.output.hidden,true);assert.ok(f.button.classList.contains('button'));
+    const record=f.button.closest('tr');const selection=f.w.document.createElement('td');record.prepend(selection);
     f.button.click();f.button.click();assert.equal(f.requests.length,1);assert.equal(f.button.disabled,true);
+    const details=record.nextElementSibling;assert.equal(details.dataset.reviewDetail,'true');
+    assert.equal(details.cells[0].colSpan,record.cells.length);assert.equal(details.cells[0].colSpan,7);
+    assert.equal(f.output.closest('tr'),details);assert.equal(record.contains(f.output),false);
+    assert.equal(f.button.getAttribute('aria-controls'),f.output.id);assert.equal(f.button.getAttribute('aria-expanded'),'true');
     assert.deepEqual(f.requests[0],{token:'fixture-token',owner:'alice',action:'mail-decision-get',decision_id:'a'.repeat(32)});
     release();await until(()=>f.button.dataset.loaded==='true');
     assert.match(f.output.textContent,/DNS lookup failed; check incomplete/);assert.match(f.output.textContent,/Native DNSBL score contribution: 0/);
     assert.match(f.output.textContent,/Applied policy thresholds: spam 7 · high spam 12/);assert.match(f.output.textContent,/SpamAssassin: 1\.25 \/ 5/);
     assert.match(f.output.textContent,/Historical.Rule: \+1.25/);assert.equal(f.output.querySelector('img,script'),null);
-    f.button.click();assert.equal(f.output.hidden,true);f.button.click();assert.equal(f.output.hidden,false);assert.equal(f.requests.length,1);
+    f.button.click();assert.equal(f.output.hidden,true);assert.equal(details.hidden,true);assert.equal(f.button.getAttribute('aria-expanded'),'false');
+    f.button.click();assert.equal(f.output.hidden,false);assert.equal(details.hidden,false);assert.equal(f.requests.length,1);
+    assert.equal(f.w.document.querySelectorAll('[data-review-detail]').length,1);
   }finally{release();f.close();}
 });
 test('historical decision without applied thresholds does not substitute current defaults',async()=>{

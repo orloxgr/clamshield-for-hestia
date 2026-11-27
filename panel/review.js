@@ -131,7 +131,7 @@
  }
  function selectRows(state,values=[]){
   state.selection.clear();state.records=new Map(values.map(row=>[row.id,row]));state.selectPage.checked=false;state.selectPage.indeterminate=false;
-  const rows=[...state.body.children];for(let i=0;i<rows.length;i++){
+  const rows=[...state.body.children].filter(row=>row.dataset.reviewDetail!=='true');for(let i=0;i<rows.length;i++){
    const row=rows[i];row.querySelector('.cs-review-selection-cell')?.remove();
    const value=state.native?{id:row.dataset.reviewId,allowed:row.dataset.reviewAllowed==='true'}:values[i];if(!value?.id)continue;
    const check=element('input',{type:'checkbox',value:value.id,className:'cs-review-select',disabled:!state.canClear||!value.allowed});check.dataset.allowed=String(Boolean(value.allowed));check.setAttribute('aria-label','Select record '+(i+1));
