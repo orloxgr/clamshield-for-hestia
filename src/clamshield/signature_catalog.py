@@ -46,7 +46,8 @@ FILENAME = 'signature-catalog.sqlite3'
 MAX_NAMES = 8_000_000
 MAX_OUTPUT = 256 * 1024**2
 NAMED = {'.hdb', '.hsb', '.mdb', '.msb', '.ndb', '.ldb', '.cdb'}
-SUPPORT = {'.ftm', '.ign2', '.fp', '.sfp', '.wdb', '.pdb'}
+from .provider_catalog import ENGINE_WIDE_SUFFIXES
+SUPPORT = ENGINE_WIDE_SUFFIXES
 FIELDS = {'category', 'provider', 'source_id', 'source_version', 'classification_basis'}
 PRIORITY = {'spam': 0, 'phishing': 1, 'malware': 2}
 _verified = OrderedDict()

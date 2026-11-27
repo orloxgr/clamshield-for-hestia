@@ -7,7 +7,7 @@ import time
 
 from .atomic import write, write_json
 from .errors import ClamShieldError
-from .provider_catalog import SI, SI_BASIC, SANE, SANE_REQUIRED, catalog, recommended
+from .provider_catalog import SI, SI_BASIC, SANE, SANE_REQUIRED, catalog, recommended, server_wide
 
 LEGACY_DEFAULTS = {
     'automatic': True,
@@ -109,13 +109,15 @@ class Providers:
                 if name not in value:
                     continue
                 incoming = value[name]
-                if not isinstance(incoming, dict) or set(incoming) - set(DEFAULTS[name]):
+                permitted=set(DEFAULTS[name]) | ({'shared_databases'} if name in ('securiteinfo','sanesecurity') else set())
+                if not isinstance(incoming, dict) or set(incoming) - permitted:
                     raise ClamShieldError('Invalid provider settings')
                 current = result[name]
                 if 'databases' in incoming and name in ('securiteinfo', 'sanesecurity'):
                     for profile in ('website', 'mail'):
                         current[profile + '_databases'] = deepcopy(incoming['databases'])
                 for key, item in incoming.items():
+                    if key == 'shared_databases':continue
                     if key == 'enabled' and type(item) is not bool:
                         raise ClamShieldError('Invalid provider toggle')
                     if key == 'interval_minutes': validate_interval(name, item)
@@ -126,6 +128,16 @@ class Providers:
                         if not isinstance(item, str) or not re.fullmatch(r'[a-fA-F0-9]{64,256}', item):
                             raise ClamShieldError('SecuriteInfo requires the hexadecimal account key from its installation page')
                     current[key] = item
+                if 'shared_databases' in incoming:
+                    shared=incoming['shared_databases'];allowed=SI if name=='securiteinfo' else SANE
+                    if (not isinstance(shared,list) or
+                            any(not isinstance(item,str) or item not in allowed or not server_wide(item) for item in shared)):
+                        raise ClamShieldError('Invalid server-wide database selection')
+                    for purpose in ('website','mail'):
+                        files=current[purpose+'_databases']
+                        if not isinstance(files,list) or any(not isinstance(item,str) for item in files):
+                            raise ClamShieldError('Invalid provider database selection')
+                        current[purpose+'_databases']=[item for item in files if not server_wide(item)]+shared
                 if name == 'official' and not current['enabled']:
                     raise ClamShieldError('Official ClamAV protection must remain enabled')
             si, sane = result['securiteinfo'], result['sanesecurity']
@@ -138,6 +150,12 @@ class Providers:
                         raise ClamShieldError('Invalid provider database selection')
                     section[key] = sorted(set(files) | set(required))
                 section['databases'] = sorted(set(section['website_databases']) | set(section['mail_databases']))
+            for name,section in (('securiteinfo',si),('sanesecurity',sane)):
+                incoming=value.get(name,{})
+                if any(key in incoming for key in ('databases','website_databases','mail_databases','shared_databases')):
+                    different=set(section['website_databases'])^set(section['mail_databases'])
+                    if any(server_wide(item) for item in different):
+                        raise ClamShieldError('Allowlists, mappings and generic phishing databases require one shared server-wide selection')
             if si['plan'] == 'basic' and any(n not in SI_BASIC for n in si['databases']):
                 raise ClamShieldError('Selected SecuriteInfo databases require a paid plan')
             if si['enabled'] and not si['key']:
@@ -153,6 +171,9 @@ class Providers:
         result['status'] = json.loads(status_path.read_text()) if status_path.exists() else {}
         result['schedule'] = {name: timing(name, result, result['status']) for name in UPDATE_POLICIES}
         result['catalog'] = catalog()
+        result['selection_conflicts']={name:sorted(item for item in
+            set(result[name]['website_databases'])^set(result[name]['mail_databases']) if server_wide(item))
+            for name in ('securiteinfo','sanesecurity')}
         result['recommended'] = {plan: recommended(plan) for plan in ('basic', 'professional', 'gold', 'reseller')}
         local = self.settings.state / 'local-signatures'
         result['local']['files'] = sorted(p.name for p in local.iterdir() if p.is_file() and not p.is_symlink()) if local.exists() else []

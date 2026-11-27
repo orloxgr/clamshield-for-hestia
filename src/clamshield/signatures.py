@@ -23,6 +23,14 @@ from .signature_catalog import build as build_catalog, POLICY as CATALOG_POLICY,
 from . import signature_profiles as profiles
 
 
+# This exact informational warning does not mean a database failed to load.
+# Other stderr, including the same warning alongside a load error, stays fatal.
+STALE_WARNING = (b'LibClamAV Warning: **************************************************\n'
+                 b'LibClamAV Warning: ***  The virus database is older than 7 days!  ***\n'
+                 b'LibClamAV Warning: ***   Please update it as soon as possible.    ***\n'
+                 b'LibClamAV Warning: **************************************************\n')
+
+
 class Signatures:
     website_config = Path('/etc/clamshield/clamd.conf')
     mail_config = Path('/etc/clamshield/mail-clamd.conf')
@@ -211,13 +219,18 @@ class Signatures:
                 preexec_fn=limits, capture_output=True, timeout=150,
                 env={'PATH': '/usr/bin:/bin', 'LANG': 'C.UTF-8'})
             detections = [line for line in result.stdout.decode(errors='replace').splitlines() if line.endswith(' FOUND')]
-            if result.returncode != 1 or len(detections) != 1 or manifest['canary']['signature'] not in detections[0] or result.stderr.strip():
+            stderr = result.stderr.replace(STALE_WARNING, b'')
+            expected = str(canary) + ': ' + manifest['canary']['signature'] + '.UNOFFICIAL FOUND'
+            if (result.returncode != 1 or detections != [expected] or stderr.strip() or
+                    str(clean) + ': OK' not in result.stdout.decode(errors='replace').splitlines()):
                 # Private diagnostics contain only validation fixture output,
                 # never freshclam's credential-bearing provider URLs.
                 if self.settings.state.is_dir():
                     write(self.settings.state / 'signature-validation.private.txt',
                           result.stderr[-16384:] + b'\n' + result.stdout[-16384:])
                 raise EngineError('ClamAV rejected the staged databases or their validation scan')
+            if STALE_WARNING in result.stderr:
+                manifest.setdefault('validation_warnings', {})['official_database_age'] = 'Older than seven days; update official databases'
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise EngineError('ClamAV database validation failed or timed out') from exc
         finally:

@@ -16,6 +16,14 @@ from clamshield.signatures import Signatures
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,'Root native integration orchestration')
 class NativeIntegrationTests(unittest.TestCase):
+    def test_gateway_refuses_catalog_for_a_generation_not_loaded_by_native_daemon(self):
+        from clamshield.native_service import verify_generation
+        native=Mock();native.scan.return_value=[{'signature':'Other.Generation.UNOFFICIAL'}]
+        with self.assertRaises(EngineError):verify_generation(native,self.manifest,self.root)
+        native.scan.return_value=[{'signature':'Fixture.UNOFFICIAL'}]
+        verify_generation(native,self.manifest,self.root)
+        self.assertFalse(any(path.name.startswith('tmp') for path in self.root.iterdir()))
+
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
         self.root=Path(temp.name);self.settings=Settings(state=self.root/'state');self.settings.prepare()

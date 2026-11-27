@@ -238,6 +238,28 @@ test('provider Save timeout releases the form without claiming the server failed
     assert.equal(form.querySelector('[type="submit"]').disabled,false);assert.equal(form.getAttribute('aria-busy'),'false');
   }finally{await f.close();}
 });
+test('server-wide database controls are shared and preserve saved choices until explicit save',async()=>{
+  const f=fixture({hash:'#settings/provider-settings',change:v=>{
+    v.providers.securiteinfo.plan='professional';v.providers.securiteinfo.databases=['securiteinfo.ign2','securiteinfo.pdb'];
+    v.providers.securiteinfo.website_databases=['securiteinfo.ign2'];v.providers.securiteinfo.mail_databases=['securiteinfo.ign2','securiteinfo.pdb'];
+    v.providers.selection_conflicts={securiteinfo:['securiteinfo.pdb']};
+    v.providers.catalog.securiteinfo=[{name:'securiteinfo.ign2',description:'Exceptions',scope:'server'},
+      {name:'securiteinfo.pdb',description:'Phishing',scope:'server'},
+      {name:'javascript.ndb',description:'JavaScript',scope:'profile'}];
+  }});
+  try{
+    const form=f.document.getElementById('cs-providers');assert.equal(f.requests.length,0);
+    assert.match(form.textContent,/Existing server-wide selections differ/);
+    assert.equal(form.querySelectorAll('input[value="securiteinfo.pdb"]').length,1);
+    assert.equal(form.querySelector('input[name="si_shared_databases"][value="securiteinfo.pdb"]').checked,true);
+    assert.equal(form.querySelectorAll('input[value="javascript.ndb"]').length,2);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    const saved=JSON.parse(f.requests.find(r=>r.action==='providers-save').providers).securiteinfo;
+    assert.deepEqual(saved.shared_databases,['securiteinfo.ign2','securiteinfo.pdb']);
+    assert.deepEqual(saved.website_databases,[]);assert.deepEqual(saved.mail_databases,[]);
+  }finally{await f.close();}
+});
+
 test('recommended provider defaults are an explicit unsaved draft and preserve installed custom choices',async()=>{
   const pua='securiteinfo-pua-app-and-vulnerabilities.ndb';
   const f=fixture({hash:'#settings/provider-settings',change:v=>{

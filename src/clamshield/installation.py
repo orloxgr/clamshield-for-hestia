@@ -73,6 +73,12 @@ class Installation:
                     raise Conflict('Owned controller changed outside installation: '+name)
                 units.append(name)
             selected.append(tuple(units))
+        native_gate=self.at('/etc/systemd/system/clamshield-native-gate.service')
+        if native_gate.exists() or native_gate.is_symlink():
+            actual=self.digest(native_gate);expected=inventory['files'].get(str(native_gate))
+            staged=published/'systemd'/native_gate.name if published else None
+            if actual!=expected and not (staged and staged.is_file() and actual==self.digest(staged)):
+                raise Conflict('Native gateway unit changed outside its owned installation')
         return tuple(selected)
 
     @contextmanager
@@ -339,6 +345,10 @@ class Installation:
             release=Path(value['release']);self.code(release)
             if not paths.intersection(value['files']) and not (release/'src/clamshield/notification_preferences.py').exists() and not any((release/'systemd'/name).exists() for name in added):
                 required-=paths
+            native_path=str(self.at('/etc/systemd/system/clamshield-native-gate.service'))
+            if (native_path not in value['files'] and not (release/'src/clamshield/native_integration.py').exists() and
+                    not (release/'systemd/clamshield-native-gate.service').exists()):
+                required.discard(native_path)
         if (not isinstance(value,dict) or value.get('owner')!='clamshield' or value.get('schema')!=1 or
                 value.get('phase') not in ('installed','removed') or not isinstance(value.get('files'),dict) or
                 not isinstance(value.get('release'),str) or len(value['release'])>4096 or not required<=set(value['files']) or

@@ -226,6 +226,7 @@ def install(args,lifecycle):
     from clamshield.native_integration import NativeIntegration
     progress.stage('Connecting website and email scanning to native ClamAV')
     NativeIntegration(Settings()).connect()
+    run('/usr/bin/systemctl','restart','clamshield-native-gate.service')
     from clamshield.mail_runtime import state as mail_runtime_state
     retained_mail=mail_runtime_state(Settings())
     if retained_mail and retained_mail['phase']=='active':

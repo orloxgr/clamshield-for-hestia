@@ -93,6 +93,29 @@ class ProviderConfiguration(unittest.TestCase):
                 with self.subTest(key=key, invalid=invalid), self.assertRaises(ClamShieldError):
                     self.providers.save({'securiteinfo': {key: invalid}})
 
+    def test_server_wide_choices_are_explicit_and_existing_conflicts_never_normalize_on_read_or_schedule_save(self):
+        self.providers.initialize(existing=False)
+        value=self.providers.read();value['securiteinfo']['plan']='professional'
+        value['securiteinfo']['mail_databases'].append('securiteinfo.pdb')
+        self.providers.path.write_text(json.dumps(value));before=self.providers.path.read_bytes()
+        self.assertEqual(['securiteinfo.pdb'],self.providers.public()['selection_conflicts']['securiteinfo'])
+        self.providers.initialize(existing=True);self.assertEqual(before,self.providers.path.read_bytes())
+        self.providers.save({'securiteinfo':{'interval_minutes':120}})
+        self.assertNotIn('securiteinfo.pdb',self.providers.read()['securiteinfo']['website_databases'])
+        with self.assertRaises(ClamShieldError):
+            self.providers.save({'securiteinfo':{'mail_databases':['securiteinfo.pdb']}})
+        self.providers.save({'securiteinfo':{'shared_databases':['securiteinfo.ign2','securiteinfo.pdb']}})
+        for purpose in ('website','mail'):
+            self.assertIn('securiteinfo.pdb',self.providers.read()['securiteinfo'][purpose+'_databases'])
+        self.assertEqual([],self.providers.public()['selection_conflicts']['securiteinfo'])
+        with self.assertRaises(ClamShieldError):self.providers.save({'securiteinfo':{'shared_databases':['javascript.ndb']}})
+
+    def test_recommended_new_defaults_have_compatible_shared_databases(self):
+        from clamshield.provider_catalog import server_wide
+        for plan in ('basic','professional','gold','reseller'):
+            for section in recommended(plan).values():
+                self.assertFalse(any(server_wide(item) for item in set(section['website_databases'])^set(section['mail_databases'])))
+
     def test_separate_update_and_provider_forms_preserve_each_others_saved_fields(self):
         self.providers.save({'automatic':False,'official':{'interval_minutes':180},
                              'securiteinfo':{'interval_minutes':120},'sanesecurity':{'interval_minutes':90}})
@@ -264,6 +287,25 @@ class Verification(unittest.TestCase):
 
 @unittest.skipUnless(Path('/usr/bin/clamscan').is_file(), 'Ubuntu ClamAV validation')
 class ActualDatabaseValidation(unittest.TestCase):
+    def test_age_warning_does_not_hide_validation_failure(self):
+        from clamshield.signatures import STALE_WARNING
+        with tempfile.TemporaryDirectory() as temp:
+            root=Path(temp);settings=Settings(state=root/'state');settings.prepare()
+            stage=root/'generation-fixture';stage.mkdir()
+            clean=stage/'.validation-clean';canary=stage/'.validation-canary'
+            output=(str(clean)+': OK\n'+str(canary)+': Fixture.UNOFFICIAL FOUND\n').encode()
+            result=Mock(returncode=1,stdout=output,stderr=STALE_WARNING)
+            with patch('clamshield.signatures.subprocess.run',return_value=result):
+                manifest={'canary':{'payload':'fixture','signature':'Fixture'}}
+                Signatures(settings).validate(stage,manifest)
+                self.assertIn('official_database_age',manifest['validation_warnings'])
+                for changed in (dict(stderr=STALE_WARNING+b'LibClamAV Error: invalid database\n'),
+                                dict(stdout=output.replace(b': OK',b': ERROR')),dict(returncode=2)):
+                    failed=Mock(returncode=1,stdout=output,stderr=STALE_WARNING)
+                    for key,value in changed.items():setattr(failed,key,value)
+                    with patch('clamshield.signatures.subprocess.run',return_value=failed),self.assertRaises(EngineError):
+                        Signatures(settings).validate(stage,{'canary':{'payload':'fixture','signature':'Fixture'}})
+
     def test_invalid_local_database_cannot_pass_staging_validation(self):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp); root.chmod(0o755)

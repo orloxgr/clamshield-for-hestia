@@ -51,6 +51,11 @@ SI = {
 
 RISK_URL = 'https://sanesecurity.com/usage/signatures/'
 SI_SUPPORT = ('securiteinfo.ign2', 'securiteinfo.wdb')
+ENGINE_WIDE_SUFFIXES = frozenset(('.ftm', '.ign2', '.fp', '.sfp', '.wdb', '.pdb'))
+
+
+def server_wide(name):
+    return name.endswith(tuple(ENGINE_WIDE_SUFFIXES))
 
 
 def recommended(plan='basic'):
@@ -61,7 +66,7 @@ def recommended(plan='basic'):
         'securiteinfo.pdb', 'securiteinfo.wdb')]
     si_mail = list(si_web)
     if plan != 'basic':
-        si_mail += ['spam_marketing.ndb', 'securiteinfo.pdb', 'securiteinfo.wdb']
+        si_mail += ['spam_marketing.ndb']
     # Only documented Low/Medium groups enter a preset; unknown/high never do.
     sane_web = list(SANE_REQUIRED) + [name for name, row in SANE.items()
         if row[1] in ('low', 'medium') and row[2] in ('malware', 'mixed')
@@ -74,9 +79,10 @@ def recommended(plan='basic'):
 
 def catalog():
     return {'securiteinfo': [{'name': name, 'description': row[0], 'paid': row[1],
-                'risk': 'not-applicable' if name in SI_SUPPORT else 'not-rated', 'risk_url': None}
+                'risk': 'not-applicable' if name in SI_SUPPORT else 'not-rated', 'risk_url': None,
+                'scope': 'server' if server_wide(name) else 'profile'}
                 for name, row in SI.items()],
             'sanesecurity': [{'name': name, 'description': row[0],
                 'risk': 'not-applicable' if row[1] == 'required' else row[1],
-                'risk_url': RISK_URL, 'category': row[2]}
+                'risk_url': RISK_URL, 'category': row[2], 'scope': 'server' if server_wide(name) else 'profile'}
                 for name, row in SANE.items()]}

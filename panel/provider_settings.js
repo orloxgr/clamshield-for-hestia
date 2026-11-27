@@ -50,8 +50,8 @@
   }
   bind('cs-providers','cs-provider-save-status','provider settings',f=>({
     securiteinfo:{enabled:f.has('si_enabled'),plan:f.get('si_plan'),key:f.get('si_key'),
-      website_databases:f.getAll('si_website_databases'),mail_databases:f.getAll('si_mail_databases')},
-    sanesecurity:{enabled:f.has('sane_enabled'),website_databases:f.getAll('sane_website_databases'),mail_databases:f.getAll('sane_mail_databases')},
+      website_databases:f.getAll('si_website_databases'),mail_databases:f.getAll('si_mail_databases'),shared_databases:f.getAll('si_shared_databases')},
+    sanesecurity:{enabled:f.has('sane_enabled'),website_databases:f.getAll('sane_website_databases'),mail_databases:f.getAll('sane_mail_databases'),shared_databases:f.getAll('sane_shared_databases')},
     local:{enabled:f.has('local_enabled')}
   }),(form,result)=>{
     activation.hidden=false;const key=form.elements.si_key;

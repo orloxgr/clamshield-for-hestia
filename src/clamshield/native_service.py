@@ -10,6 +10,7 @@ import socket
 import stat
 import threading
 import time
+import tempfile
 
 from .atomic import write_json,sync_directory
 from .errors import EngineError,Conflict
@@ -18,6 +19,15 @@ from .native_integration import NativeIntegration
 from .native_gate import NativeGate
 from .signature_catalog import SignatureCatalog,engine_lock
 from .settings import Settings
+
+
+def verify_generation(native,manifest,runtime):
+    """Bind result attribution to the data actually loaded, under engine_lock."""
+    with tempfile.NamedTemporaryFile(dir=runtime) as sample:
+        sample.write(manifest['canary']['payload'].encode());sample.flush()
+        hits=native.scan(Path(sample.name))
+    if manifest['canary']['signature']+'.UNOFFICIAL' not in [hit['signature'] for hit in hits]:
+        raise EngineError('Native antivirus has not loaded the pinned signature generation')
 
 
 def notify_ready():
@@ -59,19 +69,22 @@ def serve(settings=None):
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def handle(connection):
         try:
-            with connection,engine_lock(settings):
+            with engine_lock(settings):
                 native=manager.client('native-mail',timeout=25,maximum=80*1024**2,transition=True)
                 signatures=Signatures(settings);manifest=signatures.manifest()
                 if manifest is None or manifest.get('engine_mode')!='native-shared':
                     raise EngineError('Native baseline signature generation is not pinned')
+                current=manager.read()
+                if current is None or current.get('generation')!=manifest['generation']:
+                    raise EngineError('Native antivirus generation state differs from its catalog')
                 with SignatureCatalog((signatures.base/'current').resolve(),manifest) as catalog:
+                    verify_generation(native,manifest,manager.runtime)
                     gate=NativeGate(native,catalog.resolve,exim_uid=exim.pw_uid)
                     gate.handle(connection)
         except Exception:
             try:connection.sendall(b'Native antivirus unavailable ERROR\n')
             except OSError:pass
-            connection.close()
-        finally:capacity.release()
+        finally:connection.close();capacity.release()
     owned=None
     try:
         listener.bind(str(path));info=path.lstat();owned=dict(path=str(path),device=info.st_dev,inode=info.st_ino)

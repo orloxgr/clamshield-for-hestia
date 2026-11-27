@@ -330,6 +330,30 @@ time.sleep(60)
         resource.inspect.return_value=dict(active=active)
         return resource
 
+    def pre_native_inventory(self):
+        value=self.installation.read(self.installation.manifest)
+        path=self.root/'etc/systemd/system/clamshield-native-gate.service'
+        value['files'].pop(str(path));path.unlink();write_json(self.installation.manifest,value)
+        return path
+
+    def test_pre_native_inventory_upgrades_without_stopping_the_new_gateway(self):
+        path=self.pre_native_inventory()
+        with self.assertRaises(Conflict):self.installation.inventory()
+        with self.installation.update(self.release):
+            path.write_bytes(self.contents[path]);self.installation.register(self.release);self.installation.finish_install()
+        self.installation.available()
+        self.assertFalse(any(call[0]=='stop' and path.name in call for call in self.installation.calls))
+
+    def test_pre_native_inventory_never_claims_a_foreign_gateway_or_current_release(self):
+        path=self.pre_native_inventory();path.write_text('Foreign gateway')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.release):pass
+        self.assertEqual([],self.installation.calls);path.unlink()
+        source=self.release/'src/clamshield/native_integration.py';source.parent.mkdir(parents=True);source.write_text('Current release')
+        with self.assertRaises(Conflict):
+            with self.installation.update(self.release):pass
+        self.assertEqual([],self.installation.calls)
+
     def test_legacy_and_explicit_stop_do_not_start_website_engine(self):
         for enabled in (None,False):
             resource=self.resource_fixture(enabled)

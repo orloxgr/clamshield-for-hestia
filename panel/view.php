@@ -170,8 +170,8 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  const providerRecommendations=<?=json_encode($providers['recommended']??new stdClass(),JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  document.getElementById('cs-provider-recommended')?.addEventListener('click',()=>{
   const form=document.getElementById('cs-providers'),preset=providerRecommendations[form.elements.si_plan.value];if(!preset)return;
-  for(const [provider,prefix] of [['securiteinfo','si'],['sanesecurity','sane']])for(const profile of ['website','mail']){
-   const selected=new Set(preset[provider][profile+'_databases']);
+  for(const [provider,prefix] of [['securiteinfo','si'],['sanesecurity','sane']])for(const profile of ['website','mail','shared']){
+   const selected=new Set(profile==='shared'?[...preset[provider].website_databases,...preset[provider].mail_databases]:preset[provider][profile+'_databases']);
    for(const input of form.querySelectorAll('input[name="'+prefix+'_'+profile+'_databases"]'))input.checked=selected.has(input.value);
   }
   for(const details of form.querySelectorAll('details'))details.open=true;
