@@ -56,8 +56,10 @@
     return text;
   }
   function spamAssassinLabel(detail) {
-    const sa=detail.spamassassin;if(!sa)return '';
-    return 'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
+    const native=detail.native_spamassassin;
+    const earlier=native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'';
+    const sa=detail.spamassassin;if(!sa)return earlier;
+    return earlier+'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
       (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+
       '\nEngine / rules: '+(sa.engine_version||'unrecorded')+' / '+(sa.rules_version||'unrecorded')+
       '\nConfiguration: '+(sa.revision||'unrecorded')+'\n'+

@@ -394,6 +394,14 @@ spam rejection, SMTP recipient/routing restrictions and mailbox/storage failures
 are separate delivery paths and require their own checks; changing a ClamShield
 dropdown does not rewrite those settings.
 
+When native SpamAssassin ran before the hook, history also retains its Exim
+score separately from the ClamShield score and contribution report. This value
+comes from the authenticated native API variable `spam_score_int` (in tenths),
+never from message headers. An absent native result stays absent. The bridge
+continues accepting the prior request format, which has no native score field.
+The separate score does not itself disable native rejection or change a saved
+handling policy.
+
 Selecting an account exposes **Account email defaults**, which overrides the
 server defaults for all its current/future domains. The inheritance order is
 server → account → domain → mailbox. Saving server/account defaults validates

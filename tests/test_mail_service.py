@@ -41,10 +41,11 @@ class MailBrokerTests(unittest.TestCase):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='quarantine'))
         self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='reject'))
 
-    def exchange(self,broker=None,protocol='esmtp'):
+    def exchange(self,broker=None,protocol='esmtp',native_score=None):
         broker=broker or self.broker();client,server=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
+        native_fields={} if native_score is None else dict(native_spam_score=native_score)
         packet=bridge.envelope(message_id=self.request.message_id,sender=self.request.sender,
-                               recipients=list(self.request.recipients),protocol=protocol)
+                               recipients=list(self.request.recipients),protocol=protocol,**native_fields)
         result=[]
         def handle():
             with server:result.append(broker.handle(server,expected_uid=os.getuid(),expected_binary=sys.executable))
@@ -93,6 +94,12 @@ class MailBrokerTests(unittest.TestCase):
         self.assertEqual('incomplete',row['detail']['policy_classification'])
         self.assertFalse(row['detail']['scan_complete'])
         self.assertEqual('accepted',row['detail']['smtp_outcome'])
+
+    def test_prior_native_score_is_stored_separately_from_the_selected_policy_score(self):
+        self.enable();self.assertEqual((3,'custody'),self.exchange(native_score='10000'))
+        row=self.policies.decisions(self.alice)['decisions'][0]
+        self.assertEqual(dict(score=1000,source='native-exim-acl'),row['detail']['native_spamassassin'])
+        self.assertEqual(0,row['detail']['spam_score']);self.assertEqual('deliver',row['action'])
 
     def test_native_antivirus_is_preserved_for_unmanaged_recipients(self):
         original=self.native.call.side_effect

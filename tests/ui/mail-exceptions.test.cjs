@@ -58,13 +58,13 @@ async function fixture(options={}) {
       overrides:body.mailbox ? {} : policy.overrides};
     else if (body.action === 'mail-decisions') result = {total:1,decisions:[{created:1,sender:'sender@remote.test',
       recipient:'inbox@alice.test',action:'reject',classification:'malware',sha256:'c'.repeat(64),
-      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
+      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
     else if (body.action === 'mail-quarantine') result = {total:1,next_offset:null,permissions:policy.permissions,
       messages:[{id:'delivery-one',created:1,subject:'Fixture',sender:'sender@remote.test',recipient:'inbox@alice.test',
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
     else if (body.action === 'mail-preview') result = {preview:{domain:'alice.test',mailbox:'inbox',recipient:'inbox@alice.test',
       sha256:'a'.repeat(64),headers:{Subject:'Fixture'},text:'Plain message',available:true,
-      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
+      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
     else if (body.action.startsWith('mail-exception') || body.action === 'mail-policy-save' || body.action === 'mail-policy-reset') {
       if (options.conflict) return {ok:false,json:async()=>({ok:false,error:'Email policy changed. Reload it.'})};
       result = policy;
@@ -296,6 +296,17 @@ test('email history displays recorded contribution precision and treats descript
     assert.match(f.byId('history').textContent,/Engine \/ rules: 4\.0\.2 \/ 123456/);
     assert.equal(f.byId('history').querySelector('img,script'),null);
   } finally {f.close();}
+});
+
+test('native prefilter score stays separate from ClamShield contributions in history and stored preview',async()=>{
+  const f=await fixture({nativeSpam:{score:1000.8,source:'native-exim-acl'},spamassassin:{score:2.395,required_score:5,symbols:[],rules:[]}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('Native SpamAssassin before ClamShield: 1000.8'));
+    assert.match(f.byId('history').textContent,/SpamAssassin: 2\.395 \/ 5/);
+    f.byId('quarantine').querySelector('button').click();
+    await until(()=>f.byId('quarantine').textContent.includes('Native SpamAssassin before ClamShield: 1000.8'));
+    assert.match(f.byId('quarantine').textContent,/SpamAssassin: 2\.395 \/ 5/);
+  }finally{f.close();}
 });
 
 test('recovery search is account scoped and unknown stages offer no action',async()=>{

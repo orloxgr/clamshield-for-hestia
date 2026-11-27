@@ -18,8 +18,9 @@ def envelope(**overrides):
             'recipients': ['first@example.test', 'second@example.test']}
     data.update(overrides)
     fields = [data[k] for k in ('message_id', 'sender', 'remote_ip', 'authenticated_id', 'protocol')]
+    if 'native_spam_score' in data:fields.append(data['native_spam_score'])
     fields.extend(data['recipients'])
-    result = b'CSMAIL01' + struct.pack('!II', len(data['recipients']), 1)
+    result = (b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
     for field in fields:
         value = field.encode()
         result += struct.pack('!I', len(value)) + value
@@ -28,6 +29,19 @@ def envelope(**overrides):
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux sealed descriptors and native credentials')
 class MailBridgeTests(unittest.TestCase):
+    def test_native_score_is_a_bounded_authenticated_protocol_field_not_a_header(self):
+        for raw,expected in [('10000',1000),('-23',-2.3),('0',0),('',None)]:
+            self.send(envelope(native_spam_score=raw))
+            request=self.get()
+            try:self.assertEqual(expected,request.native_spam_score)
+            finally:request.close()
+        for raw in ('nan','inf','3.5','1e3','10000000000','0\nFORGED'):
+            self.send(envelope(native_spam_score=raw))
+            with self.assertRaises(ClamShieldError):self.get()
+        self.send(envelope())
+        request=self.get()
+        try:self.assertIsNone(request.native_spam_score)
+        finally:request.close()
     def setUp(self):
         self.client, self.server = socket.socketpair(socket.AF_UNIX, socket.SOCK_SEQPACKET)
         self.fds = []
@@ -94,7 +108,7 @@ class MailBridgeTests(unittest.TestCase):
             self.assertEqual(before, len(os.listdir('/proc/self/fd')))
 
     def test_trailing_truncated_control_and_unqualified_metadata_rejected(self):
-        for data in (envelope() + b'extra', envelope()[:-1], b'CSMAIL02' + envelope()[8:],
+        for data in (envelope() + b'extra', envelope()[:-1], b'CSMAIL03' + envelope()[8:],
                      envelope(sender='sender@example.test\nX-Forged: yes'),
                      envelope(recipients=['unqualified']), envelope(remote_ip='forged-ip'),
                      envelope(message_id='../../spool')):

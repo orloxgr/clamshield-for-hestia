@@ -97,6 +97,8 @@ class MailBroker:
             context=dict(context,actor='clamshield-mail')
             policy=self.policies.get(context,target['domain'],target['mailbox'])['effective']
             decision=evaluate(policy,scan,sender=request.sender,sha256=sha256)
+            if request.native_spam_score is not None:
+                decision['native_spamassassin']={'score':request.native_spam_score,'source':'native-exim-acl'}
             if not policy['enabled'] and native_av[index]:
                 from .native_gate import baseline
                 retained=[]

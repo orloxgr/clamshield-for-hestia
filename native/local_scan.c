@@ -110,19 +110,23 @@ int local_scan(int body, uschar **return_text)
   if (recipients_count < 1 || recipients_count > CS_RECIPIENTS_MAX) goto done;
   request = malloc(CS_METADATA_MAX);
   if (!request) goto done;
-  memcpy(request, "CSMAIL01", 8);
+  memcpy(request, "CSMAIL02", 8);
   uint32_t count = htonl((uint32_t)recipients_count);
   uint32_t flags = htonl((smtp_input ? 1u : 0u) | (smtp_batched_input ? 2u : 0u));
   memcpy(request + 8, &count, 4);
   memcpy(request + 12, &flags, 4);
   size_t used = 16;
   const uschar *authenticated = expand_string(US"$authenticated_id");
+  /* Exim's own content-scanning variable, never an RFC822 status header.
+   * An empty value means native SpamAssassin did not produce a score. */
+  const uschar *native_spam_score = expand_string(US"$spam_score_int");
   if (!authenticated ||
       append_string(request, &used, message_id, 128) ||
       append_string(request, &used, sender_address, 1024) ||
       append_string(request, &used, sender_host_address, 128) ||
       append_string(request, &used, authenticated, 1024) ||
-      append_string(request, &used, received_protocol, 64)) goto done;
+      append_string(request, &used, received_protocol, 64) ||
+      append_string(request, &used, native_spam_score, 32)) goto done;
   for (int i = 0; i < recipients_count; ++i)
     if (append_string(request, &used, recipients_list[i].address, 1024)) goto done;
   out = message_snapshot(body);
