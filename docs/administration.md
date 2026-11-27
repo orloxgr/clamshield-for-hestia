@@ -467,8 +467,8 @@ missing answers and normal NXDOMAIN answers remain unknown. The displayed time
 is the last observation, not a live availability check. Individual mail decisions
 retain their own observations and the applied configuration revision.
 
-Spamhaus observations also recognize its bad-zone-name reply127.255.255.252 and
-DBL's prohibited IP-query reply127.0.1.255 as administrative access errors, not
+Spamhaus observations also recognize its bad-zone-name reply `127.255.255.252`
+and DBL's prohibited IP-query reply `127.0.1.255` as administrative access errors, not
 successful reputation checks. These follow the provider's
 [IP-list guidance](https://www.spamhaus.org/faqs/dnsbl-usage/) and
 [DBL guidance](https://www.spamhaus.org/faqs/domain-blocklist/).
