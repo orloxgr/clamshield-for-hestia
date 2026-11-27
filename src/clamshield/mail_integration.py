@@ -314,7 +314,7 @@ class MailIntegration:
         value=dict(target,runtime=self.guard()['runtime'])
         self.record(transaction,value)
         self.journal.unlink();sync_directory(self.settings.state)
-        return {'enabled':True,'adapter':value['adapter']['generation'],'native_dnsbl':self.native_dnsbl_protection()}
+        return {'enabled':True,'adapter':value['adapter']['generation'],'native_dnsbl':self.native_dnsbl_protection(),'native_spam_safety':self.native_spam_protection()}
 
     def finish_disabled(self,transaction,target):
         # A final send may have crossed the old draining gate just before the
@@ -325,6 +325,8 @@ class MailIntegration:
         rejection.remove_extension();rejection.restore()
         from .native_dnsbl import NativeDnsbl
         NativeDnsbl(self.settings,self.hestia).restore()
+        from .native_spam_safety import NativeSpamSafety
+        NativeSpamSafety(self.settings).restore()
         self.clear_native_activation()
         self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
         # Stop while the old unit still declares RuntimeDirectory. Removing the
@@ -432,7 +434,7 @@ class MailIntegration:
         self.record(transaction,value)
         self.record_rebases(transaction,target)
         self.journal.unlink();sync_directory(self.settings.state)
-        return {'enabled':True,'refreshed':True,'adapter':candidate['generation'],'native_dnsbl':self.native_dnsbl_protection()}
+        return {'enabled':True,'refreshed':True,'adapter':candidate['generation'],'native_dnsbl':self.native_dnsbl_protection(),'native_spam_safety':self.native_spam_protection()}
 
     def _refresh(self,current):
         if current is None or current['phase']!='active':raise Conflict('Enable mail integration before refreshing it')
@@ -496,6 +498,14 @@ class MailIntegration:
             {'message':'Native DNSBL error-reply filters need review; no automatic retry was attempted'},'native-dnsbl-review')
         return result
 
+    def native_spam_protection(self):
+        from .native_spam_safety import NativeSpamSafety
+        try:return NativeSpamSafety(self.settings).ensure()
+        except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
+            self.store.notify('@admin','','mail.refresh_failed','native-spam-safety',
+                {'message':'Native SpamAssassin administrative scores need review; no failed service action will be retried automatically'},'native-spam-safety-review')
+            return {'review_required':True}
+
     def reconcile(self):
         with self.locked():
             current=state(self.settings)
@@ -506,7 +516,7 @@ class MailIntegration:
                 return {'refreshed':False,'retry_pending':True}
             try:
                 if not self.refresh_reasons(current):
-                    return {'refreshed':False,'native_policies':self.native_policies()}
+                    return {'refreshed':False,'native_policies':self.native_policies(),'native_spam_safety':self.native_spam_protection()}
                 result=self._refresh(current)
             except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
                 write_json(self.refresh_status,dict(code_generation=self.code_identity(),retry_after=time.time()+60,
@@ -527,7 +537,7 @@ class MailIntegration:
                 self.guard();self.ready();self.wait_connected()
                 verified=self.guard()
                 current['runtime']=verified['runtime'];write_json(self.state,current)
-                return {'enabled':True,'unchanged':True,'native_dnsbl':self.native_dnsbl_protection()}
+                return {'enabled':True,'unchanged':True,'native_dnsbl':self.native_dnsbl_protection(),'native_spam_safety':self.native_spam_protection()}
             if self.journal.exists():raise Conflict('Mail integration recovery is pending')
             if any(row['active'] for row in self.unit_states().values()):raise Conflict('Untracked owned mail services must be reviewed before activation')
             if MACRO.exists() or MACRO.is_symlink():raise Conflict('Existing Exim local macros are not replaced; review the integration conflict')
@@ -577,6 +587,8 @@ class MailIntegration:
                 rejection.remove_extension();restored=rejection.restore()
                 from .native_dnsbl import NativeDnsbl
                 NativeDnsbl(self.settings,self.hestia).restore()
+                from .native_spam_safety import NativeSpamSafety
+                NativeSpamSafety(self.settings).restore()
                 self.clear_native_activation()
                 return {'enabled':False,'unchanged':True,**restored}
             # Detaching a known owned hook must remain possible after a native
@@ -665,10 +677,13 @@ class MailIntegration:
             from .native_dnsbl import NativeDnsbl
             try:dnsbl=NativeDnsbl(self.settings,self.hestia).status()
             except (OSError,ValueError,KeyError,TypeError,ClamShieldError):dnsbl={'state':'needs-review','review_required':True}
+            from .native_spam_safety import NativeSpamSafety
+            try:spam_safety=NativeSpamSafety(self.settings).status()
+            except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):spam_safety={'state':'needs-review','verified':False,'review_required':True}
             return dict(configured=current is not None,phase=current['phase'] if current else 'unconfigured',
                         hook_enabled=runtime_hook_ready() if current and MACRO.exists() and MACRO.read_text()==MACRO_TEXT else None,
                         transition=journal['phase'] if journal else None,units=self.unit_states(),
-                        native_dnsbl=dnsbl,
+                        native_dnsbl=dnsbl,native_spam_safety=spam_safety,
                         native_filters='Native domain filters run before the ClamShield hook',
                         pending=self.pending(),mode=mode(self.settings))
         except (OSError,ValueError,KeyError,TypeError,ClamShieldError,subprocess.SubprocessError):

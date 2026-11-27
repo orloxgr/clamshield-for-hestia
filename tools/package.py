@@ -14,7 +14,8 @@ def main():
     version=re.search(r'__version__ = "([0-9.]+)"',(ROOT/'src/clamshield/__init__.py').read_text(encoding='utf-8'))[1]
     prefix='clamshield-hestia-'+version
     names=['README.md','LICENSE','pyproject.toml','entry.py','tools/install.py','tools/uninstall.py','tools/package.py',
-           'tools/spamassassin-config.pl','tools/spamassassin-report.pm','tools/signature-memory-probe.py']
+           'tools/spamassassin-config.pl','tools/spamassassin-report.pm','tools/signature-memory-probe.py',
+           'tools/native-spam-config.pl','tools/native-spam-safety.pm']
     for directory in ('src','panel','config','systemd','native','docs','tests'):
         for path in (ROOT/directory).rglob('*'):
             if {'__pycache__','node_modules'}.intersection(path.parts) or path.suffix=='.pyc':continue

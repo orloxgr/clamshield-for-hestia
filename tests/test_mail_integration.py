@@ -20,6 +20,7 @@ from clamshield.store import Store
 
 class Controller(MailIntegration):
     def native_dnsbl_protection(self):return {'fixture':True}
+    def native_spam_protection(self):return {'fixture':True}
     def __init__(self,*args):
         super().__init__(*args)
         self.units={u:{'active':False,'enabled':False} for u in UNITS}
@@ -172,6 +173,19 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual({'review_required':True},result)
         self.controller.store.notify.assert_called_once()
         self.assertNotIn('private query key',str(self.controller.store.notify.call_args))
+
+    def test_native_spam_safety_failure_is_visible_without_exposing_configuration(self):
+        self.controller.store=Mock()
+        with patch('clamshield.native_spam_safety.NativeSpamSafety',return_value=Mock(ensure=Mock(side_effect=EngineError('private configuration')))):
+            result=MailIntegration.native_spam_protection(self.controller)
+        self.assertEqual({'review_required':True},result);self.controller.store.notify.assert_called_once()
+        self.assertNotIn('private configuration',str(self.controller.store.notify.call_args))
+
+    def test_uncertain_native_spam_restoration_retains_hook_and_disable_journal(self):
+        self.controller.enable()
+        with patch('clamshield.native_spam_safety.NativeSpamSafety',return_value=Mock(restore=Mock(side_effect=Conflict('Native safety needs review')))):
+            with self.assertRaises(Conflict):self.controller.disable()
+        self.assertTrue(self.macro.exists());self.assertTrue(self.guard.exists());self.assertTrue(self.controller.journal.exists())
 
     def test_readiness_failure_restores_prior_files_and_units_without_native_restart(self):
         self.controller.bad_ready=True

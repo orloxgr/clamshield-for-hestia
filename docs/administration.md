@@ -474,6 +474,17 @@ missing answers and normal NXDOMAIN answers remain unknown. The displayed time
 is the last observation, not a live availability check. Individual mail decisions
 retain their own observations and the applied configuration revision.
 
+Native SpamAssassin runs before the ClamShield hook too. Activation adds an
+owned `zz-clamshield-native-safety.cf` and a diagnostic plugin under
+`/etc/spamassassin`, setting administrative DNS access-error rules to zero in
+all four score sets. A local synthetic REPORT verifies these actual loaded
+values for the native mail user. SPF/DKIM/DMARC and content-rule scores remain
+unchanged. An active native daemon is restarted once to load changed owned
+files; a stopped daemon stays stopped. Failed or uncertain service actions
+require review, without automatic retries. Disable/removal deletes only exact
+owned files and preserves other configuration and later administrator edits.
+Mail integration status distinguishes verified, stopped and review states.
+
 Spamhaus observations recognize its complete `127.255.255.0/24` error network,
 including disabled/illegally-used DQS key replies `.250`/`.251`, bad-zone-name `.252`,
 and DBL's prohibited IP-query reply `127.0.1.255` as administrative access errors, not
