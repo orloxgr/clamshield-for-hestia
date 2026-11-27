@@ -4,6 +4,7 @@ No service/configuration writes occur here. Installation owns any later native
 integration; clients must not guess that a missing socket is a clean verdict.
 """
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import pwd
 import socket
@@ -13,7 +14,8 @@ import subprocess
 import time
 
 from .errors import EngineError, EncryptedContent, CoverageUnavailable
-from .engines import sealed_file
+from .engines import ClamAV, sealed_file
+from .mail_bridge import validate_snapshot, process_start
 from .mail_scanners import MailClamAV, readable_snapshot, _connect, _read
 
 
@@ -48,13 +50,37 @@ def configuration(path=CONFIG):
     return values
 
 
-class NativeClamAV:
+class NativeClamAV(ClamAV):
     """One bounded request per captured file; the distro daemon stays resident."""
     name='clamav'
 
     def __init__(self,endpoint,directory,*,expected_uid,group,timeout=45,maximum=50*1024**2):
         self.socket_path=str(endpoint);self.directory=Path(directory)
         self.expected_uid=expected_uid;self.group=group;self.timeout=timeout;self.maximum=maximum
+        self.identity=None
+
+    @staticmethod
+    def native_identity():
+        pid=subprocess.check_output(['/usr/bin/systemctl','show',UNIT,'--property=MainPID','--value'],timeout=3).decode().strip()
+        if not pid.isdigit() or int(pid)<2:raise EngineError('Native ClamAV service is not running')
+        birth=process_start(int(pid))
+        if not os.path.samefile('/proc/'+pid+'/exe','/usr/sbin/clamd'):
+            raise EngineError('Native ClamAV service executable is unexpected')
+        if not any(line.endswith(':/system.slice/'+UNIT) for line in Path('/proc/'+pid+'/cgroup').read_text().splitlines()):
+            raise EngineError('Native ClamAV process is outside its package service')
+        if process_start(int(pid))!=birth:raise EngineError('Native ClamAV process changed during discovery')
+        return int(pid),birth
+
+    @contextmanager
+    def connection(self,deadline):
+        with _connect(self.socket_path,self.expected_uid,deadline) as connection:
+            if self.identity is not None:
+                pid,uid,_=struct.unpack('3i',connection.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
+                if ((pid,uid)!=(1,0) and pid!=self.identity[0]) or process_start(self.identity[0])!=self.identity[1]:
+                    raise EngineError('Native ClamAV process changed before the scan')
+            yield connection
+            if self.identity is not None and process_start(self.identity[0])!=self.identity[1]:
+                raise EngineError('Native ClamAV process changed while scanning')
 
     @classmethod
     def discover(cls,directory,*,path=CONFIG,timeout=45,maximum=50*1024**2):
@@ -67,36 +93,54 @@ class NativeClamAV:
         with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as probe:
             probe.settimeout(2);probe.connect(str(endpoint))
             peer_pid,peer_uid,_=struct.unpack('3i',probe.getsockopt(socket.SOL_SOCKET,socket.SO_PEERCRED,12))
-        if peer_uid!=identity.pw_uid:
-            if (peer_pid,peer_uid)!=(1,0):raise EngineError('Native ClamAV socket peer is unexpected')
-            pid=subprocess.check_output(['/usr/bin/systemctl','show',UNIT,'--property=MainPID','--value'],timeout=3).decode().strip()
-            if not pid.isdigit() or int(pid)<2:raise EngineError('Native ClamAV service is not running')
-            if not os.path.samefile('/proc/'+pid+'/exe','/usr/sbin/clamd'):
-                raise EngineError('Native ClamAV service executable is unexpected')
-            if not any(line.endswith(':/system.slice/'+UNIT) for line in Path('/proc/'+pid+'/cgroup').read_text().splitlines()):
-                raise EngineError('Native ClamAV process is outside its package service')
+        native=cls.native_identity()
+        if (peer_pid,peer_uid)!=(1,0) and (peer_uid!=identity.pw_uid or peer_pid!=native[0]):
+            raise EngineError('Native ClamAV socket peer is unexpected')
         client=cls(endpoint,directory,expected_uid=peer_uid,group=identity.pw_gid,timeout=timeout,maximum=maximum)
-        with _connect(endpoint,peer_uid,time.monotonic()+2) as connection:
+        client.identity=native
+        with client.connection(time.monotonic()+2) as connection:
             connection.sendall(b'zVERSIONCOMMANDS\0')
             reply=_read(connection,time.monotonic()+2)
         if b'ALLMATCHSCAN' not in reply:raise EngineError('Native ClamAV lacks all-match protocol support')
         return client
 
+    def scan_snapshot(self,source,*,deadline=None):
+        info=validate_snapshot(source)
+        if info.st_size>self.maximum:raise CoverageUnavailable('Native ClamAV input exceeds the selected file limit')
+        if info.st_size==0:return []
+        deadline=min(deadline if deadline is not None else float('inf'),time.monotonic()+self.timeout)
+        try:
+            with readable_snapshot(source,self.directory,self.group) as name:
+                with self.connection(deadline) as connection:
+                    connection.sendall(b'zALLMATCHSCAN '+os.fsencode(name)+b'\0')
+                    response=_read(connection,deadline)
+                if b': Heuristics.Encrypted' in response:
+                    raise EncryptedContent('Native ClamAV encountered encrypted content')
+                return MailClamAV.parse(response,name)
+        except OSError as exc:raise EngineError('Native ClamAV is unavailable or timed out') from exc
+
     def scan(self,path):
         with sealed_file(path,self.maximum) as source:
-            size=os.fstat(source).st_size
-            if size>self.maximum:raise CoverageUnavailable('Native ClamAV input exceeds the selected file limit')
-            if size==0:return []
-            deadline=time.monotonic()+self.timeout
-            try:
-                with readable_snapshot(source,self.directory,self.group) as name:
-                    with _connect(self.socket_path,self.expected_uid,deadline) as connection:
-                        connection.sendall(b'zALLMATCHSCAN '+os.fsencode(name)+b'\0')
-                        response=_read(connection,deadline)
-                    # Preserve the website distinction between encryption and
-                    # ordinary engine failure; neither is clean coverage.
-                    if b': Heuristics.Encrypted' in response:
-                        raise EncryptedContent('Native ClamAV encountered encrypted content')
-                    names=MailClamAV.parse(response,name)
-            except OSError as exc:raise EngineError('Native ClamAV is unavailable or timed out') from exc
+            if os.fstat(source).st_size==0:return []
+            names=self.scan_snapshot(source)
         return [dict(engine='clamav',signature=name,provider='unclassified') for name in names]
+
+    def version(self):
+        try:
+            deadline=time.monotonic()+3
+            with self.connection(deadline) as connection:
+                connection.sendall(b'zVERSION\0')
+                value=_read(connection,deadline,maximum=4096).rstrip(b'\0\n').decode('ascii')
+            if not value.startswith('ClamAV ') or len(value)>512:
+                raise EngineError('Native ClamAV returned an invalid version')
+            return value
+        except (OSError,UnicodeError) as exc:raise EngineError('Native ClamAV version is unavailable') from exc
+
+
+class NativeMailClamAV:
+    """Mail's sealed-descriptor interface on the same native engine client."""
+    def __init__(self,client):
+        self.client=client
+
+    def scan(self,fd,*,deadline=None):
+        return self.client.scan_snapshot(fd,deadline=deadline)
