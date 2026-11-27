@@ -26,6 +26,9 @@ def policy_hook_configured(settings):
 
     A heartbeat is deliberately not authority here: losing the broker must not
     reinstate an earlier unconditional malware rejection over selected delivery.
+    An unavailable hook while integration is enabled is a scanner error, not
+    permission to restore baseline rejection. Native Exim's defer_ok handling
+    preserves delivery in that fault window without claiming a clean scan.
     """
     from .mail_runtime import state
     from .mail_integration import MACRO,MACRO_TEXT,LEGACY_MACRO_TEXT,LIBRARY,runtime_hook_ready
@@ -36,10 +39,13 @@ def policy_hook_configured(settings):
         trusted(MACRO)
         macro=MACRO.read_text()
         if macro==MACRO_TEXT:
-            if not runtime_hook_ready():return False
-        elif macro!=LEGACY_MACRO_TEXT:return False
-        return sha(LIBRARY)==current['adapter']['library_sha256']
-    except (OSError,ValueError,KeyError,TypeError,EngineError):return False
+            if not runtime_hook_ready():raise EngineError('Owned mail policy hook is unavailable')
+        elif macro!=LEGACY_MACRO_TEXT:raise EngineError('Owned mail policy hook configuration changed')
+        if sha(LIBRARY)!=current['adapter']['library_sha256']:
+            raise EngineError('Owned mail policy hook library changed')
+        return True
+    except (OSError,ValueError,KeyError,TypeError,EngineError) as error:
+        raise EngineError('Mail policy hook verification is unavailable') from error
 
 
 def verify_generation(native,manifest,runtime):

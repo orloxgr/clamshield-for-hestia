@@ -82,11 +82,50 @@ class NativeGateTests(unittest.TestCase):
                 patch('clamshield.mail_integration.MACRO',macro),patch('clamshield.mail_integration.LIBRARY',library), \
                 patch('clamshield.mail_integration.HOOK_INCLUDE',include),patch('clamshield.mail_integration.HOOK_RUNTIME',self.root):
             self.assertTrue(policy_hook_configured(None))
-            include.unlink();self.assertFalse(policy_hook_configured(None))
+            include.unlink()
+            with self.assertRaises(EngineError):policy_hook_configured(None)
             include.write_text('local_scan_path = '+str(library)+'\n')
             current['phase']='starting';self.assertTrue(policy_hook_configured(None))
             current['phase']='disabled';self.assertFalse(policy_hook_configured(None))
-            current['phase']='active';library.write_bytes(b'foreign');self.assertFalse(policy_hook_configured(None))
+            current['phase']='active';library.write_bytes(b'foreign')
+            with self.assertRaises(EngineError):policy_hook_configured(None)
+
+    def test_only_explicitly_disabled_or_absent_integration_restores_baseline_protection(self):
+        with patch('clamshield.mail_runtime.state') as state,patch('clamshield.mail_adapter.trusted') as trusted:
+            for current in (None,dict(phase='disabled')):
+                state.return_value=current
+                self.assertFalse(policy_hook_configured(None))
+            trusted.assert_not_called()
+            state.side_effect=EngineError('Owned integration record is missing or invalid')
+            with self.assertRaises(EngineError):policy_hook_configured(None)
+
+    def test_active_and_transitioning_unavailable_hooks_are_scanner_errors_not_baseline(self):
+        from clamshield.mail_integration import MACRO_TEXT
+        macro=self.root/'macros';macro.write_text(MACRO_TEXT);macro.chmod(0o644)
+        current=dict(phase='active',adapter=dict(library_sha256='fixture'))
+        with patch('clamshield.mail_runtime.state',return_value=current), \
+                patch('clamshield.mail_integration.MACRO',macro), \
+                patch('clamshield.mail_integration.runtime_hook_ready',return_value=False):
+            for phase in ('active','starting','draining','recovering'):
+                with self.subTest(phase=phase):
+                    current['phase']=phase
+                    with self.assertRaises(EngineError):policy_hook_configured(None)
+            macro.write_text('Changed integration configuration')
+            with self.assertRaises(EngineError):policy_hook_configured(None)
+            macro.unlink()
+            with self.assertRaises(EngineError):policy_hook_configured(None)
+
+    def test_legacy_attached_hook_still_delegates_but_missing_library_is_a_scanner_error(self):
+        from clamshield.mail_integration import LEGACY_MACRO_TEXT
+        import hashlib
+        macro=self.root/'macros';macro.write_text(LEGACY_MACRO_TEXT);macro.chmod(0o644)
+        library=self.root/'local_scan.so';library.write_bytes(b'owned-test-library');library.chmod(0o644)
+        current=dict(phase='active',adapter=dict(library_sha256=hashlib.sha256(library.read_bytes()).hexdigest()))
+        with patch('clamshield.mail_runtime.state',return_value=current), \
+                patch('clamshield.mail_integration.MACRO',macro),patch('clamshield.mail_integration.LIBRARY',library):
+            self.assertTrue(policy_hook_configured(None))
+            library.unlink()
+            with self.assertRaises(EngineError):policy_hook_configured(None)
 
     def test_proven_supplemental_only_is_left_for_later_policy_but_unknown_stays_actionable(self):
         self.assertEqual([],baseline(['Spam.Selected.UNOFFICIAL'],origin))

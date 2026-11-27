@@ -378,6 +378,13 @@ baseline rejection. Tagged delivery prefixes the subject with `*** MALWARE ***`,
 `*** PHISHING ***`, `*** SPAM ***` or `*** BLOCKED SENDER ***` as appropriate.
 MIME body and attachment bytes are preserved.
 
+If an enabled integration's owned hook is missing, changed or cannot be
+verified, the gateway reports a scanner error rather than restoring early
+malware rejection. Native Exim's `defer_ok` handling permits delivery without
+calling that failed check clean. Baseline scanning resumes only when integration
+is absent or explicitly disabled. A still-loaded, verified policy hook can
+complete the later check and apply the selected subject marking as usual.
+
 Ordinary SMTP returns one result for the entire message. ClamShield rejects at
 DATA only when every recipient's decision is Reject. When recipient decisions
 differ, the recipients set to Reject get retained quarantine copies, while the
