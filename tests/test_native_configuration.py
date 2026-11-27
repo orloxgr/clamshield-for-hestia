@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from clamshield.errors import Conflict,EngineError
 from clamshield.native_configuration import NativeConfiguration
+from clamshield.native_clamav import configuration
 from clamshield.settings import Settings
 
 
@@ -67,6 +68,7 @@ class NativeConfigurationTests(unittest.TestCase):
         self.path.write_bytes(raw)
         self.manager.configure({'MaxScanTime':'20000'})
         self.manager.restore();self.assertEqual(raw,self.path.read_bytes())
+        self.assertEqual('/var/lib/clamav',configuration(self.path)['DatabaseDirectory'])
 
     def test_updates_keep_original_ownership_and_refuse_conflicting_admin_edits(self):
         self.manager.configure({'MaxFileSize':'50M'})

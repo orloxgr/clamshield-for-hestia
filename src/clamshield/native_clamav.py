@@ -30,7 +30,7 @@ def configuration(path=CONFIG,*,require_all_matches=True):
             info.st_nlink!=1 or info.st_mode&0o022 or info.st_size>128*1024):
         raise EngineError('Native ClamAV configuration is not trusted')
     values={}
-    for raw in path.read_text().splitlines():
+    for raw in path.read_text(encoding='utf-8',errors='surrogateescape').splitlines():
         line=raw.strip()
         if not line or line.startswith('#'):continue
         key,separator,value=line.partition(' ')
