@@ -19,7 +19,12 @@ from .errors import Conflict,EngineError
 from .mail_adapter import bounded,trusted
 from .mail_runtime import read
 
-ERRORS=('127.255.255.252','127.255.255.254','127.255.255.255')
+# Spamhaus reserves the complete /24 for operational errors, including disabled
+# or illegally used DQS keys (250/251). Hestia's supported API accepts literal
+# IPv4 exclusions, not CIDR syntax; enumerate that bounded network explicitly.
+LEGACY_ERRORS=('127.255.255.252','127.255.255.254','127.255.255.255')
+ERRORS=tuple('127.255.255.'+str(value) for value in range(256))
+MAX_ENTRY=8192
 ENTRY=re.compile(r'[A-Za-z0-9.-]+(?:!=[0-9.,]+)?\Z')
 FIELDS=('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_uid','st_gid','st_mode','st_nlink')
 
@@ -30,7 +35,7 @@ def stamp(info):return {name:getattr(info,name) for name in FIELDS}
 def entries(content):
     lines=content.decode('utf-8',errors='surrogateescape').splitlines()
     result=[line.strip() for line in lines if line.strip() and not line.lstrip().startswith('#')]
-    if len(result)>128 or any(len(line)>512 or not ENTRY.fullmatch(line) for line in result):
+    if len(result)>128 or any(len(line)>MAX_ENTRY or not ENTRY.fullmatch(line) for line in result):
         raise EngineError('Native DNSBL configuration is not supported')
     if len(result)!=len({line.lower() for line in result}):raise Conflict('Duplicate native DNSBL entries need review')
     try:
@@ -41,15 +46,15 @@ def entries(content):
     return result
 
 
-def replacement(entry):
+def replacement(entry,*,errors=ERRORS):
     zone,separator,excluded=entry.partition('!=')
     lower=zone.lower()
     if not (lower in {'zen.spamhaus.org','sbl.spamhaus.org','xbl.spamhaus.org','pbl.spamhaus.org'} or
             re.fullmatch(r'[a-z0-9-]+\.(?:zen|sbl|xbl|pbl)\.dq\.spamhaus\.net',lower)):
         return entry
     existing=excluded.split(',') if separator else []
-    if set(ERRORS)<=set(existing):return entry
-    return zone+'!='+','.join(existing+[value for value in ERRORS if value not in existing])
+    if set(errors)<=set(existing):return entry
+    return zone+'!='+','.join(existing+[value for value in errors if value not in existing])
 
 
 class NativeDnsbl:
@@ -77,11 +82,15 @@ class NativeDnsbl:
                 value['state'] not in ('applying','active','restoring','restored','review') or
                 not isinstance(value['rows'],list) or len(value['rows'])>128):raise EngineError('Invalid native DNSBL receipt')
         for row in value['rows']:
-            if (not isinstance(row,dict) or set(row)!={'original','replacement','state'} or
+            if (not isinstance(row,dict) or set(row) not in ({'original','replacement','state'},{'original','replacement','state','previous_replacement'}) or
                     row['state'] not in ('pending','adding','removing','active','restoring','restored','retired') or
-                    not all(isinstance(row[name],str) and ENTRY.fullmatch(row[name]) and len(row[name])<=512 for name in ('original','replacement')) or
-                    replacement(row['original'])!=row['replacement'] or row['original']==row['replacement']):
+                    not all(isinstance(row[name],str) and ENTRY.fullmatch(row[name]) and len(row[name])<=MAX_ENTRY for name in ('original','replacement')) or
+                    row['replacement'] not in (replacement(row['original']),replacement(row['original'],errors=LEGACY_ERRORS)) or row['original']==row['replacement']):
                 raise EngineError('Invalid native DNSBL entry receipt')
+            if 'previous_replacement' in row and (row['previous_replacement']!=replacement(row['original'],errors=LEGACY_ERRORS) or
+                    row['replacement']!=replacement(row['original']) or row['previous_replacement']==row['replacement'] or
+                    value['state'] not in ('applying','review') or row['state'] not in ('adding','removing')):
+                raise EngineError('Invalid native DNSBL safety upgrade receipt')
         if len({row['original'] for row in value['rows']})!=len(value['rows']):raise EngineError('Duplicate native DNSBL receipts')
         for files in (value['before'],value['after']):
             if not isinstance(files,dict) or set(files)!={'native','custom'}:raise EngineError('Invalid native DNSBL file receipt')
@@ -181,6 +190,26 @@ class NativeDnsbl:
             if value and value['state'] not in ('active','restored'):raise Conflict('Native DNSBL change needs review; no automatic retry')
             files=self.files();lines=self.lines(files)
             if value and value['state']=='active':
+                outdated=[row for row in value['rows'] if row['state']=='active' and replacement(row['original'])!=row['replacement']]
+                if outdated and files==value['after'] and all(row['state']=='active' and row['replacement'] in lines and row['original'] not in lines for row in value['rows']):
+                    # Extend only our byte-exact prior output. Do not upgrade
+                    # through an administrator edit or reset their selections.
+                    # The original before-receipt remains the uninstall target.
+                    updates=[dict(original=row['replacement'],replacement=replacement(row['original'])) for row in outdated]
+                    self.collisions(updates,lines)
+                    value['state']='applying';write_json(self.path,value)
+                    try:
+                        for row in outdated:
+                            row['previous_replacement']=row['replacement'];row['replacement']=replacement(row['original'])
+                            row['state']='adding';write_json(self.path,value)
+                            self.operation(value,True,row['replacement'],check_parents)
+                            row['state']='removing';write_json(self.path,value)
+                            self.operation(value,False,row['previous_replacement'],check_parents)
+                            del row['previous_replacement'];row['state']='active';write_json(self.path,value)
+                        value['state']='active';write_json(self.path,value)
+                    except Exception:
+                        value['state']='review';write_json(self.path,value);raise
+                    lines=self.lines(value['after'])
                 # Later administrator decisions are preserved, never re-applied
                 # on every maintenance tick or code update.
                 review=any(row['state']=='active' and (row['replacement'] not in lines or row['original'] in lines) for row in value['rows']) or any(replacement(line)!=line for line in lines)

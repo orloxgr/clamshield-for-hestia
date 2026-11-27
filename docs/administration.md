@@ -474,14 +474,16 @@ missing answers and normal NXDOMAIN answers remain unknown. The displayed time
 is the last observation, not a live availability check. Individual mail decisions
 retain their own observations and the applied configuration revision.
 
-Spamhaus observations also recognize its bad-zone-name reply `127.255.255.252`
+Spamhaus observations recognize its complete `127.255.255.0/24` error network,
+including disabled/illegally-used DQS key replies `.250`/`.251`, bad-zone-name `.252`,
 and DBL's prohibited IP-query reply `127.0.1.255` as administrative access errors, not
 successful reputation checks. These follow the provider's
 [IP-list guidance](https://www.spamhaus.org/faqs/dnsbl-usage/) and
-[DBL guidance](https://www.spamhaus.org/faqs/domain-blocklist/).
+[DBL guidance](https://www.spamhaus.org/faqs/domain-blocklist/), plus the
+[DQS return codes](https://docs.spamhaus.com/datasets/docs/source/10-data-type-documentation/datasets/040-zones.html).
 
-The mail integration also excludes Spamhaus's documented access-error replies
-(`127.255.255.252`, `.254` and `.255`) from supported native IP DNSBL entries,
+The mail integration also excludes Spamhaus's complete operational-error network
+`127.255.255.0/24` from supported native IP DNSBL entries,
 using Hestia's `v-add-sys-mail-dnsbl` / `v-delete-sys-mail-dnsbl` commands. This
 prevents these errors rejecting mail before the ClamShield hook; real listing
 responses remain enabled. Original choices are recorded privately and restored
@@ -490,6 +492,11 @@ native API calls require review and are never retried automatically. The mail
 integration status shows the protection count or a review notice. This change
 does not delegate native MIME filename checks or genuine DNSBL listings to the
 recipient's ClamShield policy; those earlier native filters remain separate.
+
+Earlier three-code protection is extended once only if the native files still
+exactly match the recorded owned output. The original removal receipt remains
+intact. Administrator edits require review; interrupted API changes retain both
+old/new entry identities and never trigger an automatic retry.
 
 A saved ClamShield policy is not enforced while the integration is disconnected.
 The advanced integration controls remain available for maintenance and diagnosis.

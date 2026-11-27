@@ -12,11 +12,19 @@ from unittest.mock import Mock,patch
 
 from clamshield.atomic import write,write_json
 from clamshield.errors import Conflict,EngineError
-from clamshield.native_dnsbl import NativeDnsbl,ERRORS,entries,replacement
+from clamshield.native_dnsbl import NativeDnsbl,ERRORS,LEGACY_ERRORS,entries,replacement
 from clamshield.settings import Settings
 
 
 class EntryTests(unittest.TestCase):
+    def test_complete_operational_error_network_excludes_no_genuine_listing_codes(self):
+        self.assertEqual(256,len(ERRORS));self.assertEqual('127.255.255.0',ERRORS[0]);self.assertEqual('127.255.255.255',ERRORS[-1])
+        for code in ('127.255.255.250','127.255.255.251','127.255.255.253'):
+            self.assertIn(code,replacement('zen.spamhaus.org'))
+        for code in ('127.0.0.2','127.0.0.4','127.0.0.10','127.0.0.30'):
+            self.assertNotIn(code,ERRORS)
+        self.assertEqual([replacement('zen.spamhaus.org')],entries((replacement('zen.spamhaus.org')+'\n').encode()))
+
     def test_only_known_spamhaus_ip_lists_get_documented_error_exclusions(self):
         safe='!='+','.join(ERRORS)
         for zone in ('zen.spamhaus.org','sbl.spamhaus.org','xbl.spamhaus.org','pbl.spamhaus.org','private-key.zen.dq.spamhaus.net'):
@@ -78,6 +86,47 @@ class NativeDnsblTests(unittest.TestCase):
         custom=b'# administrator comment\nzen.spamhaus.org\nbl.spamcop.net\n'
         self.configure(custom);self.manager.protect();self.manager.restore()
         self.assertEqual(custom,self.custom.read_bytes());self.assertEqual(custom,self.native.read_bytes())
+
+    def legacy_protection(self):
+        original=replacement
+        with patch('clamshield.native_dnsbl.replacement',side_effect=lambda entry,**kwargs:original(entry,errors=kwargs.get('errors',LEGACY_ERRORS))):
+            self.manager.protect()
+        return self.manager.ledger()
+
+    def test_exact_owned_legacy_output_upgrades_once_and_original_uninstall_receipt_survives(self):
+        old=self.legacy_protection();self.assertEqual(2,len(self.operations))
+        self.assertEqual({'protected_entries':1,'review_required':False},self.manager.protect())
+        now=self.manager.ledger();self.assertEqual(old['before'],now['before']);self.assertEqual(4,len(self.operations))
+        self.assertEqual(replacement('zen.spamhaus.org'),now['rows'][0]['replacement'])
+        self.assertNotIn('previous_replacement',now['rows'][0])
+        self.manager.protect();self.assertEqual(4,len(self.operations))
+        self.manager.restore();self.assertEqual(self.default,self.native.read_bytes());self.assertFalse(self.custom.exists())
+
+    def test_legacy_upgrade_never_overwrites_later_administrator_output(self):
+        self.legacy_protection();self.configure(self.native.read_bytes()+b'admin.example.test\n')
+        self.assertTrue(self.manager.protect()['review_required']);self.assertEqual(2,len(self.operations))
+        self.manager.restore();self.assertIn(b'admin.example.test',self.native.read_bytes());self.assertNotIn(b'!=',self.native.read_bytes())
+
+    def test_uncertain_legacy_upgrade_keeps_both_receipts_and_never_retries(self):
+        old=self.legacy_protection();command=self.command
+        def fail_removal(add,entry):
+            if not add:raise EngineError('Native upgrade removal failed')
+            command(add,entry)
+        self.manager.command.side_effect=fail_removal
+        with self.assertRaises(EngineError):self.manager.protect()
+        value=self.manager.ledger();self.assertEqual('review',value['state'])
+        self.assertEqual(old['rows'][0]['replacement'],value['rows'][0]['previous_replacement'])
+        attempts=self.manager.command.call_count
+        for _ in range(2):
+            with self.assertRaises(Conflict):self.manager.protect()
+            with self.assertRaises(Conflict):self.manager.restore()
+        self.assertEqual(attempts,self.manager.command.call_count)
+
+    def test_forged_active_upgrade_receipt_is_not_authority_to_mutate_native_settings(self):
+        self.manager.protect();value=self.manager.ledger();value['rows'][0]['previous_replacement']=replacement('zen.spamhaus.org',errors=LEGACY_ERRORS)
+        write_json(self.manager.path,value)
+        with self.assertRaises(EngineError):self.manager.protect()
+        self.assertEqual(2,len(self.operations))
 
     def test_legacy_comment_bytes_are_preserved_without_accepting_non_ascii_zone_entries(self):
         content=b'# administrator legacy comment \xff\nzen.spamhaus.org\nbl.spamcop.net\n'

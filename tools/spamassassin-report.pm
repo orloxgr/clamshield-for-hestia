@@ -60,8 +60,8 @@ sub dns_observations {
     'multi.surbl.org'=>qr/^127\.0\.0\.(?:[13579]|[1-9]\d*[13579])$/,
     # Spamhaus administrative replies are not reputation/listing answers.
     # DBL additionally returns 127.0.1.255 for prohibited IP-address queries.
-    'zen.spamhaus.org'=>qr/^127\.255\.255\.(?:252|254|255)$/,
-    'dbl.spamhaus.org'=>qr/^(?:127\.255\.255\.(?:252|254|255)|127\.0\.1\.255)$/,
+    'zen.spamhaus.org'=>qr/^127\.255\.255\.\d+$/,
+    'dbl.spamhaus.org'=>qr/^(?:127\.255\.255\.\d+|127\.0\.1\.255)$/,
   );
   my %seen = %{$pms->{clamshield_dns_observed} // {}};
   # SA 4.x retains the actual resolver packets in its per-message AsyncLoop.
