@@ -79,13 +79,32 @@ class MailBroker:
             policies.append(self.policies.get(context,target['domain'],target['mailbox'])['effective'])
         native_av=[bool(target and next(row['native_antivirus'] for row in rows
                    if row['owner']==target['owner'] and row['domain']==target['domain'])) for target in original]
-        if not any(policy and policy['enabled'] for policy in policies) and not any(native_av):return None
-        scanner=self.scanner_factory()
-        if hasattr(scanner,'timeout'):
-            remaining=25 if self.hestia.deadline is None else self.hestia.deadline-time.monotonic()
-            if remaining<=0:raise EngineError('Mail request time budget is exhausted')
-            scanner.timeout=min(scanner.timeout,remaining)
-        scan=scanner.scan(request.fd);sha256=digest_snapshot(request.fd)
+        from .native_rejection import NativeRejection
+        delegated=NativeRejection(self.settings,self.hestia).delegated(rows)
+        native_spam=[bool(target and (target['owner'],target['identity'],target['domain']) in delegated and
+                          not (policy and policy['enabled'])) for target,policy in zip(original,policies)]
+        managed=any(policy and policy['enabled'] for policy in policies)
+        if not managed and not any(native_av) and not any(native_spam):return None
+        native_result=None
+        if any(native_spam):
+            from .native_spam import rejection_threshold
+            from .native_spam_client import NativeSpamAssassin
+            try:
+                threshold=rejection_threshold()
+                native_result=(dict(score=request.native_spam_score,source='native-exim-acl') if request.native_spam_score is not None
+                               else NativeSpamAssassin().scan(request.fd,deadline=self.hestia.deadline or time.monotonic()+20))
+                native_result=dict(native_result,threshold=threshold,complete=True)
+            except (ClamShieldError,OSError,ValueError,subprocess.SubprocessError):
+                native_result=dict(complete=False,source='native-spamd-unavailable')
+        sha256=digest_snapshot(request.fd)
+        if managed or any(native_av):
+            scanner=self.scanner_factory()
+            if hasattr(scanner,'timeout'):
+                remaining=25 if self.hestia.deadline is None else self.hestia.deadline-time.monotonic()
+                if remaining<=0:raise EngineError('Mail request time budget is exhausted')
+                scanner.timeout=min(scanner.timeout,remaining)
+            scan=scanner.scan(request.fd)
+        else:scan=dict(complete=False,sha256=sha256,spam_score=None,detections=[],errors=[])
         if scan.get('sha256')!=sha256:raise EngineError('Mail scan does not match the native snapshot')
         current=inventory(self.hestia);items=[]
         for index,recipient in enumerate(request.recipients):
@@ -109,6 +128,13 @@ class MailBroker:
                 decision.update(action='reject' if retained else 'deliver',
                     classification='native-malware' if retained else 'unmanaged' if scan.get('complete') else 'incomplete',
                     scan_complete=scan.get('complete') is True,detections=retained)
+            if native_spam[index] and not policy['enabled']:
+                decision['native_spamassassin']=native_result
+                if native_result['complete']:
+                    if native_result['score']>native_result['threshold']['required_score']:
+                        decision.update(action='reject',classification='native-spam')
+                    elif not native_av[index]:decision.update(action='deliver',classification='unmanaged',scan_complete=True)
+                elif decision['action']!='reject':decision.update(action='deliver',classification='incomplete',scan_complete=False)
             if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])
             items.append({'context':context,'target':target,'decision':decision,'managed':policy['enabled']})

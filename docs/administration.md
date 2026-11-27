@@ -389,10 +389,23 @@ failed checks or a timeout leave the hook absent; they do not prevent native
 Exim startup or load an incompatible adapter. Integration diagnostics report the
 missing hook and maintenance can refresh it after compatibility is restored.
 
-Native Hestia filters run before the policy hook. In particular, native domain
-spam rejection, SMTP recipient/routing restrictions and mailbox/storage failures
-are separate delivery paths and require their own checks; changing a ClamShield
-dropdown does not rewrite those settings.
+Enabling mail protection delegates native domain spam rejection to the late
+recipient policy through Hestia's supported reject-spam commands. A private
+receipt records the original flag, account generation and domain generation
+before each change. Unmanaged sibling recipients retain the original native
+threshold and strict comparison. If Hestia's early scan skipped the message,
+the broker queries the verified native spamd service; an unavailable result
+remains incomplete and preserves delivery. Native scores do not get added to
+the ClamShield policy score.
+
+An owned add-mail-domain extension applies this delegation to newly created
+managed domains. An extension belonging to another application is preserved
+and reported as a conflict. Disable/uninstall restores only unchanged owned
+flags through the native API and removes only the unchanged owned extension.
+Recreated accounts/domains and subsequent administrator changes are preserved.
+A failed or uncertain native change is retained for review, never blindly
+retried. SMTP recipient/routing restrictions and mailbox/storage failures remain
+separate native delivery paths that need their own checks.
 
 When native SpamAssassin ran before the hook, history also retains its Exim
 score separately from the ClamShield score and contribution report. This value

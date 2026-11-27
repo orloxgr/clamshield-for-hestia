@@ -115,6 +115,32 @@ class MailBrokerTests(unittest.TestCase):
             self.policies.save(self.native.authorize('admin',owner),owner+'.test','',dict(enabled=True,malware_action='tag'))
         self.assertEqual((3,'custody'),self.exchange())
 
+    def test_delegated_native_spam_cannot_override_a_managed_delivery_policy(self):
+        self.enable()
+        delegated={('alice',self.ids['alice'],'alice.test'),('bob',self.ids['bob'],'bob.test')}
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value=delegated), \
+                patch('clamshield.native_spam.rejection_threshold') as threshold:
+            self.assertEqual((3,'custody'),self.exchange(native_score='10000'))
+        threshold.assert_not_called()
+
+    def test_delegated_unmanaged_native_rejection_uses_original_strict_threshold(self):
+        delegated={('alice',self.ids['alice'],'alice.test'),('bob',self.ids['bob'],'bob.test')}
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value=delegated), \
+                patch('clamshield.native_spam.rejection_threshold',return_value=dict(required_score=10,revision='fixture',source='native-exim-macro')):
+            self.assertEqual((0,'unmanaged'),self.exchange(native_score='100'))
+            self.assertEqual((1,'reject'),self.exchange(native_score='101'))
+        self.assertEqual(0,self.scans)
+
+    def test_unchecked_native_score_is_scanned_by_verified_native_service_and_failure_delivers_incomplete(self):
+        delegated={('alice',self.ids['alice'],'alice.test'),('bob',self.ids['bob'],'bob.test')}
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value=delegated), \
+                patch('clamshield.native_spam.rejection_threshold',return_value=dict(required_score=10,source='fixture')), \
+                patch('clamshield.native_spam_client.NativeSpamAssassin.scan',return_value=dict(score=1000,source='native-spamd-report')) as scan:
+            self.assertEqual((1,'reject'),self.exchange());scan.assert_called_once()
+            scan.side_effect=EngineError('Unavailable')
+            self.assertEqual((5,'native-fallback'),self.exchange())
+        self.assertEqual(0,self.scans)
+
     def test_engine_start_failure_uses_native_but_reserved_reference_spoof_is_denied(self):
         self.enable()
         self.factory=Mock(side_effect=EngineError('Unavailable'))

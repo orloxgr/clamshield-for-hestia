@@ -38,6 +38,11 @@ test('failed activation displays plain text and allows another attempt',async()=
     assert.match(f.output.textContent,/<script>invalid/);assert.equal(f.output.children.length,0);assert.equal(f.events,0);
   }finally{f.close();}
 });
+test('native policy transition displays the actual running step',async()=>{
+  const f=fixture([state(off,{action:'mail-protection-enable',status:'running',phase:'native-policies'},true)]);
+  try{await settle();assert.equal(f.button.disabled,true);assert.equal(f.output.textContent,'Applying native mail delivery policies…');}
+  finally{f.close();}
+});
 test('existing custom connection can enable inherited protection with the same button',async()=>{
   const f=fixture([state({...off,connected:true})],{failAction:'mail-protection-enable'});
   try{await settle();assert.equal(f.button.textContent,'Enable mail protection');f.button.click();await settle();

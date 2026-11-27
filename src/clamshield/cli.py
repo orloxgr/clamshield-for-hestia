@@ -14,8 +14,10 @@ from .store import Store
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='ClamShield for Hestia')
-    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'mail-startup', 'native-gate', 'notifications', 'tick', 'inventory', 'engines'))
+    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'mail-startup', 'mail-domain-added', 'native-gate', 'notifications', 'tick', 'inventory', 'engines'))
+    parser.add_argument('native_arguments',nargs='*')
     args = parser.parse_args(argv)
+    if len(args.native_arguments)!=(2 if args.command=='mail-domain-added' else 0):parser.error('Unexpected native command arguments')
     try:
         if os.geteuid() != 0:
             raise ClamShieldError('Use the native panel or an administrator root shell')
@@ -43,6 +45,10 @@ def execute(args,settings):
         from .native_service import serve
         serve(settings);return 0
     store, hestia = Store(settings.database), Hestia(settings.hestia)
+    if args.command=='mail-domain-added':
+        from .native_rejection import NativeRejection
+        value=NativeRejection(settings,hestia).domain_added(store,*args.native_arguments)
+        print(json.dumps({'ok':True,**value}));return 0
     app = Application(settings, store, hestia)
     if args.command == 'request':
         maximum = 8 * 1024 * 1024

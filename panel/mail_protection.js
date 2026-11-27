@@ -14,7 +14,7 @@
   function show(value){
     const state=value.protection,task=value.latest;enabled=state.enabled;connected=state.connected;pending=value.pending;
     if(task&&['queued','running'].includes(task.status)){
-      changed=true;output.textContent=task.action==='mail-protection-disable'?'Safely disabling mail protection…':({signatures:'Preparing antivirus signatures…',rules:'Preparing YARA rules…',preparing:'Preparing mail protection…',verifying:'Verifying mail protection…',policies:'Applying protection defaults…'}[task.phase]||'Waiting to start…');
+      changed=true;output.textContent=task.action==='mail-protection-disable'?'Safely disabling mail protection…':({signatures:'Preparing antivirus signatures…',rules:'Preparing YARA rules…',preparing:'Preparing mail protection…',verifying:'Verifying mail protection…',policies:'Applying protection defaults…','native-policies':'Applying native mail delivery policies…'}[task.phase]||'Waiting to start…');
     }else if(pending)output.textContent='Finishing mail service work…';
     else if(task?.status==='failed')output.textContent='Could not complete the change: '+(task.error||'Please try again.');
     else if(state.error)output.textContent=state.error;

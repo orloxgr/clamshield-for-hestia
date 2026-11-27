@@ -1,4 +1,4 @@
-"""Journaled owned hook/service lifecycle. Native domain flags are preserved."""
+"""Journaled owned hook/service lifecycle and native policy restoration."""
 from contextlib import contextmanager
 import base64
 import fcntl
@@ -306,6 +306,9 @@ class MailIntegration:
         # A final send may have crossed the old draining gate just before the
         # durable disable commit. New submits are now blocked; finish that send.
         self.drain(inflight_only=True)
+        from .native_rejection import NativeRejection
+        rejection=NativeRejection(self.settings,self.hestia)
+        rejection.remove_extension();rejection.restore()
         self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
         self.put(transaction,GUARD,None);self.system('daemon-reload');self.restart_native()
         self.phase(transaction,'stopping')
@@ -504,7 +507,11 @@ class MailIntegration:
                 target=dict(current,phase='disabled',disabled_at=time.time(),runtime={})
                 self.commit(transaction,target)
                 return self.finish_disabled(transaction,target)
-            if current is None or current['phase']=='disabled':return {'enabled':False,'unchanged':True}
+            if current is None or current['phase']=='disabled':
+                from .native_rejection import NativeRejection
+                rejection=NativeRejection(self.settings,self.hestia)
+                rejection.remove_extension();restored=rejection.restore()
+                return {'enabled':False,'unchanged':True,**restored}
             # Detaching a known owned hook must remain possible after a native
             # package change, even when the old adapter is no longer usable.
             if MACRO.read_text() not in (MACRO_TEXT,LEGACY_MACRO_TEXT) or not GUARD.read_text().startswith('# Managed by clamshield\n'):

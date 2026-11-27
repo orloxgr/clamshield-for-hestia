@@ -24,6 +24,8 @@ class MailProtectionTests(unittest.TestCase):
         self.rules=self.enterContext(patch('clamshield.mail_protection.RuleManager')).return_value
         self.integration=self.enterContext(patch('clamshield.mail_protection.MailIntegration')).return_value
         self.policies=self.enterContext(patch('clamshield.mail_protection.MailPolicies')).return_value
+        self.rejection=self.enterContext(patch('clamshield.native_rejection.NativeRejection')).return_value
+        self.rejection.activate.return_value={'delegated_domains':1}
         self.connected=self.enterContext(patch('clamshield.mail_protection.transport_active',return_value=True))
         self.enterContext(patch('clamshield.mail_protection.configuration',return_value={'yara_enabled':True}))
         self.integration.enable.return_value={'enabled':True}
@@ -37,7 +39,12 @@ class MailProtectionTests(unittest.TestCase):
         self.assertTrue(result['enabled']);self.signatures.update.assert_called_once_with('all')
         self.rules.install.assert_called_once_with('core');self.integration.enable.assert_called_once_with()
         self.policies.enable_server_defaults.assert_called_once_with(self.context)
-        self.assertEqual(['signatures','rules','preparing','verifying','policies'],phases)
+        self.assertEqual(['signatures','rules','preparing','verifying','policies','native-policies'],phases)
+        self.rejection.activate.assert_called_once_with(self.store)
+
+    def test_native_policy_delegation_failure_cannot_report_success(self):
+        self.rejection.activate.side_effect=EngineError('Native policy needs review')
+        with self.assertRaises(EngineError):self.protection.enable(self.context)
 
     def test_enable_keeps_existing_data_and_choices(self):
         self.settings.rules.parent.mkdir(parents=True,exist_ok=True);self.settings.rules.write_bytes(b'fixture')

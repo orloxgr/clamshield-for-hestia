@@ -27,7 +27,10 @@ class MailProtection:
         progress('policies')
         MailPolicies(self.store,self.hestia).enable_server_defaults(context)
         if not transport_active():raise EngineError('Mail connection changed before activation completed')
-        return {'enabled':True,'defaults_enabled':True}
+        from .native_rejection import NativeRejection
+        progress('native-policies')
+        delegated=NativeRejection(self.settings,self.hestia).activate(self.store)
+        return {'enabled':True,'defaults_enabled':True,**delegated}
 
     def disable(self):
         # Keep all policies/custody; the lifecycle drains and detaches safely.
