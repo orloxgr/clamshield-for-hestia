@@ -14,3 +14,8 @@ endif
 required_score 5.0
 skip_rbl_checks 0
 skip_uribl_checks 0
+score RCVD_IN_VALIDITY_CERTIFIED_BLOCKED 0
+score RCVD_IN_VALIDITY_RPBL_BLOCKED 0
+score RCVD_IN_VALIDITY_SAFE_BLOCKED 0
+score URIBL_BLOCKED 0
+score RCVD_IN_DNSWL_BLOCKED 0

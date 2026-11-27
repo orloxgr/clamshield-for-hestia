@@ -12,7 +12,7 @@ from unittest.mock import patch, Mock
 from clamshield.atomic import write, write_json
 from clamshield.errors import AccessDenied, ClamShieldError, EngineError
 from clamshield.settings import Settings
-from clamshield.spamassassin import DEFAULTS, SpamAssassinControls, render, revision, validate
+from clamshield.spamassassin import DEFAULTS, INFRASTRUCTURE_RULES, SpamAssassinControls, render, revision, validate
 from clamshield.mail_policy import DEFAULTS as MAIL_DEFAULTS, evaluate
 from clamshield.application import Application
 from clamshield.spamassassin_binding import ARGUMENTS, commandline
@@ -26,7 +26,8 @@ class Controls(SpamAssassinControls):
     def inspect(self, path):
         content = path.read_text()
         import re
-        return dict(rules=[dict(name='GTUBE')],
+        return dict(rules=[dict(name='GTUBE')] + [dict(name=name, score=0, scores=[0]*4)
+                                                for name in INFRASTRUCTURE_RULES],
                     required_score=float(re.search(r'^required_score (.+)$', content, re.M)[1]),
                     skip_rbl_checks=int(re.search(r'^skip_rbl_checks (\d)$', content, re.M)[1]),
                     skip_uribl_checks=int(re.search(r'^skip_uribl_checks (\d)$', content, re.M)[1]),
@@ -41,7 +42,7 @@ class Controls(SpamAssassinControls):
     def _restart(self):
         self.active_service = True
 
-    def probe(self, policy):
+    def probe(self, policy, **_kwargs):
         if self.fail_probe and policy['required_score'] != 5:
             raise EngineError('Wrong loaded configuration')
 
@@ -76,6 +77,55 @@ class SpamAssassinControlsTests(unittest.TestCase):
                      'use_pyzor 0', 'use_razor2 0', 'use_dcc 0'):
             self.assertIn(line, content.splitlines())
 
+    def test_administrative_dns_responses_cannot_receive_positive_or_negative_points(self):
+        for name in INFRASTRUCTURE_RULES:
+            self.assertIn('score ' + name + ' 0', render(DEFAULTS).splitlines())
+            for amount in (1, .001, -1):
+                with self.subTest(name=name, amount=amount), self.assertRaisesRegex(ClamShieldError, 'zero'):
+                    validate(DEFAULTS | {'scores': {name: amount}})
+        self.assertNotEqual(revision(DEFAULTS), revision(DEFAULTS, legacy=True))
+
+    def test_nonzero_inactive_score_set_is_rejected_before_configuration_or_service_change(self):
+        original = self.controls.inspect
+        def inspect(path):
+            value = original(path)
+            value['rules'][1]['scores'] = [0, 0, 1, 0]
+            return value
+        self.controls.inspect = inspect
+        before = self.controls.active.read_bytes()
+        with self.assertRaisesRegex(EngineError, 'still contributes'):
+            self.controls.apply(DEFAULTS)
+        self.assertEqual(before, self.controls.active.read_bytes())
+        self.assertFalse(self.controls.metadata.exists())
+        self.assertFalse(self.controls.journal.exists())
+
+    def test_exact_owned_legacy_policy_upgrades_once_preserving_admin_choices(self):
+        policy = deepcopy(DEFAULTS) | {'required_score': 7, 'uribl_enabled': False,
+                                     'scores': {'GTUBE': 4, INFRASTRUCTURE_RULES[0]: 1}}
+        write(self.controls.active, render(policy, legacy=True), 0o644)
+        write_json(self.controls.metadata, dict(policy=policy, revision=revision(policy, legacy=True)))
+        with self.assertRaises(ClamShieldError):
+            self.controls.configured()
+        self.assertTrue(self.controls.upgrade_safety())
+        upgraded = self.controls.configured()['policy']
+        self.assertEqual(7, upgraded['required_score'])
+        self.assertFalse(upgraded['uribl_enabled'])
+        self.assertEqual({'GTUBE': 4, INFRASTRUCTURE_RULES[0]: 0}, upgraded['scores'])
+        self.assertFalse(self.controls.upgrade_safety())
+        before = self.controls.active.read_bytes()
+        with self.assertRaisesRegex(EngineError, 'changed before safety'):
+            self.controls.apply(DEFAULTS, expected_revision=revision(DEFAULTS, legacy=True))
+        self.assertEqual(before, self.controls.active.read_bytes())
+
+    def test_upgrade_refuses_unrecognized_bytes_and_preserves_them(self):
+        policy = deepcopy(DEFAULTS)
+        write(self.controls.active, render(policy, legacy=True) + '# admin change\n', 0o644)
+        write_json(self.controls.metadata, dict(policy=policy, revision=revision(policy, legacy=True)))
+        before = self.controls.active.read_bytes()
+        with self.assertRaises(EngineError):
+            self.controls.upgrade_safety()
+        self.assertEqual(before, self.controls.active.read_bytes())
+
     def test_missing_validation_helper_reports_reinstall_before_starting_parser(self):
         missing_source = Path(self.temp.name) / 'incomplete/src/clamshield/spamassassin.py'
         with patch('clamshield.spamassassin.__file__', str(missing_source)), \
@@ -99,6 +149,10 @@ class SpamAssassinControlsTests(unittest.TestCase):
         self.assertEqual(0, parsed['skip_rbl_checks'])
         self.assertEqual(0, parsed['skip_uribl_checks'])
         self.assertIn('GTUBE', {rule['name'] for rule in parsed['rules']})
+        self.controls.verify_infrastructure_scores(parsed)
+        guarded = [rule for rule in parsed['rules'] if rule['name'] in INFRASTRUCTURE_RULES]
+        self.assertTrue(guarded)
+        self.assertTrue(all(rule['scores'] == [0]*4 for rule in guarded))
         self.assertIn('CLAMSHIELD_CONFIG_' + revision(DEFAULTS)[:16],
                       {rule['name'] for rule in parsed['rules']})
         self.assertEqual(before, self.controls.active.read_bytes())

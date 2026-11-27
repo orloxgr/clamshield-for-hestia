@@ -193,6 +193,8 @@ def install(args,lifecycle):
     owned_directory(config / 'spamassassin')
     if not (config / 'spamassassin/active.cf').exists():
         write_owned(config / 'spamassassin/active.cf', (release / 'config/spamassassin.cf').read_text(), 0o644)
+    from clamshield.spamassassin import SpamAssassinControls
+    SpamAssassinControls(Settings()).upgrade_safety()
     if Path('/sys/module/apparmor/parameters/enabled').exists() and Path('/sys/module/apparmor/parameters/enabled').read_text().strip() == 'Y':
         for profile in ('clamshield-clamd', 'clamshield-freshclam', 'clamshield-mail-clamd'):
             apparmor = Path('/etc/apparmor.d') / profile

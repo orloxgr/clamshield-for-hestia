@@ -25,9 +25,16 @@ DEFAULTS = dict(required_score=5.0, rbl_enabled=True, uribl_enabled=True,
 UNIT = 'clamshield-mail-spamd.service'
 BASE = Path('/etc/clamshield/spamassassin')
 MARKER = '# Managed by clamshield\n'
+# Administrative responses describe lookup availability, never message content.
+# Keep these independent of optional per-rule overrides and upstream defaults.
+INFRASTRUCTURE_RULES = (
+    'RCVD_IN_VALIDITY_CERTIFIED_BLOCKED', 'RCVD_IN_VALIDITY_RPBL_BLOCKED',
+    'RCVD_IN_VALIDITY_SAFE_BLOCKED', 'URIBL_BLOCKED', 'RCVD_IN_DNSWL_BLOCKED',
+)
+SAFETY_VERSION = 1
 
 
-def validate(value):
+def validate(value, *, legacy=False):
     if not isinstance(value, dict) or set(value) != set(DEFAULTS):
         raise ClamShieldError('Invalid SpamAssassin settings')
     result = deepcopy(value)
@@ -58,15 +65,18 @@ def validate(value):
         decimal = Decimal(str(amount))
         if decimal != decimal.quantize(Decimal('0.000001')):
             raise ClamShieldError('Rule scores support up to six decimal places')
+        if not legacy and name in INFRASTRUCTURE_RULES and amount != 0:
+            raise ClamShieldError('DNS blocklist access failures must have a zero spam score')
     return result
 
 
-def revision(policy):
-    return hashlib.sha256(json.dumps(policy, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
+def revision(policy, *, legacy=False):
+    value = policy if legacy else dict(policy=policy, safety_version=SAFETY_VERSION)
+    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def render(policy):
-    policy = validate(policy); token = revision(policy)
+def render(policy, *, legacy=False):
+    policy = validate(policy, legacy=legacy); token = revision(policy, legacy=legacy)
     lines = [MARKER.rstrip(), 'bayes_auto_learn 0', 'use_bayes 0',
              'ifplugin Mail::SpamAssassin::Plugin::Pyzor', 'use_pyzor 0', 'endif',
              'ifplugin Mail::SpamAssassin::Plugin::Razor2', 'use_razor2 0', 'endif',
@@ -76,6 +86,8 @@ def render(policy):
              'skip_uribl_checks ' + str(int(not policy['uribl_enabled']))]
     lines += ['dns_query_restriction deny ' + zone for zone in policy['blocked_zones']]
     lines += ['score %s %.6f' % (name, amount) for name, amount in sorted(policy['scores'].items())]
+    if not legacy:
+        lines += ['score %s 0' % name for name in INFRASTRUCTURE_RULES]
     # A non-executable inert message proves which configuration the daemon loaded.
     lines += ['header CLAMSHIELD_CONFIG_%s X-ClamShield-Config =~ /^%s$/' % (token[:16], token),
               'score CLAMSHIELD_CONFIG_%s 0.001' % token[:16]]
@@ -163,16 +175,44 @@ class SpamAssassinControls:
         finally:
             os.close(fd)
 
-    def configured(self):
+    def configured(self, *, allow_legacy=False):
         if not self.metadata.exists() and not self.metadata.is_symlink():
             return None
         self._trusted(self.metadata)
         value = json.loads(self.metadata.read_text())
-        policy = validate(value['policy'])
+        policy = validate(value['policy'], legacy=allow_legacy)
         self._trusted(self.active)
         if value['revision'] != revision(policy) or self.active.read_text() != render(policy):
-            raise EngineError('SpamAssassin configuration changed outside activation')
+            if (allow_legacy and value['revision'] == revision(policy, legacy=True) and
+                    self.active.read_text() == render(policy, legacy=True)):
+                return value
+            raise EngineError('SpamAssassin configuration changed or requires safety activation')
         return value
+
+    @staticmethod
+    def verify_infrastructure_scores(parsed):
+        """Inspect all installed score sets, not just the selected lint mode."""
+        for rule in parsed['rules']:
+            if rule['name'] not in INFRASTRUCTURE_RULES:
+                continue
+            scores = rule.get('scores')
+            if (not isinstance(scores, list) or len(scores) != 4 or
+                    any(type(score) not in (int, float) or score != 0 for score in scores) or
+                    rule.get('score') != 0):
+                raise EngineError('A DNS blocklist access failure still contributes to spam scoring')
+
+    def upgrade_safety(self):
+        """Only rewrite an exactly recognized owned configuration; retain policy."""
+        with self.locked():
+            saved = self.configured(allow_legacy=True)
+            if saved is None or saved['revision'] == revision(saved['policy']):
+                return False
+            policy = deepcopy(saved['policy'])
+            for name in INFRASTRUCTURE_RULES:
+                if name in policy['scores']:
+                    policy['scores'][name] = 0
+        self.apply(policy, expected_revision=saved['revision'])
+        return True
 
     @staticmethod
     def running():
@@ -247,8 +287,12 @@ class SpamAssassinControls:
     def _stop():
         subprocess.run(['/usr/bin/systemctl', 'stop', UNIT], check=True, timeout=45)
 
-    def probe(self, policy, *, deadline=None):
-        token = revision(policy)
+    def probe(self, policy, *, deadline=None, legacy=False):
+        token = revision(policy, legacy=legacy)
+        # The daemon canary binds to the safety format as well as user policy.
+        # Validate the installed rule scores before accepting process readiness.
+        if not legacy:
+            self.verify_infrastructure_scores(self.inspect(self.active))
         payload = ('From: control@invalid.test\r\nTo: control@invalid.test\r\n'
                    'Subject: ClamShield configuration check\r\nX-ClamShield-Config: ' + token +
                    '\r\n\r\nClamShield inert configuration probe.\r\n').encode()
@@ -271,7 +315,7 @@ class SpamAssassinControls:
                     raise EngineError('SpamAssassin daemon has not loaded the expected configuration')
                 from .spamassassin_binding import process
                 identity = process(report.get('_peer'))
-                current = self.configured()
+                current = self.configured(allow_legacy=legacy)
                 if current is None or current['revision'] != token:
                     raise EngineError('SpamAssassin settings changed during process verification')
                 write_json(self.proof, dict(revision=token, identity=identity, runtime=self.runtime_stamp()))
@@ -291,7 +335,11 @@ class SpamAssassinControls:
         if saved['was_active']:
             self._restart()
             if saved['metadata']:
-                self.probe(saved['metadata']['policy'])
+                policy = saved['metadata']['policy']
+                if saved['metadata']['revision'] == revision(policy, legacy=True):
+                    self.probe(policy, legacy=True)
+                else:
+                    self.probe(policy)
         self.journal.unlink(); sync_directory(self.settings.state)
 
     def recover(self):
@@ -302,12 +350,14 @@ class SpamAssassinControls:
                 return True
             return False
 
-    def apply(self, policy):
+    def apply(self, policy, *, expected_revision=None):
         policy = validate(policy)
         with self.locked(), engine_lock(self.settings, exclusive=True, blocking=True):
             if self.journal.exists():
                 raise EngineError('SpamAssassin activation recovery is pending')
-            old = self.configured()
+            old = self.configured(allow_legacy=True)
+            if expected_revision is not None and (old is None or old['revision'] != expected_revision):
+                raise EngineError('SpamAssassin settings changed before safety activation')
             self._trusted(self.active)
             before = self.active.read_text()
             if not before.startswith(MARKER):
@@ -316,6 +366,7 @@ class SpamAssassinControls:
             write(candidate, render(policy), 0o644)
             try:
                 parsed = self.inspect(candidate)
+                self.verify_infrastructure_scores(parsed)
                 known = {rule['name'] for rule in parsed['rules']}
                 if set(policy['scores']) - known:
                     raise ClamShieldError('A score override names an unavailable installed rule')

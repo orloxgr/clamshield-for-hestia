@@ -19,6 +19,7 @@ for my $name (sort keys %{$conf->{scores}}) {
   push @rules, {name => $name, score => 0 + $conf->{scores}->{$name},
     score_local => 0 + ($conf->{scoreset}->[0]->{$name} // 0),
     score_network => 0 + ($conf->{scoreset}->[1]->{$name} // 0),
+    scores => [map { 0 + ($conf->{scoreset}->[$_]->{$name} // 0) } (0..3)],
     description => $conf->{descriptions}->{$name} // ''};
 }
 die "Rule catalog limit\n" if @rules > 12000;
