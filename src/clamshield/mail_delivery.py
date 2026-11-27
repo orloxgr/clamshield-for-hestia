@@ -301,7 +301,9 @@ class MailDelivery:
                 with self.custody.blob(root,transaction) as fd:
                     original=os.pread(fd,transaction['size'],0)
                 attempt=uuid.uuid4().hex
-                classification=json.loads(row['detail']).get('classification')
+                detail=json.loads(row['detail'])
+                classification=next((category for category in ('malware','phishing','spam')
+                    if any(hit.get('category')==category for hit in detail.get('detections',[]))),detail.get('classification'))
                 data=payload(original,attempt,row['action'],released=row['status']=='release_queued',classification=classification)
                 metadata={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'checkpoint':self.native.checkpoint(),
                           'sender':transaction['metadata']['envelope']['sender'],'recipient':row['recipient'],'pid':None,

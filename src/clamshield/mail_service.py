@@ -146,10 +146,11 @@ class MailBroker:
         except Exception as exc:
             self.last_error=type(exc).__name__+':'+phase
             if not replied:
+                denied=isinstance(exc,AccessDenied) and phase in ('receive','reinjection')
                 if request is not None:
-                    try:self.policies.outcome(request.message_id,'defer' if isinstance(exc,AccessDenied) else 'accepted')
+                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted')
                     except Exception:pass
-                try:respond(connection,Decision.DEFER if isinstance(exc,AccessDenied) else Decision.NATIVE_FALLBACK,event)
+                try:respond(connection,Decision.DEFER if denied else Decision.NATIVE_FALLBACK,event)
                 except OSError:pass
             return 'error'
         finally:

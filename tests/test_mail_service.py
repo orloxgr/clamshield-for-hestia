@@ -4,7 +4,7 @@ import socket
 import sys
 from threading import Thread
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 import test_mail_custody as fixtures
 import test_mail_bridge as bridge
@@ -131,5 +131,16 @@ class MailBrokerTests(unittest.TestCase):
             def scan(self,fd):
                 result=super().scan(fd);parent.ids['alice']='new-generation';return result
         self.factory=Changed
-        self.assertEqual((2,'error'),self.exchange())
+        self.assertEqual((5,'error'),self.exchange())
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+
+    def test_history_storage_and_custody_failures_do_not_reject_original_native_message(self):
+        self.enable()
+        for phase,attribute in [('record','policies.record'),('stage','custody.stage'),('arm','acceptance.arm')]:
+            with self.subTest(phase=phase):
+                broker=self.broker();target,name=attribute.split('.')
+                with patch.object(getattr(broker,target),name,side_effect=OSError('No space available')):
+                    self.assertEqual((5,'error'),self.exchange(broker))
+                self.assertEqual('OSError:'+phase,broker.last_error)
+        with self.store.connection() as db:
+            self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions WHERE status=\'committed\'').fetchone()[0])
