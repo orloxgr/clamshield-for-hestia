@@ -27,6 +27,24 @@ class NativeDnsblContextTests(unittest.TestCase):
         result=self.decision('bl.spamcop.net','127.0.0.2',spam_action='reject')
         self.assertEqual(('reject','spam'),(result['action'],result['classification']))
 
+    def test_native_temporary_lookup_failure_is_diagnostic_not_negative_or_spam(self):
+        result=self.decision('private-key.zen.dq.spamhaus.net','lookup-failed')
+        self.assertEqual(('deliver','incomplete',1.25,False),(result['action'],result['classification'],result['spam_score'],result['scan_complete']))
+        self.assertEqual('failed',result['native_dnsbl']['state'])
+        self.assertEqual([],result['native_dnsbl']['return_codes'])
+        self.assertEqual(0,result['native_dnsbl']['score_contribution'])
+        self.assertEqual(['NativeDnsblUnavailable'],result['scan_errors'])
+        self.assertNotIn('private-key',json.dumps(result))
+        self.assertFalse(verified_listing(result['native_dnsbl']))
+        self.assertFalse(verified_policy_match(result['native_dnsbl']))
+
+    def test_dns_failure_does_not_hide_a_verified_malware_detection_or_selected_tag(self):
+        result=evaluate(effective(dict(enabled=True,malware_action='tag')),
+                        dict(complete=True,errors=[],spam_score=0,detections=[dict(engine='clamav',signature='Eicar-Test-Signature',category='malware')]),
+                        sender='sender@example.test',sha256='a'*64,native_dnsbl=('zen.spamhaus.org','lookup-failed'))
+        self.assertEqual(('tag','malware',False),(result['action'],result['classification'],result['scan_complete']))
+        self.assertEqual(1,len(result['detections']))
+
     def test_all_spamhaus_administrative_replies_are_zero_point_incomplete_delivery(self):
         for number in range(256):
             with self.subTest(number=number):

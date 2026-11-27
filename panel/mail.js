@@ -59,7 +59,7 @@
     const native=detail.native_spamassassin;
     const dns=detail.native_dnsbl;
     const dnsLabel=dns?'Native DNSBL: '+dns.zone+(dns.access==='dqs'?' (DQS)':'')+' · '+
-      ({listed:'Listing observed; selected spam policy applies',blocked:'Provider access/configuration error',unsupported:'Unrecognized provider or response',invalid:'Invalid native response'}[dns.state]||'Unknown')+
+      ({listed:'Listing observed; selected spam policy applies',blocked:'Provider access/configuration error',failed:'DNS lookup failed; check incomplete',unsupported:'Unrecognized provider or response',invalid:'Invalid native response'}[dns.state]||'Unknown')+
       '\nNative DNSBL score contribution: 0\n'+
       (dns.return_codes?.length?'Return codes: '+dns.return_codes.join(', ')+'\n':'')+
       (dns.error_codes?.length?'Operational error codes: '+dns.error_codes.join(', ')+'\n':''):'';

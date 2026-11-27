@@ -343,6 +343,17 @@ test('native DNSBL operational error renders as plain diagnostic text without a 
   }finally{f.close();}
 });
 
+test('native DNS lookup failure explains incomplete checking without a listing verdict or extra SA points',async()=>{
+  const f=await fixture({nativeDnsbl:{zone:'zen.spamhaus.org',access:'public',state:'failed',return_codes:[],error_codes:[],score_contribution:0},
+    spamassassin:{score:1.25,required_score:5,symbols:[],rules:[]}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('DNS lookup failed; check incomplete'));
+    assert.match(f.byId('history').textContent,/Native DNSBL score contribution: 0/);
+    assert.match(f.byId('history').textContent,/SpamAssassin: 1\.25 \/ 5/);
+    assert.doesNotMatch(f.byId('history').textContent,/selected spam policy applies/);
+  }finally{f.close();}
+});
+
 test('recovery search is account scoped and unknown stages offer no action',async()=>{
   const f=await fixture({reviewItems:[{delivery_id:'future-copy',recipient:'inbox@alice.test',stage:'future-stage',status:'unknown',updated:1}]});
   try {

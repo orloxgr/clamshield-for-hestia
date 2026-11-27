@@ -28,6 +28,11 @@ def observe(zone,value):
     else:
         match=re.fullmatch(r'[a-z0-9-]+\.(zen|sbl|xbl|pbl|sbl-xbl|authbl|dbl|zrd|hbl)\.dq\.spamhaus\.net',zone)
         if match:result.update(zone=match[1]+'.spamhaus.org',access='dqs')
+    # This sentinel comes only from the authenticated native ACL variables.
+    # It is not an IP-list response and never authorizes a positive match.
+    if value=='lookup-failed':
+        result['state']='failed'
+        return result
     parts=[part.strip() for part in value.split(',')]
     if not 1<=len(parts)<=128:return result
     try:

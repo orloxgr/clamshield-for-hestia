@@ -55,7 +55,17 @@ def render(source):
               '          log_message = ClamShield native IP-list policy observed\n'+dns[1]+'\n'+dns[2]+'\n'
               '          set acl_m_clamshield_dnsbl_zone = $dnslist_domain\n'
               '          set acl_m_clamshield_dnsbl_value = $dnslist_value\n\n'+dns[0]+'\n'
-              '          domains = !+local_domains\n'+dns[1]+'\n'+dns[2]+'\n')
+              '          domains = !+local_domains\n'+dns[1]+'\n'+dns[2]+'\n\n'
+              # The ordinary native list condition treats temporary lookup
+              # failure as a negative. Observe it only when no listing matched;
+              # do not change any native IP filters or recipient decisions.
+              '  warn    domains = +local_domains\n'+dns[1]+'\n'
+              '          condition = ${if eq{$acl_m_clamshield_dnsbl_zone}{}{yes}{no}}\n'
+              '          dnslists = +include_unknown : ${readfile {/etc/exim4/dnsbl.conf}{:}}\n'
+              '          condition = ${if eq{$dnslist_value}{}{yes}{no}}\n'
+              '          set acl_m_clamshield_dnsbl_zone = $dnslist_domain\n'
+              '          set acl_m_clamshield_dnsbl_value = lookup-failed\n'
+              '          log_message = ClamShield native IP-list lookup unavailable\n')
     mime_text=('  warn    condition = '+LOCAL_MESSAGE+'\n'+mime[1]+'\n          set acl_m_clamshield_mime_blocked = 1\n\n'+mime[0]+'\n'
                '          condition = '+LOCAL_MESSAGE.removesuffix('{yes}{no}}')+'{no}{yes}}\n'+mime[1]+'\n')
     result=source

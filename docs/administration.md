@@ -769,6 +769,9 @@ The selected recipient action applies to native extension/IP-list observations
 as well as scanner results. A blocked filename extension is an observation,
 not proof of malware and adds no spam points. Recipient verification and relay
 checks remain native. Nonlocal relay/outbound extension policies remain native.
+Temporary native DNS-list lookup failures are retained as an unavailable check,
+with zero spam points. A valid negative response remains distinct from a failed
+lookup; a known positive malware/listing result still follows its selected policy.
 
 The integration owns `/etc/exim4/exim4.conf` only when that path was absent.
 Existing administrator configurations are preserved and reported as conflicts.
