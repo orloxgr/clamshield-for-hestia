@@ -310,7 +310,8 @@ class MailIntegration:
         if current.get('code_generation')!=self.code_identity():reasons.append('addon-code')
         if current.get('runtime')!={str(path):fingerprint(path) for path in (LIBRARY,MACRO,Path('/usr/sbin/exim4'))}:
             reasons.append('runtime-identity')
-        if any(not row['active'] for row in self.unit_states().values()):reasons.append('owned-services')
+        services=self.unit_states()
+        if any(not services[unit]['active'] for unit in self.service_units()):reasons.append('owned-services')
         return reasons
 
     def verified_refresh_candidate(self,target):

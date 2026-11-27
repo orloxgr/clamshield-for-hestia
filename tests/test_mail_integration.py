@@ -317,6 +317,18 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(self.controller.reconcile()['refreshed'])
         self.assertFalse(self.controller.reconcile()['refreshed'])
 
+    def test_shared_native_mode_never_refreshes_because_the_retired_mail_daemon_is_stopped(self):
+        with patch('clamshield.native_integration.enabled',return_value=True):
+            self.controller.enable();before=self.controller.restarts
+            self.assertFalse(self.controller.units[UNITS[0]]['active'])
+            self.assertTrue(all(self.controller.units[unit]['active'] for unit in UNITS[1:]))
+            for _ in range(3):
+                self.assertEqual([],self.controller.refresh_reasons(state(self.settings)))
+                self.assertFalse(self.controller.reconcile()['refreshed'])
+            self.assertEqual(before,self.controller.restarts)
+            self.controller.units[UNITS[-1]]['active']=False
+            self.assertEqual(['owned-services'],self.controller.refresh_reasons(state(self.settings)))
+
     def test_idle_installed_maintenance_refreshes_changed_code(self):
         from clamshield.maintenance import Maintenance
         self.controller.enable();self.controller.release='fixture-release-2'
