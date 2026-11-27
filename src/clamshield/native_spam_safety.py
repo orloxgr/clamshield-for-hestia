@@ -214,7 +214,7 @@ class NativeSpamSafety:
                 value.update(state='active',phase='verified' if service['active'] else 'configured-inactive',verified_service=probed if service['active'] else service,
                              stamp=probed_stamp if service['active'] else self.configuration_stamp());write_json(self.path,value)
             except Exception as exc:
-                value.update(state='review',failure=dict(type=type(exc).__name__,errno=exc.errno if isinstance(exc,OSError) else None))
+                value.update(state='review',failure=dict(type=type(exc).__name__,errno=exc.errno if isinstance(exc,OSError) else None,message=str(exc)[:256]))
                 write_json(self.path,value);raise
             return dict(protected_rules=len(names),verified=value['verified_service']['active'])
 
@@ -246,7 +246,7 @@ class NativeSpamSafety:
                     value['phase']='restart-intent';write_json(self.path,value);self.restart(service)
                 value.update(state='restored',verified_service=None);write_json(self.path,value)
             except Exception as exc:
-                value.update(state='review',failure=dict(type=type(exc).__name__,errno=exc.errno if isinstance(exc,OSError) else None))
+                value.update(state='review',failure=dict(type=type(exc).__name__,errno=exc.errno if isinstance(exc,OSError) else None,message=str(exc)[:256]))
                 write_json(self.path,value);raise
             return dict(restored=True)
 

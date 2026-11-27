@@ -52,7 +52,10 @@ def server_inode(connection):
 
 
 def accepted_peer(connection,group,deadline):
-    until=min(deadline,time.monotonic()+.5)
+    # The native listener can exist before spamd has finished creating its
+    # accepting workers. Observe this one connection, bounded by the caller's
+    # deadline; no message bytes are sent until its peer is authenticated.
+    until=min(deadline,time.monotonic()+5)
     while time.monotonic()<until:
         inode=server_inode(connection)
         text=(Path('/sys/fs/cgroup')/group.lstrip('/')/'cgroup.procs').read_text()

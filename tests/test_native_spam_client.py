@@ -8,7 +8,7 @@ from unittest.mock import Mock,patch
 
 from clamshield.errors import EngineError
 from clamshield.mail_bridge import SEALS
-from clamshield.native_spam_client import NativeSpamAssassin,endpoint,native_group
+from clamshield.native_spam_client import NativeSpamAssassin,endpoint,native_group,accepted_peer
 
 
 def report(score='1000.813',threshold='5.0',text=b'Native rule report\n'):
@@ -17,6 +17,24 @@ def report(score='1000.813',threshold='5.0',text=b'Native rule report\n'):
 
 
 class NativeSpamClientTests(unittest.TestCase):
+    def test_starting_native_worker_is_observed_on_same_connection_within_deadline(self):
+        group='/system.slice/spamd.service'
+        class FakePath:
+            def __init__(self,*parts):self.path='/'.join(map(str,parts))
+            def __truediv__(self,part):return FakePath(self.path,part)
+            def read_text(self):return '123' if self.path.endswith('cgroup.procs') else '0::'+group
+            def iterdir(self):return ['accepted-socket-fd']
+        with patch('clamshield.native_spam_client.Path',FakePath),patch('clamshield.native_spam_client.time.sleep'), \
+                patch('clamshield.native_spam_client.time.monotonic',side_effect=[0,0,.6,1.2]), \
+                patch('clamshield.native_spam_client.server_inode',side_effect=[None,None,'88']), \
+                patch('clamshield.native_spam_client.process_start',return_value=7), \
+                patch('clamshield.native_spam_client.os.readlink',return_value='socket:[88]'):
+            self.assertEqual(dict(pid=123,birth=7),accepted_peer(Mock(),group,4))
+        with patch('clamshield.native_spam_client.Path',FakePath),patch('clamshield.native_spam_client.time.sleep'), \
+                patch('clamshield.native_spam_client.time.monotonic',side_effect=[0,0,.3]), \
+                patch('clamshield.native_spam_client.server_inode',return_value=None),self.assertRaises(EngineError):
+            accepted_peer(Mock(),group,.2)
+
     def test_native_report_preserves_engine_value_and_exact_exim_metric(self):
         for score,metric in [('1000.813',1000.8),('10.0995',10.1),('-2.3',-2.2),('0',0)]:
             value=NativeSpamAssassin.parse(report(score))
