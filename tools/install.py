@@ -98,9 +98,10 @@ def main(argv=None):
 
 
 def validate_source():
-    helper = SOURCE / 'tools/spamassassin-config.pl'
-    if not helper.is_file() or helper.is_symlink():
-        raise RuntimeError('ClamShield checkout is incomplete: tools/spamassassin-config.pl is missing; update the checkout and retry')
+    for name in ('spamassassin-config.pl', 'spamassassin-report.pm'):
+        helper = SOURCE / 'tools' / name
+        if not helper.is_file() or helper.is_symlink():
+            raise RuntimeError('ClamShield checkout is incomplete: tools/' + name + ' is missing; update the checkout and retry')
 
 
 def perform(args):

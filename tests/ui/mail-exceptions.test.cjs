@@ -58,7 +58,7 @@ async function fixture(options={}) {
       overrides:body.mailbox ? {} : policy.overrides};
     else if (body.action === 'mail-decisions') result = {total:1,decisions:[{created:1,sender:'sender@remote.test',
       recipient:'inbox@alice.test',action:'reject',classification:'malware',sha256:'c'.repeat(64),
-      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}]}}],next_offset:null};
+      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
     else if (body.action === 'mail-quarantine') result = {total:1,next_offset:null,permissions:policy.permissions,
       messages:[{id:'delivery-one',created:1,subject:'Fixture',sender:'sender@remote.test',recipient:'inbox@alice.test',
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
@@ -272,6 +272,18 @@ test('blocked cleanup errors stay escaped and failed rechecks remain visible and
     await until(()=>f.byId('review-result').textContent.includes('recovery is active'));
     assert.equal(f.byId('review-list').querySelector('button').disabled,false);
     assert.equal(f.requests.find(r=>r.action==='mail-review-recheck').stage,'source_cleanup');
+  } finally {f.close();}
+});
+
+test('email history displays recorded contribution precision and treats descriptions as text',async()=>{
+  const f=await fixture({spamassassin:{score:2.395,required_score:5,symbols:['TRANSACTIONAL'],revision:'a'.repeat(64),
+    engine_version:'4.0.2',rules_version:'123456',rules:[{name:'TRANSACTIONAL',score:2.503,description:'From / Reply-To differ <img src=x onerror=alert(1)>'},
+      {name:'AUTHENTICATION',score:-.108,description:'Authentication signals'}]}});
+  try {
+    await until(()=>f.byId('history').textContent.includes('TRANSACTIONAL: +2.503'));
+    assert.match(f.byId('history').textContent,/AUTHENTICATION: -0\.108/);
+    assert.match(f.byId('history').textContent,/Engine \/ rules: 4\.0\.2 \/ 123456/);
+    assert.equal(f.byId('history').querySelector('img,script'),null);
   } finally {f.close();}
 });
 

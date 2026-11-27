@@ -73,13 +73,14 @@ def digest_snapshot(fd):
 
 
 class SpamAssassin:
-    """SYMBOLS only: no user-selected preferences, message rewriting or training.
+    """Read-only REPORT: no user preferences, message rewriting or training.
 
     The service configuration must disable user preferences and auto-learning.
     Only an application-selected protected Unix socket is supported.
     """
-    def __init__(self, socket_path, *, expected_uid, timeout=45):
+    def __init__(self, socket_path, *, expected_uid, timeout=45, report=True):
         self.socket_path, self.expected_uid, self.timeout = str(socket_path), expected_uid, timeout
+        self.report = report
 
     def scan(self, fd, *, deadline=None):
         info = validate_snapshot(fd)
@@ -89,7 +90,8 @@ class SpamAssassin:
                 peer_pid, _uid, _gid = struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))
                 peer = dict(pid=peer_pid, birth=process_start(peer_pid))
                 connection.settimeout(_remaining(deadline))
-                connection.sendall(('SYMBOLS SPAMC/1.5\r\nContent-length: ' + str(info.st_size) + '\r\n\r\n').encode('ascii'))
+                operation = 'REPORT' if self.report else 'SYMBOLS'
+                connection.sendall((operation + ' SPAMC/1.5\r\nContent-length: ' + str(info.st_size) + '\r\n\r\n').encode('ascii'))
                 offset = 0
                 while offset < info.st_size:
                     connection.settimeout(_remaining(deadline))
@@ -104,10 +106,10 @@ class SpamAssassin:
                     raise EngineError('SpamAssassin process changed while scanning')
         except OSError as exc:
             raise EngineError('SpamAssassin is unavailable or timed out') from exc
-        return self.parse(response) | {'_peer': peer}
+        return self.parse(response, require_details=self.report) | {'_peer': peer}
 
     @staticmethod
-    def parse(response):
+    def parse(response, *, require_details=False):
         try:
             head, separator, body = response.partition(b'\r\n\r\n')
             if not separator or len(head) > 16384:
@@ -131,6 +133,13 @@ class SpamAssassin:
             value, threshold = float(score[2]), float(score[3])
             if any(not math.isfinite(n) or abs(n) > 1e6 for n in (value, threshold)):
                 raise ValueError()
+            if require_details or body.startswith(b'CLAMSHIELD/'):
+                from .spam_report import parse
+                report = parse(body)
+                if abs(report['score'] - value) > .051 or abs(report['threshold'] - threshold) > .051:
+                    raise ValueError('SpamAssassin header and contribution report disagree')
+                return {key: report[key] for key in ('score', 'threshold', 'rules', 'revision', 'engine_version', 'rules_version', 'reporter_sha256')} | {
+                    'symbols': sorted(rule['name'] for rule in report['rules'])}
             text = body.decode('ascii').strip('\r\n')
             symbols = text.split(',') if text else []
             if len(symbols) > 1000 or any(not re.fullmatch('[A-Za-z0-9_]{1,128}', symbol) for symbol in symbols):
@@ -324,6 +333,10 @@ class MailScanner:
                                              'provider': 'unclassified', **origin})
             spam = self.spamassassin.scan(fd, deadline=deadline)
             result.update(spam_score=spam['score'], spam_threshold=spam['threshold'], spam_symbols=spam['symbols'])
+            if 'rules' in spam:
+                result['spam_report'] = {key: spam[key] for key in
+                                        ('score', 'threshold', 'rules', 'engine_version', 'rules_version', 'reporter_sha256')}
+                result['spamassassin_revision'] = spam['revision']
             if self.yara is not None:
                 seen = set()
                 result['yara_targets_scanned'] = 0

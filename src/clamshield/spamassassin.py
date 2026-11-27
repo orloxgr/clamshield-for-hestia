@@ -32,6 +32,7 @@ INFRASTRUCTURE_RULES = (
     'RCVD_IN_VALIDITY_SAFE_BLOCKED', 'URIBL_BLOCKED', 'RCVD_IN_DNSWL_BLOCKED',
 )
 SAFETY_VERSION = 1
+REPORTER = Path('/opt/clamshield/tools/spamassassin-report.pm')
 
 
 def validate(value, *, legacy=False):
@@ -71,7 +72,7 @@ def validate(value, *, legacy=False):
 
 
 def revision(policy, *, legacy=False):
-    value = policy if legacy else dict(policy=policy, safety_version=SAFETY_VERSION)
+    value = policy if legacy else dict(policy=policy, safety_version=SAFETY_VERSION, report_version=1)
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
@@ -88,6 +89,11 @@ def render(policy, *, legacy=False):
     lines += ['score %s %.6f' % (name, amount) for name, amount in sorted(policy['scores'].items())]
     if not legacy:
         lines += ['score %s 0' % name for name in INFRASTRUCTURE_RULES]
+        reporter = REPORTER
+        if not re.fullmatch(r'/[A-Za-z0-9_./-]+', str(reporter)):
+            raise EngineError('Unsupported SpamAssassin report plugin path')
+        lines += ['loadplugin ClamShield::Report ' + str(reporter), 'clear_report_template',
+                  'report CLAMSHIELD/1 ' + token, 'report _CLAMSHIELDREPORT_']
     # A non-executable inert message proves which configuration the daemon loaded.
     lines += ['header CLAMSHIELD_CONFIG_%s X-ClamShield-Config =~ /^%s$/' % (token[:16], token),
               'score CLAMSHIELD_CONFIG_%s 0.001' % token[:16]]
@@ -104,7 +110,8 @@ class SpamAssassinControls:
 
     def runtime_stamp(self):
         result = {}
-        for name in ('/etc/clamshield/spamd.env', '/etc/systemd/system/' + UNIT):
+        reporter = REPORTER.resolve(strict=True)
+        for name in ('/etc/clamshield/spamd.env', '/etc/systemd/system/' + UNIT, str(reporter)):
             path = Path(name); self._trusted(path)
             if path.stat().st_size > 65536:
                 raise EngineError('SpamAssassin runtime configuration exceeds its limit')
@@ -120,6 +127,13 @@ class SpamAssassinControls:
     def discard_proof(self):
         self.proof.unlink(missing_ok=True); sync_directory(self.settings.state)
 
+    @staticmethod
+    def verify_contributions(report, stamp):
+        if report.get('reporter_sha256') != stamp.get(str(REPORTER.resolve(strict=True))):
+            raise EngineError('SpamAssassin process has not loaded the installed report plugin')
+        if any(rule['name'] in INFRASTRUCTURE_RULES and rule['score'] != 0 for rule in report.get('rules', [])):
+            raise EngineError('SpamAssassin assigned points to a DNS blocklist access failure')
+
     def verify_report(self, report, policy, *, deadline=None):
         """Called under mail's shared engine lock, after releasing its SA socket.
 
@@ -130,7 +144,10 @@ class SpamAssassinControls:
         configured = self.configured()
         if configured is None or configured['revision'] != revision(policy):
             raise EngineError('SpamAssassin configured policy changed before its score could be used')
+        if report.get('revision') != revision(policy):
+            raise EngineError('SpamAssassin report uses an unexpected configuration revision')
         identity = process(report.get('_peer')); stamp = self.runtime_stamp()
+        self.verify_contributions(report, stamp)
         wanted = dict(revision=revision(policy), identity=identity, runtime=stamp)
         if abs(report['threshold'] - policy['required_score']) > .051:
             raise EngineError('SpamAssassin score threshold differs from validated settings')
@@ -301,7 +318,7 @@ class SpamAssassinControls:
             os.write(fd, payload); fcntl.fcntl(fd, fcntl.F_ADD_SEALS, SEALS)
             deadline = min(deadline if deadline is not None else float('inf'), time.monotonic() + 30)
             engine = SpamAssassin('/run/clamshield-mail-spamd/spamd.sock',
-                                 expected_uid=pwd.getpwnam('debian-spamd').pw_uid, timeout=20)
+                                 expected_uid=pwd.getpwnam('debian-spamd').pw_uid, timeout=20, report=not legacy)
             while True:
                 try:
                     report = engine.scan(fd, deadline=deadline)
@@ -318,7 +335,10 @@ class SpamAssassinControls:
                 current = self.configured(allow_legacy=legacy)
                 if current is None or current['revision'] != token:
                     raise EngineError('SpamAssassin settings changed during process verification')
-                write_json(self.proof, dict(revision=token, identity=identity, runtime=self.runtime_stamp()))
+                stamp = self.runtime_stamp()
+                if not legacy:
+                    self.verify_contributions(report, stamp)
+                write_json(self.proof, dict(revision=token, identity=identity, runtime=stamp))
                 return report
         finally:
             os.close(fd)

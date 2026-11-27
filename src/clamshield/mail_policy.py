@@ -143,6 +143,16 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
                 if not isinstance(scan['spamassassin_revision'], str) or not re.fullmatch(r'[0-9a-f]{64}', scan['spamassassin_revision']):
                     raise ClamShieldError('Invalid SpamAssassin revision')
                 base['spamassassin']['revision'] = scan['spamassassin_revision']
+            if 'spam_report' in scan:
+                from .spam_report import validate as validate_report
+                try:
+                    detail = validate_report(dict(scan['spam_report'], version=1, complete=1))
+                    if detail['score'] != spam_score or detail['threshold'] != threshold or sorted(
+                            rule['name'] for rule in detail['rules']) != sorted(symbols):
+                        raise ValueError('Inconsistent SpamAssassin contribution report')
+                except (ValueError, TypeError) as exc:
+                    raise ClamShieldError('Invalid SpamAssassin contribution report') from exc
+                base['spamassassin'].update({key: detail[key] for key in ('rules', 'engine_version', 'rules_version', 'reporter_sha256')})
     except ClamShieldError:
         return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
     hits, suppressed, detail_bytes = [], [], 0

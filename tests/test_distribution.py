@@ -29,6 +29,9 @@ class DistributionTests(unittest.TestCase):
             helper = Path(temp) / 'tools/spamassassin-config.pl'
             helper.parent.mkdir()
             shutil.copyfile(ROOT / 'tools/spamassassin-config.pl', helper)
+            with self.assertRaisesRegex(RuntimeError, 'spamassassin-report.pm is missing'):
+                installer.validate_source()
+            shutil.copyfile(ROOT / 'tools/spamassassin-report.pm', helper.with_name('spamassassin-report.pm'))
             installer.validate_source()
 
     def test_source_archive_retains_exact_runtime_helper_bytes(self):
@@ -37,7 +40,7 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             for name in ('README.md', 'LICENSE', 'pyproject.toml', 'entry.py', 'tools/install.py',
-                         'tools/uninstall.py', 'tools/package.py', 'tools/spamassassin-config.pl',
+                         'tools/uninstall.py', 'tools/package.py', 'tools/spamassassin-config.pl', 'tools/spamassassin-report.pm',
                          'src/clamshield/__init__.py'):
                 destination = root / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -52,3 +55,5 @@ class DistributionTests(unittest.TestCase):
                 self.assertTrue(member.isfile())
                 self.assertEqual((ROOT / 'tools/spamassassin-config.pl').read_bytes(),
                                  archive.extractfile(member).read())
+                reporter = archive.getmember(prefix + '/tools/spamassassin-report.pm')
+                self.assertEqual((ROOT / 'tools/spamassassin-report.pm').read_bytes(), archive.extractfile(reporter).read())

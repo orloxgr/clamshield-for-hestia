@@ -1,4 +1,5 @@
 import fcntl
+import json
 from email.message import EmailMessage
 from email.policy import SMTP
 import os
@@ -21,7 +22,27 @@ def spam_response(score='5.6', symbols=b'GTUBE,TEST', extra=b'', length=None):
             str(len(symbols) if length is None else length).encode() + b'\r\n' + extra + b'\r\n' + symbols)
 
 
+def contribution_response(score=5.6, **changes):
+    detail = dict(version=1, complete=1, score=score, threshold=5, engine_version='4.0.2', reporter_sha256='b'*64,
+                  rules_version='123456', rules=[dict(name='GTUBE',score=score,hits=1,description='Test rule')])
+    detail.update(changes)
+    body = ('CLAMSHIELD/1 ' + 'a'*64 + '\n' + json.dumps(detail) + '\n\n').encode('ascii')
+    return spam_response(str(score), symbols=body)
+
+
 class MailReportTests(unittest.TestCase):
+    def test_contributions_are_actual_bounded_and_reconcile_with_the_reported_score(self):
+        detail = SpamAssassin.parse(contribution_response(2.395), require_details=True)
+        self.assertEqual(2.395, detail['rules'][0]['score'])
+        self.assertEqual('a'*64, detail['revision'])
+        self.assertEqual('4.0.2', detail['engine_version'])
+        for response in (spam_response(), contribution_response(complete=0),
+                         contribution_response(rules=[]), contribution_response(score=float('nan')),
+                         contribution_response(rules=[dict(name='GTUBE',score=5.6,hits=True,description='Test')]),
+                         contribution_response().replace(b'Spam: True ; 5.6', b'Spam: True ; 8.6')):
+            with self.subTest(response=response[:100]), self.assertRaises(EngineError):
+                SpamAssassin.parse(response, require_details=True)
+
     def test_spam_report_rejects_nonfinite_failed_and_truncated_scores(self):
         self.assertEqual(['GTUBE', 'TEST'], SpamAssassin.parse(spam_response())['symbols'])
         for response in [spam_response('1e9999'), spam_response('nan'), spam_response(length=90),
@@ -107,7 +128,7 @@ class MailScannerTests(unittest.TestCase):
             result = SpamAssassin(path, expected_uid=os.getuid() if expected_uid is None else expected_uid,
                                  timeout=.12 if trickle else 2).scan(self.fd)
             payload = os.pread(self.fd, 10000, 0)
-            self.assertEqual(('SYMBOLS SPAMC/1.5\r\nContent-length: '+str(len(payload))+'\r\n\r\n').encode()+payload, received)
+            self.assertEqual(('REPORT SPAMC/1.5\r\nContent-length: '+str(len(payload))+'\r\n\r\n').encode()+payload, received)
             return result
         finally:
             thread.join(timeout=3)
@@ -115,7 +136,7 @@ class MailScannerTests(unittest.TestCase):
             path.unlink()
 
     def test_spamd_sends_exact_snapshot_without_forged_score_or_user_preference(self):
-        self.assertEqual(5.6, self.exchange(spam_response())['score'])
+        self.assertEqual(5.6, self.exchange(contribution_response())['score'])
 
     def test_spamd_rejects_untrusted_peer_and_absolute_deadline(self):
         with self.assertRaises(EngineError):

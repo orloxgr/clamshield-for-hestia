@@ -183,7 +183,12 @@
         const values = [new Date(decision.created * 1000).toISOString(), decision.sender + ' → ' + decision.recipient,
           decision.action + ' · ' + decision.classification,
           (decision.detail.spamassassin ? 'SpamAssassin: ' + decision.detail.spamassassin.score +
-            ' / ' + decision.detail.spamassassin.required_score + '\nRules: ' + decision.detail.spamassassin.symbols.join(', ') +
+            ' / ' + decision.detail.spamassassin.required_score + '\nRules: ' +
+            (decision.detail.spamassassin.rules ? decision.detail.spamassassin.rules.map(rule =>
+              rule.name + ': ' + (rule.score > 0 ? '+' : '') + rule.score + ' · ' + rule.description).join('\n') :
+              decision.detail.spamassassin.symbols.join(', ')) +
+            '\nEngine / rules: ' + (decision.detail.spamassassin.engine_version || 'unrecorded') +
+              ' / ' + (decision.detail.spamassassin.rules_version || 'unrecorded') +
             '\nConfiguration: ' + (decision.detail.spamassassin.revision || 'unrecorded') + '\n' : '') +
           (decision.detail.spam_score != null ? 'Final policy score: ' + decision.detail.spam_score + '\n' : '') +
           (decision.detail.signature_generation ? 'Signature generation: ' + decision.detail.signature_generation + '\n' : '') +

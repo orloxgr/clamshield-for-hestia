@@ -1,11 +1,14 @@
 from copy import deepcopy
+import hashlib
 import json
 import os
 from pathlib import Path
 import pwd
 import shutil
+import signal
 import subprocess
 import tempfile
+import time
 import fcntl
 import unittest
 from unittest.mock import patch, Mock
@@ -17,7 +20,7 @@ from clamshield.spamassassin import DEFAULTS, INFRASTRUCTURE_RULES, SpamAssassin
 from clamshield.mail_policy import DEFAULTS as MAIL_DEFAULTS, evaluate
 from clamshield.application import Application
 from clamshield.spamassassin_binding import ARGUMENTS, commandline
-from clamshield.mail_bridge import process_start
+from clamshield.mail_bridge import process_start, SEALS
 
 
 class Controls(SpamAssassinControls):
@@ -53,7 +56,11 @@ class SpamAssassinControlsTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory(); self.addCleanup(self.temp.cleanup)
         root = Path(self.temp.name)
         self.settings = Settings(state=root/'state')
+        reporter = Path(__file__).resolve().parents[1] / 'tools/spamassassin-report.pm'
+        replacement = patch('clamshield.spamassassin.REPORTER', reporter)
+        replacement.start(); self.addCleanup(replacement.stop)
         self.controls = Controls(self.settings, base=root/'owned-config')
+        self.reporter = reporter
         self.controls.prepare()
         write(self.controls.active, render(DEFAULTS), 0o644)
 
@@ -193,7 +200,7 @@ my $mail = $sa->parse("From: sender\@example.test\nTo: recipient\@example.test\n
 my $status = $sa->check($mail);
 print JSON::PP->new->canonical->encode({score=>0+$status->get_score(),
   required=>0+$status->get_required_score(), spam=>0+$status->is_spam(),
-  symbols=>$status->get_names_of_tests_hit_with_scores()});
+  symbols=>$status->get_names_of_tests_hit_with_scores(), report=>$status->get_report()});
 $status->finish(); $mail->finish(); $sa->finish();
 '''
         def scan(config):
@@ -208,8 +215,61 @@ $status->finish(); $mail->finish(); $sa->finish();
         self.assertFalse(after['spam'])
         self.assertEqual(5, after['required'])
         self.assertIn('LAB_TRANSACTIONAL=2.503', after['symbols'])
+        from clamshield.spam_report import parse
+        detail = parse(after['report'].encode('ascii'))
+        self.assertEqual(revision(DEFAULTS), detail['revision'])
+        self.assertEqual(hashlib.sha256(self.reporter.read_bytes()).hexdigest(), detail['reporter_sha256'])
+        self.assertAlmostEqual(2.395, detail['score'], places=6)
+        self.assertEqual({'LAB_TRANSACTIONAL': 2.503, 'LAB_CREDITS': -.108},
+                         {rule['name']: rule['score'] for rule in detail['rules']})
         for name in INFRASTRUCTURE_RULES[:3]:
             self.assertNotIn(name + '=1', after['symbols'])
+
+    def test_real_spamd_report_carries_actual_scores_and_configuration_canary(self):
+        if os.geteuid() != 0 or not Path('/usr/sbin/spamd').exists():
+            self.skipTest('Requires Ubuntu spamd and isolated account')
+        try:
+            account = pwd.getpwnam('debian-spamd')
+        except KeyError:
+            self.skipTest('Requires Ubuntu spamd account')
+        Path(self.temp.name).chmod(0o755)
+        runtime = self.controls.base / 'runtime'; runtime.mkdir()
+        os.chown(runtime, account.pw_uid, account.pw_gid); runtime.chmod(0o700)
+        endpoint = runtime / 'spamd.sock'
+        arguments = ['/usr/bin/setpriv', '--reuid=debian-spamd', '--regid=debian-spamd',
+                     '--init-groups', '--no-new-privs', '/usr/sbin/spamd', '--local', '--nouser-config',
+                     '--max-children=1', '--min-children=1', '--min-spare=1', '--max-spare=1',
+                     '--socketpath=' + str(endpoint), '--socketmode=600',
+                     '--pidfile=' + str(runtime/'spamd.pid'), '--cf=include ' + str(self.controls.active)]
+        fd = os.memfd_create('clamshield-test-spamd', os.MFD_ALLOW_SEALING | os.MFD_CLOEXEC)
+        payload = ('From: sender@example.test\r\nTo: recipient@example.test\r\n'
+                   'Subject: Inert GTUBE test\r\nX-ClamShield-Config: ' + revision(DEFAULTS) +
+                   '\r\n\r\nXJS*C4JDBQADN1.NSBN3*2IDNEN*GTUBE-STANDARD-ANTI-UBE-TEST-EMAIL*C.34X\r\n')
+        os.write(fd, payload.encode()); fcntl.fcntl(fd, fcntl.F_ADD_SEALS, SEALS)
+        try:
+            with tempfile.TemporaryFile() as log:
+                child = subprocess.Popen(arguments, stdout=log, stderr=log, start_new_session=True)
+                try:
+                    deadline = time.monotonic() + 12
+                    while not endpoint.exists() and child.poll() is None and time.monotonic() < deadline:
+                        time.sleep(.05)
+                    if not endpoint.exists():
+                        log.seek(0); self.fail(log.read().decode(errors='replace'))
+                    from clamshield.mail_scanners import SpamAssassin
+                    report = SpamAssassin(endpoint, expected_uid=account.pw_uid, timeout=10).scan(fd)
+                    self.assertEqual(revision(DEFAULTS), report['revision'])
+                    self.assertGreaterEqual(report['score'], 1000)
+                    hits = {rule['name']: rule for rule in report['rules']}
+                    self.assertEqual(1000, hits['GTUBE']['score'])
+                    self.assertEqual(.001, hits['CLAMSHIELD_CONFIG_' + revision(DEFAULTS)[:16]]['score'])
+                finally:
+                    os.killpg(child.pid, signal.SIGTERM)
+                    try:
+                        child.wait(timeout=5)
+                    except subprocess.TimeoutExpired:
+                        os.killpg(child.pid, signal.SIGKILL); child.wait(timeout=5)
+        finally:
+            os.close(fd)
 
     def test_unavailable_rule_is_rejected_before_mutation_or_service_change(self):
         before = self.controls.active.read_bytes()
@@ -280,10 +340,12 @@ $status->finish(); $mail->finish(); $sa->finish();
 
     def binding_fixture(self):
         self.controls.apply(DEFAULTS)
-        self.controls.runtime_stamp = Mock(return_value={'runtime':'one'})
+        digest = hashlib.sha256(self.reporter.read_bytes()).hexdigest()
+        stamp = {'runtime': 'one', str(self.reporter): digest}
+        self.controls.runtime_stamp = Mock(return_value=stamp)
         identity = dict(pid=99,birth=123,arguments_sha256='a'*64,local_mode=True)
-        wanted = dict(revision=revision(DEFAULTS),identity=identity,runtime={'runtime':'one'})
-        report = dict(score=1,threshold=5,symbols=[],_peer=dict(pid=99,birth=123))
+        wanted = dict(revision=revision(DEFAULTS),identity=identity,runtime=stamp)
+        report = dict(score=1,threshold=5,symbols=[],revision=revision(DEFAULTS),reporter_sha256=digest,_peer=dict(pid=99,birth=123))
         return identity,wanted,report
 
     def test_only_process_readiness_is_cached_and_new_process_needs_a_fresh_probe(self):
@@ -299,6 +361,33 @@ $status->finish(); $mail->finish(); $sa->finish();
             self.controls.verify_report(report|{'_peer':dict(pid=99,birth=124)},DEFAULTS)
             self.assertEqual(2,self.controls.probe.call_count)
 
+    def test_old_report_plugin_or_nonzero_admin_contribution_cannot_use_cached_proof(self):
+        identity,wanted,report = self.binding_fixture()
+        write_json(self.controls.proof, wanted)
+        for changes in ({'reporter_sha256': '0'*64}, {'revision': '0'*64},
+                        {'rules': [dict(name=INFRASTRUCTURE_RULES[0], score=1)]}):
+            with self.subTest(changes=changes), patch('clamshield.spamassassin_binding.process', return_value=identity), \
+                    self.assertRaises(EngineError):
+                self.controls.verify_report(report | changes, DEFAULTS)
+
+    def test_historical_contributions_survive_policy_changes_and_invalid_details_defer(self):
+        from clamshield.mail_scanners import SpamAssassin
+        from test_mail_scanners import contribution_response
+        spam = SpamAssassin.parse(contribution_response(2.395), require_details=True)
+        report = dict(complete=True, detections=[], spam_score=spam['score'], spam_threshold=spam['threshold'],
+                      spam_symbols=spam['symbols'], spamassassin_revision=spam['revision'],
+                      spam_report={key: spam[key] for key in
+                                   ('score', 'threshold', 'rules', 'engine_version', 'rules_version', 'reporter_sha256')})
+        outcome = evaluate(MAIL_DEFAULTS | {'enabled': True}, report, sender='sender@example.test', sha256='b'*64)
+        self.assertEqual('deliver', outcome['action'])
+        self.assertEqual(2.395, outcome['spamassassin']['rules'][0]['score'])
+        self.assertEqual('123456', outcome['spamassassin']['rules_version'])
+        damaged = deepcopy(report); damaged['spam_report']['rules'][0]['score'] = 10
+        self.assertEqual('defer', evaluate(MAIL_DEFAULTS | {'enabled': True}, damaged,
+                                         sender='sender@example.test', sha256='b'*64)['action'])
+        self.controls.apply(DEFAULTS | {'scores': {'GTUBE': 99}})
+        self.assertEqual(2.395, outcome['spamassassin']['rules'][0]['score'])
+
     def test_busy_probe_or_process_change_cannot_authorize_a_score(self):
         identity,wanted,report = self.binding_fixture()
         self.controls.probe=Mock(side_effect=lambda *_args,**_kw:write_json(self.controls.proof,wanted))
@@ -312,7 +401,7 @@ $status->finish(); $mail->finish(); $sa->finish();
 
     def test_runtime_file_changes_and_threshold_mismatch_invalidate_proof(self):
         identity,wanted,report = self.binding_fixture();write_json(self.controls.proof,wanted)
-        self.controls.runtime_stamp.return_value={'runtime':'two'}
+        self.controls.runtime_stamp.return_value=wanted['runtime'] | {'runtime':'two'}
         self.controls.probe=Mock(side_effect=EngineError('New daemon could not be verified'))
         with patch('clamshield.spamassassin_binding.process',return_value=identity):
             with self.assertRaises(EngineError):self.controls.verify_report(report,DEFAULTS)
