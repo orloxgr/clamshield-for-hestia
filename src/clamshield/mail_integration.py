@@ -35,16 +35,30 @@ def runtime_hook_ready():
 
 
 class MailIntegration:
-    def __init__(self,settings,store,hestia):
+    def __init__(self,settings,store,hestia,*,code_generation=None):
         self.settings,self.store,self.hestia=settings,store,hestia
+        self.installation_generation=Path(code_generation) if code_generation is not None else None
         self.state=settings.state/'mail-integration.json'
         self.owner=settings.state/'mail-integration-owner.json'
         self.journal=settings.state/'mail-integration-journal.json'
         self.refresh_status=settings.state/'mail-integration-refresh.json'
 
-    @staticmethod
-    def code_identity():
+    def code_identity(self):
         # Installed code generations are immutable, root-owned release trees.
+        if self.installation_generation is not None:
+            # The installer imports its checkout before publishing the release.
+            # Freeze the connection to the actual published generation, never
+            # to that transient checkout (which would cause a second refresh).
+            from .installation import Installation
+            lifecycle=Installation(self.settings);pending=lifecycle.read(lifecycle.install_journal)
+            generation=self.installation_generation;manifest=lifecycle.inventory()
+            if (not pending or pending.get('owner')!='clamshield' or pending.get('schema')!=1 or
+                    not generation.is_absolute() or generation.resolve()!=generation or
+                    manifest['phase']!='installed' or manifest['release']!=str(generation) or
+                    not lifecycle.target.is_symlink() or lifecycle.target.resolve()!=generation):
+                raise Conflict('Mail installer generation is not the pending published installation')
+            lifecycle.code(generation)
+            return str(generation)
         return str(Path(__file__).resolve().parents[2])
 
     @staticmethod

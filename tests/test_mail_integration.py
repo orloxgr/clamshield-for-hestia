@@ -67,6 +67,26 @@ class Controller(MailIntegration):
 
 
 class IntegrationTests(unittest.TestCase):
+    def test_installer_refresh_binds_only_to_the_pending_published_release(self):
+        release=self.settings.state/'published-release';release.mkdir()
+        lifecycle=Mock();lifecycle.read.return_value={'owner':'clamshield','schema':1}
+        lifecycle.inventory.return_value={'phase':'installed','release':str(release)}
+        lifecycle.target.is_symlink.return_value=True;lifecycle.target.resolve.return_value=release
+        manager=MailIntegration(self.settings,self.store,Mock(),code_generation=release)
+        with patch('clamshield.installation.Installation',return_value=lifecycle):
+            self.assertEqual(str(release),manager.code_identity());lifecycle.code.assert_called_once_with(release)
+            lifecycle.read.return_value=None
+            with self.assertRaisesRegex(Conflict,'pending published'):manager.code_identity()
+
+    def test_installer_cannot_adopt_a_different_or_replaced_release(self):
+        release=self.settings.state/'published-release';release.mkdir()
+        lifecycle=Mock();lifecycle.read.return_value={'owner':'clamshield','schema':1}
+        lifecycle.inventory.return_value={'phase':'installed','release':str(release)}
+        lifecycle.target.is_symlink.return_value=True;lifecycle.target.resolve.return_value=release.with_name('other-release')
+        with patch('clamshield.installation.Installation',return_value=lifecycle),self.assertRaisesRegex(Conflict,'pending published'):
+            MailIntegration(self.settings,self.store,Mock(),code_generation=release).code_identity()
+        lifecycle.code.assert_not_called()
+
     def test_native_restart_targets_exim_and_checks_resulting_service_health(self):
         controller=MailIntegration(Settings(),None,None)
         success=subprocess.CompletedProcess([],0,b'',b'')

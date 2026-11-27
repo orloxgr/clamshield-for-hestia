@@ -234,7 +234,7 @@ def install(args,lifecycle):
         from clamshield.store import Store
         from clamshield.hestia import Hestia
         progress.stage('Refreshing the active email broker for the shared native engine')
-        MailIntegration(Settings(),Store(Settings().database),Hestia(Settings().hestia)).refresh()
+        MailIntegration(Settings(),Store(Settings().database),Hestia(Settings().hestia),code_generation=release).refresh()
     from clamshield.rule_manager import RuleManager
     progress.stage('Checking active YARA sources against the supported selection')
     RuleManager(Settings()).rebuild_supported()
