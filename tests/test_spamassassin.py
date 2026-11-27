@@ -4,6 +4,7 @@ import os
 from pathlib import Path
 import pwd
 import shutil
+import subprocess
 import tempfile
 import fcntl
 import unittest
@@ -100,8 +101,8 @@ class SpamAssassinControlsTests(unittest.TestCase):
         self.assertFalse(self.controls.journal.exists())
 
     def test_exact_owned_legacy_policy_upgrades_once_preserving_admin_choices(self):
-        policy = deepcopy(DEFAULTS) | {'required_score': 7, 'uribl_enabled': False,
-                                     'scores': {'GTUBE': 4, INFRASTRUCTURE_RULES[0]: 1}}
+        policy = validate(deepcopy(DEFAULTS) | {'required_score': 7, 'uribl_enabled': False,
+                                             'scores': {'GTUBE': 4, INFRASTRUCTURE_RULES[0]: 1}}, legacy=True)
         write(self.controls.active, render(policy, legacy=True), 0o644)
         write_json(self.controls.metadata, dict(policy=policy, revision=revision(policy, legacy=True)))
         with self.assertRaises(ClamShieldError):
@@ -162,6 +163,53 @@ class SpamAssassinControlsTests(unittest.TestCase):
         write(invalid, render(DEFAULTS) + 'clamshield_invalid_directive 1\n', 0o644)
         with self.assertRaisesRegex(EngineError, 'configuration validation failed'):
             SpamAssassinControls.inspect(self.controls, invalid)
+
+    def test_real_spamassassin_missing_admin_scores_do_not_turn_transactional_fixture_into_spam(self):
+        if not Path('/usr/bin/spamassassin').exists():
+            self.skipTest('Requires Ubuntu SpamAssassin')
+        fixture = self.controls.base / 'fixture.cf'
+        lines = ['loadplugin Mail::SpamAssassin::Plugin::Check',
+                 'loadplugin Mail::SpamAssassin::Plugin::URIDNSBL',
+                 'util_rb_tld com net org test invalid']
+        for name in INFRASTRUCTURE_RULES[:3]:
+            # Deliberately no score: reproduce the engine's implicit +1 default.
+            lines += [f'header {name} X-Lab-Validity =~ /blocked/', f'describe {name} Lab access failure']
+        lines += ['header LAB_TRANSACTIONAL X-Lab-Validity =~ /blocked/',
+                  'describe LAB_TRANSACTIONAL Lab transactional pattern', 'score LAB_TRANSACTIONAL 2.503',
+                  'header LAB_CREDITS X-Lab-Validity =~ /blocked/',
+                  'describe LAB_CREDITS Lab legitimate signals', 'score LAB_CREDITS -0.108']
+        fixture.write_text('\n'.join(lines) + '\n')
+        empty = self.controls.base / 'empty'; empty.mkdir()
+        legacy = self.controls.base / 'legacy.cf'; legacy.write_text(render(DEFAULTS, legacy=True))
+        script = r'''
+use strict; use warnings; use Mail::SpamAssassin; use JSON::PP;
+my ($rules, $site, $config) = @ARGV;
+my $sa = Mail::SpamAssassin->new({rules_filename=>$rules, site_rules_filename=>$site,
+  userprefs_filename=>'/dev/null', dont_copy_prefs=>1, local_tests_only=>1,
+  post_config_text=>"include $config\n"});
+die "Invalid fixture configuration" if $sa->lint_rules();
+my $mail = $sa->parse("From: sender\@example.test\nTo: recipient\@example.test\n" .
+  "Subject: Transactional notification\nX-Lab-Validity: blocked\n\nHarmless content.\n");
+my $status = $sa->check($mail);
+print JSON::PP->new->canonical->encode({score=>0+$status->get_score(),
+  required=>0+$status->get_required_score(), spam=>0+$status->is_spam(),
+  symbols=>$status->get_names_of_tests_hit_with_scores()});
+$status->finish(); $mail->finish(); $sa->finish();
+'''
+        def scan(config):
+            result = subprocess.run(['/usr/bin/perl', '-e', script, str(fixture), str(empty), str(config)],
+                                    capture_output=True, timeout=25)
+            self.assertEqual(0, result.returncode, result.stderr.decode(errors='replace'))
+            return json.loads(result.stdout)
+        before, after = scan(legacy), scan(self.controls.active)
+        self.assertAlmostEqual(5.395, before['score'], places=6)
+        self.assertTrue(before['spam'])
+        self.assertAlmostEqual(2.395, after['score'], places=6)
+        self.assertFalse(after['spam'])
+        self.assertEqual(5, after['required'])
+        self.assertIn('LAB_TRANSACTIONAL=2.503', after['symbols'])
+        for name in INFRASTRUCTURE_RULES[:3]:
+            self.assertNotIn(name + '=1', after['symbols'])
 
     def test_unavailable_rule_is_rejected_before_mutation_or_service_change(self):
         before = self.controls.active.read_bytes()
