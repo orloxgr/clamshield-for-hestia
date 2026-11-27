@@ -400,6 +400,10 @@ the broker queries the verified native spamd service; an unavailable result
 remains incomplete and preserves delivery. Native scores do not get added to
 the ClamShield policy score.
 
+After an update, the owned maintenance controller applies this integration once
+for servers with mail protection already enabled. An interrupted or failed
+attempt is retained for review rather than automatically repeated.
+
 An owned add-mail-domain extension applies this delegation to newly created
 managed domains. An extension belonging to another application is preserved
 and reported as a conflict. Disable/uninstall restores only unchanged owned

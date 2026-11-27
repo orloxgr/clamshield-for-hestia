@@ -20,7 +20,8 @@ class MailProtection:
         progress('preparing')
         # This already builds/verifies the adapter, configures initial owned
         # SpamAssassin settings and starts/probes the isolated scanner services.
-        result=MailIntegration(self.settings,self.store,self.hestia).enable()
+        integration=MailIntegration(self.settings,self.store,self.hestia)
+        result=integration.enable()
         progress('verifying')
         if not result.get('enabled') or not transport_active():
             raise EngineError('Mail protection did not establish a verified connection')
@@ -30,6 +31,9 @@ class MailProtection:
         from .native_rejection import NativeRejection
         progress('native-policies')
         delegated=NativeRejection(self.settings,self.hestia).activate(self.store)
+        from .atomic import write_json
+        write_json(self.settings.state/'native-rejection-activation.json',
+                   dict(code_generation=integration.code_identity(),phase='active'))
         return {'enabled':True,'defaults_enabled':True,**delegated}
 
     def disable(self):
@@ -40,6 +44,9 @@ class MailProtection:
         integration=MailIntegration(self.settings,self.store,self.hestia).status()
         defaults=bool(MailPolicies(self.store,self.hestia).server_defaults().get('enabled',False))
         connected=transport_active()
+        from .mail_runtime import read
+        native=read(self.settings.state/'native-rejection-activation.json')
+        native_error='Native mail delivery policy delegation needs review.' if native and native.get('phase')!='active' else None
         return dict(enabled=defaults and connected and integration['phase']=='active' and not integration.get('transition'),
                     connected=connected,defaults_enabled=defaults,
-                    phase=integration['phase'],transition=integration.get('transition'),error=integration.get('error'))
+                    phase=integration['phase'],transition=integration.get('transition'),error=integration.get('error') or native_error)

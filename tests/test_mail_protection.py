@@ -29,6 +29,7 @@ class MailProtectionTests(unittest.TestCase):
         self.connected=self.enterContext(patch('clamshield.mail_protection.transport_active',return_value=True))
         self.enterContext(patch('clamshield.mail_protection.configuration',return_value={'yara_enabled':True}))
         self.integration.enable.return_value={'enabled':True}
+        self.integration.code_identity.return_value='fixture-code'
         self.integration.status.return_value={'phase':'active','transition':None}
         self.policies.server_defaults.return_value={'enabled':True}
 

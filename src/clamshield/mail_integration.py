@@ -434,6 +434,30 @@ class MailIntegration:
     def refresh(self):
         with self.locked():return self._refresh(state(self.settings))
 
+    def native_policies(self):
+        """Apply inherited native delegation once per installed code generation.
+
+        A durable attempted state also prevents an interrupted/failed change
+        from becoming an automatic retry loop. Explicit activation can resolve
+        a reviewed transition through the same generation-bound receipts.
+        """
+        from .mail_policy import MailPolicies
+        if not MailPolicies(self.store,self.hestia).server_defaults().get('enabled',False):return
+        path=self.settings.state/'native-rejection-activation.json';previous=read(path)
+        if previous:
+            if previous.get('phase')!='active':return {'review_required':True}
+            if previous.get('code_generation')==self.code_identity():return {'configured':True}
+        value=dict(code_generation=self.code_identity(),phase='applying');write_json(path,value)
+        try:
+            from .native_rejection import NativeRejection
+            result=NativeRejection(self.settings,self.hestia).activate(self.store)
+        except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
+            write_json(path,dict(value,phase='review'))
+            self.store.notify('@admin','','mail.refresh_failed','native-rejection',
+                {'message':'Native mail delivery policy delegation needs review'},'native-rejection-failed:'+self.code_identity())
+            return {'review_required':True}
+        write_json(path,dict(value,phase='active'));return result
+
     def reconcile(self):
         with self.locked():
             current=state(self.settings)
@@ -443,7 +467,8 @@ class MailIntegration:
             if previous and previous.get('code_generation')==self.code_identity() and previous.get('retry_after',0)>time.time():
                 return {'refreshed':False,'retry_pending':True}
             try:
-                if not self.refresh_reasons(current):return {'refreshed':False}
+                if not self.refresh_reasons(current):
+                    return {'refreshed':False,'native_policies':self.native_policies()}
                 result=self._refresh(current)
             except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
                 write_json(self.refresh_status,dict(code_generation=self.code_identity(),retry_after=time.time()+60,
@@ -453,6 +478,7 @@ class MailIntegration:
                 return {'refreshed':False,'review_required':True}
             write_json(self.refresh_status,dict(code_generation=self.code_identity(),last_success=time.time()))
             self.store.notify('@admin','','mail.refreshed','mail-integration',{'adapter':result['adapter']})
+            result['native_policies']=self.native_policies()
             return result
 
     def enable(self):

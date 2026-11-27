@@ -125,3 +125,23 @@ class NativeRejectionTests(unittest.TestCase):
             self.suppress()
             with self.assertRaises(EngineError):manager.finish_disabled({},dict(phase='disabled'))
         self.assertTrue(self.flag.exists());self.assertTrue(self.reject)
+
+    def test_existing_enabled_server_defaults_delegate_once_after_update_without_retry_loop(self):
+        from clamshield.mail_integration import MailIntegration
+        from clamshield.store import Store
+        manager=MailIntegration(self.settings,Store(self.settings.database),self.native)
+        with patch('clamshield.mail_policy.MailPolicies.server_defaults',return_value={'enabled':True}), \
+                patch('clamshield.native_rejection.NativeRejection.activate',return_value={'delegated_domains':1}) as activate:
+            self.assertEqual({'delegated_domains':1},manager.native_policies())
+            self.assertEqual({'configured':True},manager.native_policies());activate.assert_called_once()
+
+    def test_automatic_failed_native_activation_is_not_repeated_even_after_code_update(self):
+        from clamshield.mail_integration import MailIntegration
+        from clamshield.store import Store
+        manager=MailIntegration(self.settings,Store(self.settings.database),self.native)
+        with patch('clamshield.mail_policy.MailPolicies.server_defaults',return_value={'enabled':True}), \
+                patch('clamshield.native_rejection.NativeRejection.activate',side_effect=EngineError('Failed native API')) as activate:
+            self.assertEqual({'review_required':True},manager.native_policies())
+            with patch.object(manager,'code_identity',return_value='next-code'):
+                self.assertEqual({'review_required':True},manager.native_policies())
+            activate.assert_called_once()
