@@ -222,13 +222,23 @@ class SpamAssassinControls:
         """Only rewrite an exactly recognized owned configuration; retain policy."""
         with self.locked():
             saved = self.configured(allow_legacy=True)
-            if saved is None or saved['revision'] == revision(saved['policy']):
+            if saved is None:
+                self._trusted(self.active)
+                before = self.active.read_text()
+                old_initial = (MARKER + '# Initial isolated daemon defaults. Structured UI activation adds a verified revision.\n' +
+                               '\n'.join(render(DEFAULTS, legacy=True).splitlines()[1:-2]) + '\n')
+                if before != old_initial:
+                    return False
+                policy, expected = deepcopy(DEFAULTS), ''
+            elif saved['revision'] == revision(saved['policy']):
                 return False
-            policy = deepcopy(saved['policy'])
+            else:
+                before = self.active.read_text()
+                policy, expected = deepcopy(saved['policy']), saved['revision']
             for name in INFRASTRUCTURE_RULES:
                 if name in policy['scores']:
                     policy['scores'][name] = 0
-        self.apply(policy, expected_revision=saved['revision'])
+        self.apply(policy, expected_revision=expected, expected_configuration=hashlib.sha256(before.encode()).hexdigest())
         return True
 
     @staticmethod
@@ -370,16 +380,18 @@ class SpamAssassinControls:
                 return True
             return False
 
-    def apply(self, policy, *, expected_revision=None):
+    def apply(self, policy, *, expected_revision=None, expected_configuration=None):
         policy = validate(policy)
         with self.locked(), engine_lock(self.settings, exclusive=True, blocking=True):
             if self.journal.exists():
                 raise EngineError('SpamAssassin activation recovery is pending')
             old = self.configured(allow_legacy=True)
-            if expected_revision is not None and (old is None or old['revision'] != expected_revision):
+            if expected_revision is not None and (old['revision'] if old else '') != expected_revision:
                 raise EngineError('SpamAssassin settings changed before safety activation')
             self._trusted(self.active)
             before = self.active.read_text()
+            if expected_configuration is not None and hashlib.sha256(before.encode()).hexdigest() != expected_configuration:
+                raise EngineError('SpamAssassin configuration changed before safety activation')
             if not before.startswith(MARKER):
                 raise EngineError('Refusing unmanaged SpamAssassin configuration')
             candidate = self.base / 'candidate.cf'

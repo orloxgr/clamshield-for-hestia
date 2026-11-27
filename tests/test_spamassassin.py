@@ -134,6 +134,19 @@ class SpamAssassinControlsTests(unittest.TestCase):
             self.controls.upgrade_safety()
         self.assertEqual(before, self.controls.active.read_bytes())
 
+    def test_upgrade_recognizes_original_initial_settings_without_ui_metadata(self):
+        initial = ('# Managed by clamshield\n'
+                   '# Initial isolated daemon defaults. Structured UI activation adds a verified revision.\n' +
+                   '\n'.join(render(DEFAULTS, legacy=True).splitlines()[1:-2]) + '\n')
+        write(self.controls.active, initial, 0o644)
+        self.assertFalse(self.controls.metadata.exists())
+        self.assertTrue(self.controls.upgrade_safety())
+        self.assertEqual(revision(DEFAULTS), self.controls.configured()['revision'])
+        before = self.controls.active.read_bytes()
+        with self.assertRaisesRegex(EngineError, 'configuration changed before safety'):
+            self.controls.apply(DEFAULTS, expected_configuration='0'*64)
+        self.assertEqual(before, self.controls.active.read_bytes())
+
     def test_missing_validation_helper_reports_reinstall_before_starting_parser(self):
         missing_source = Path(self.temp.name) / 'incomplete/src/clamshield/spamassassin.py'
         with patch('clamshield.spamassassin.__file__', str(missing_source)), \
