@@ -160,6 +160,13 @@ class NativeDnsblTests(unittest.TestCase):
         with self.assertRaises(Conflict):self.manager.protect()
         self.assertEqual(b'foreign.example.test\n',self.native.read_bytes());self.assertEqual('review',self.manager.ledger()['state'])
 
+    def test_replaced_native_leaf_with_identical_content_is_not_blessed(self):
+        def replaced(add,entry):
+            self.command(add,entry);other=self.native.with_name('replacement');other.write_bytes(self.native.read_bytes());other.chmod(stat.S_IMODE(self.native.stat().st_mode));os.replace(other,self.native)
+        self.manager.command.side_effect=replaced
+        with self.assertRaisesRegex(Conflict,'replaced during API'):self.manager.protect()
+        self.assertEqual('review',self.manager.ledger()['state']);self.assertEqual(1,len(self.operations))
+
     def test_restoration_api_failure_is_not_retried(self):
         self.manager.protect();self.manager.command.side_effect=EngineError('Native restore failed')
         with self.assertRaises(EngineError):self.manager.restore()

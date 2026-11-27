@@ -157,6 +157,13 @@ class NativeDnsbl:
             raise Conflict('Native DNSBL command would match another entry')
         if (entry in lines)==add:raise Conflict('Native DNSBL entry changed before API call')
         self.command(add,entry);check_parents();after=self.files()
+        # The supported API copies into the existing native file and appends
+        # an existing custom source. Neither operation may bless a replaced
+        # leaf or changed ownership/permissions as our own output.
+        bound=('st_dev','st_ino','st_uid','st_gid','st_mode','st_nlink')
+        for name in ('native','custom') if add else ('native',):
+            if before[name] is not None and after[name] is not None and any(before[name]['stamp'][key]!=after[name]['stamp'][key] for key in bound):
+                raise Conflict('Native DNSBL file was replaced during API execution')
         expected=Counter(lines);expected[entry]+=1 if add else -1
         if Counter(self.lines(after))!=+expected:raise Conflict('Native DNSBL change was not confirmed')
         value['after']=after;write_json(self.path,value)
