@@ -205,12 +205,28 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
                    'spam_allowlisted': spam_allowed}
 
 
-def transaction_plan(decisions):
-    """One SMTP DATA reply, with no per-recipient custody on rejection/defer."""
+def transaction_decisions(decisions):
+    """Keep one recipient's rejection from cancelling another's chosen action.
+
+    Ordinary SMTP has one DATA reply for the whole envelope. Only unanimous
+    rejection can be represented by SMTP rejection. Otherwise retain those
+    recipients' copies in quarantine; never deliver them or bounce the siblings.
+    The selected policy and transport explanation remain in each private record.
+    """
     if not isinstance(decisions, list) or not 1 <= len(decisions) <= 1000:
         raise ClamShieldError('Invalid mail transaction decisions')
     if any(not isinstance(d, dict) or not isinstance(d.get('action'), str) or d['action'] not in ACTIONS for d in decisions):
         raise ClamShieldError('Invalid mail transaction action')
+    actions = [d['action'] for d in decisions]
+    retain_rejected = 'reject' in actions and 'defer' not in actions and any(action != 'reject' for action in actions)
+    return [dict(d, action='quarantine', policy_action='reject',
+                 transport_note='SMTP cannot reject one recipient after DATA without rejecting the others. This recipient copy was quarantined; the other recipients keep their selected handling.')
+            if retain_rejected and d['action']=='reject' else dict(d) for d in decisions]
+
+
+def transaction_plan(decisions):
+    """Plan normalized per-recipient custody with one SMTP DATA reply."""
+    decisions = transaction_decisions(decisions)
     actions = [d['action'] for d in decisions]
     if 'defer' in actions:
         return {'smtp': 'defer', 'custody': [], 'native': []}

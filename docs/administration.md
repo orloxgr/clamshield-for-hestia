@@ -378,6 +378,15 @@ baseline rejection. Tagged delivery prefixes the subject with `*** MALWARE ***`,
 `*** PHISHING ***`, `*** SPAM ***` or `*** BLOCKED SENDER ***` as appropriate.
 MIME body and attachment bytes are preserved.
 
+Ordinary SMTP returns one result for the entire message. ClamShield rejects at
+DATA only when every recipient's decision is Reject. When recipient decisions
+differ, the recipients set to Reject get retained quarantine copies, while the
+others keep their own delivery, tagging, Junk or quarantine action. Each retained
+copy records the original Reject policy and explains this transport constraint;
+it is not delivered automatically. One recipient cannot cancel another's chosen
+delivery. If durable custody fails, the existing incomplete-check native fallback
+still applies instead of returning a repeated temporary rejection.
+
 Native handoff receipts distinguish a successful custody transfer from fallback
 delivery. If a broker capture was prepared but its reply was lost, an exact
 native fallback marker plus Exim's source receipt aborts the unused private

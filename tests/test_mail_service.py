@@ -76,15 +76,64 @@ class MailBrokerTests(unittest.TestCase):
         self.assertEqual(1,len(self.custody.list(self.alice)['messages']))
         self.assertEqual([],self.custody.list(self.bob)['messages'])
 
-    def test_mixed_reject_records_actual_whole_smtp_result_without_quarantine(self):
+    def test_mixed_reject_retains_only_that_copy_without_rejecting_sibling(self):
         self.enable();self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]
-        self.assertEqual((1,'reject'),self.exchange())
+        self.assertEqual((3,'custody'),self.exchange())
         for context in (self.alice,self.bob):
-            self.assertEqual([],self.custody.list(context)['messages'])
+            self.assertEqual('quarantine',self.custody.list(context)['messages'][0]['action'])
             row=self.policies.decisions(context)['decisions'][0]
-            self.assertEqual('reject',row['action']);self.assertEqual('reject',row['detail']['smtp_outcome'])
+            self.assertEqual('quarantine',row['action']);self.assertEqual('pending',row['detail']['smtp_outcome'])
         self.assertEqual('quarantine',self.policies.decisions(self.alice)['decisions'][0]['detail']['policy_action'])
+        denied=self.policies.decisions(self.bob)['decisions'][0]['detail']
+        self.assertEqual('reject',denied['policy_action']);self.assertIn('SMTP cannot reject one recipient',denied['transport_note'])
         self.assertNotIn('inbox@bob.test',str(self.policies.decisions(self.alice)))
+
+    def test_selected_malware_delivery_survives_other_recipient_rejection(self):
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]
+        self.assertEqual((3,'custody'),self.exchange())
+        self.assertEqual('tag',self.custody.list(self.alice)['messages'][0]['action'])
+        self.assertEqual('quarantine',self.custody.list(self.bob)['messages'][0]['action'])
+        for context in (self.alice,self.bob):
+            self.assertNotIn('reject', [row['action'] for row in self.policies.decisions(context)['decisions']])
+
+    def test_unanimous_rejection_still_uses_smtp_without_creating_copies(self):
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='reject'))
+        self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]
+        self.assertEqual((1,'reject'),self.exchange())
+        for context in (self.alice,self.bob):self.assertEqual([],self.custody.list(context)['messages'])
+
+    def test_unmanaged_native_antivirus_rejection_cannot_cancel_managed_delivery(self):
+        original=self.native.call.side_effect
+        self.native.call.side_effect=lambda command,*args: ({key:dict(value,ANTIVIRUS='yes') for key,value in original(command,*args).items()}
+            if command=='v-list-mail-domains' else original(command,*args))
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.report.update(complete=False,errors=['later engine failed'],
+            detections=[dict(engine='clamav',signature='Eicar-Test-Signature',category='malware',provider='clamav')])
+        self.assertEqual((3,'custody'),self.exchange())
+        self.assertEqual('tag',self.custody.list(self.alice)['messages'][0]['action'])
+        row=self.custody.list(self.bob)['messages'][0]
+        self.assertEqual('quarantine',row['action']);self.assertEqual([],self.policies.decisions(self.bob)['decisions'])
+
+    def test_mixed_rejected_copy_storage_failure_falls_back_without_bouncing_siblings(self):
+        self.enable();self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        broker=self.broker()
+        with patch.object(broker.custody,'stage',side_effect=OSError('No space available')):
+            self.assertEqual((5,'error'),self.exchange(broker))
+        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+
+    def test_verified_native_spam_rejection_is_retained_beside_managed_delivery(self):
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))
+        delegated={('bob',self.ids['bob'],'bob.test')}
+        self.report.update(complete=False,errors=['later engine failed'],
+            detections=[dict(engine='clamav',signature='Inert.Test',category='malware')])
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value=delegated), \
+                patch('clamshield.native_spam.rejection_threshold',return_value=dict(required_score=10,source='fixture')):
+            self.assertEqual((3,'custody'),self.exchange(native_score='101'))
+        self.assertEqual('tag',self.custody.list(self.alice)['messages'][0]['action'])
+        self.assertEqual('quarantine',self.custody.list(self.bob)['messages'][0]['action'])
 
     def test_incomplete_engine_report_stays_in_native_exim_without_capture(self):
         self.enable();self.report.update(complete=False,errors=['EngineError'])
@@ -150,13 +199,15 @@ class MailBrokerTests(unittest.TestCase):
     def test_partial_known_malware_follows_policy_even_when_spam_engine_fails(self):
         self.enable();self.report.update(complete=False,errors=['EngineError'],spam_score=None,
             detections=[dict(engine='clamav',signature='Inert.Test',category='malware')])
-        self.assertEqual((1,'reject'),self.exchange())
+        self.assertEqual((3,'custody'),self.exchange())
+        self.request=self.request_for()
         self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='tag'))
         self.assertEqual((3,'custody'),self.exchange())
         with self.store.connection() as db:
             import json
-            detail=json.loads(db.execute('SELECT detail FROM mail_recipients WHERE owner=?',('bob',)).fetchone()[0])
+            detail=json.loads(db.execute('SELECT r.detail FROM mail_recipients r JOIN mail_transactions t ON t.id=r.transaction_id WHERE r.owner=? AND t.exim_id=?',('bob',self.request.message_id)).fetchone()[0])
         self.assertFalse(detail['scan_complete'])
+        self.assertEqual('tag',detail['action'])
 
     def test_owner_recreation_during_scan_cannot_commit_old_policy(self):
         self.enable();old=self.factory;parent=self

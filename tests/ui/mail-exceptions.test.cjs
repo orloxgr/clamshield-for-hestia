@@ -58,13 +58,13 @@ async function fixture(options={}) {
       overrides:body.mailbox ? {} : policy.overrides};
     else if (body.action === 'mail-decisions') result = {total:1,decisions:[{created:1,sender:'sender@remote.test',
       recipient:'inbox@alice.test',action:'reject',classification:'malware',sha256:'c'.repeat(64),
-      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
+      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.transportNote ? {transport_note:options.transportNote}:{}), ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
     else if (body.action === 'mail-quarantine') result = {total:1,next_offset:null,permissions:policy.permissions,
       messages:[{id:'delivery-one',created:1,subject:'Fixture',sender:'sender@remote.test',recipient:'inbox@alice.test',
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
     else if (body.action === 'mail-preview') result = {preview:{domain:'alice.test',mailbox:'inbox',recipient:'inbox@alice.test',
       sha256:'a'.repeat(64),headers:{Subject:'Fixture'},text:'Plain message',available:true,
-      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
+      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.transportNote?{transport_note:options.transportNote}:{}),...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
     else if (body.action.startsWith('mail-exception') || body.action === 'mail-policy-save' || body.action === 'mail-policy-reset') {
       if (options.conflict) return {ok:false,json:async()=>({ok:false,error:'Email policy changed. Reload it.'})};
       result = policy;
@@ -244,6 +244,17 @@ test('decision history exposes exact content identity for reviewing rejected-mes
     await until(()=>f.byId('history').textContent.includes('Historical.Rule'));
     assert.match(f.byId('history').textContent,new RegExp('Content SHA-256: '+'c'.repeat(64)));
     assert.match(f.byId('history').textContent,/reject/);
+  } finally {f.close();}
+});
+
+test('mixed recipient transport explanation is visible as text in history and retained preview',async()=>{
+  const f=await fixture({transportNote:'SMTP retained copy <img src=x onerror=alert(1)>'});
+  try{
+    await until(()=>f.byId('history').textContent.includes('SMTP retained copy'));
+    assert.equal(f.byId('history').querySelector('img,script'),null);
+    const preview=Array.from(f.byId('quarantine').querySelectorAll('button')).find(b=>b.textContent==='Preview plain text');preview.click();
+    await until(()=>f.byId('quarantine').textContent.includes('SMTP retained copy'));
+    assert.equal(f.byId('quarantine').querySelector('img,script'),null);
   } finally {f.close();}
 });
 

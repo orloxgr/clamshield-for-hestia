@@ -21,7 +21,7 @@ import uuid
 from .errors import AccessDenied, ClamShieldError, Conflict
 from .mail_bridge import validate_snapshot
 from .mail_inventory import resolve
-from .mail_policy import MailPolicies, transaction_plan
+from .mail_policy import MailPolicies, transaction_decisions, transaction_plan
 from .paths import attributes, directory
 from .quarantine import rename_noreplace
 from .store import encode
@@ -134,9 +134,13 @@ class MailCustody:
         if not actual or actual['suspended'] or any(actual[k] != target[k] for k in ('owner', 'identity', 'domain', 'mailbox')):
             raise AccessDenied('Native mail custody ownership changed')
         # A later engine failure does not invalidate a verified earlier hit.
+        classification=decision.get('classification')
         partial_hit = (decision.get('scan_complete') is False and
-                       decision.get('classification') in ('malware','phishing','spam') and
-                       any(hit.get('category')==decision['classification'] for hit in decision.get('detections',[]) if isinstance(hit,dict)))
+                       classification in ('malware','phishing','spam','native-malware') and
+                       any(hit.get('category')==('malware' if classification=='native-malware' else classification)
+                           for hit in decision.get('detections',[]) if isinstance(hit,dict)))
+        native_spam=decision.get('native_spamassassin',{})
+        partial_hit = partial_hit or (classification=='native-spam' and isinstance(native_spam,dict) and native_spam.get('complete') is True)
         if (decision.get('scan_complete') is not True and not partial_hit) or len(encode(decision).encode()) > 2 * 1024 * 1024:
             raise Conflict('Incomplete or oversized mail decision cannot enter custody')
 
@@ -145,10 +149,13 @@ class MailCustody:
 
         items aligns with the entire native envelope. Native-delivery items need
         only a decision; custody items also need native context/target fields.
-        Rejection/defer never creates a capture, even with other custody actions.
+        Unanimous rejection or defer never creates a capture. Mixed rejected
+        copies are retained; siblings keep their own delivery/quarantine action.
         """
         if not isinstance(items, list) or len(items) != len(request.recipients):
             raise ClamShieldError('Mail custody decisions do not match the envelope')
+        items=[dict(item,decision=decision) for item,decision in
+               zip(items,transaction_decisions([item['decision'] for item in items]))]
         plan = transaction_plan([item['decision'] for item in items])
         if plan['smtp'] != 'accept' or not plan['custody']:
             raise Conflict('This transaction has no accepted recipient custody')

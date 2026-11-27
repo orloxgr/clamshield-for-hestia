@@ -69,7 +69,7 @@ class MailCustodyTests(unittest.TestCase):
         for recipient, action in zip(request.recipients, actions):
             decision = {'action': action, 'classification': 'malware' if action == 'quarantine' else 'spam',
                         'scan_complete': True, 'detections': [{'engine': 'clamav', 'signature': 'Harmless.Fixture'}]}
-            if action in ('deliver', 'reject', 'defer'):
+            if action in ('deliver', 'defer'):
                 result.append({'decision': decision}); continue
             owner = recipient.rsplit('@', 1)[1].split('.')[0]
             context = self.native.authorize(owner)
@@ -175,7 +175,7 @@ class MailCustodyTests(unittest.TestCase):
         with self.assertRaises(Conflict): self.custody.stage(self.request, items)
 
     def test_reject_defer_incomplete_and_unsealed_transactions_never_capture(self):
-        for actions in (('quarantine', 'reject'), ('quarantine', 'defer'), ('deliver', 'deliver')):
+        for actions in (('reject', 'reject'), ('quarantine', 'defer'), ('deliver', 'deliver')):
             with self.assertRaises(Conflict): self.custody.stage(self.request, self.items(actions=actions))
         items = self.items(); items[0]['decision']['scan_complete'] = False
         with self.assertRaises(Conflict): self.custody.stage(self.request, items)

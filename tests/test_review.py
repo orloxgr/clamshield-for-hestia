@@ -281,6 +281,15 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(expected,row['id']);self.assertEqual('clean',row['classification']);self.assertEqual('tag',row['action']);self.assertEqual('delivered',row['status']);self.assertEqual('Sample one',row['subject'])
         self.assertFalse(row['can_deliver']);self.assertFalse(row['can_delete'])
 
+    def test_email_shows_scoped_transport_explanation_from_decision_or_retained_copy(self):
+        self.email(detail=encode(dict(transport_note='SMTP mixed-recipient explanation')))
+        self.email('bob',owner='bob',detail=encode(dict(transport_note='Other account explanation')))
+        self.assertEqual('SMTP mixed-recipient explanation',self.page('email-messages')['records'][0]['transport_note'])
+        with self.store.connection() as db:
+            db.execute("UPDATE mail_recipients SET detail=? WHERE owner='alice'",(encode(dict(transport_note='Retained copy explanation')),))
+            db.execute("DELETE FROM mail_decisions WHERE owner='alice'")
+        self.assertEqual('Retained copy explanation',self.page('email-messages')['records'][0]['transport_note'])
+
     def test_email_requires_exact_content_envelope_and_native_generation_for_matching(self):
         for key,changes in [('hash',dict(sha256='b'*64)),('identity',dict(identity='old')),('recipient',dict(recipient='other@alice.test')),('mailbox',dict(mailbox='other')),('domain',dict(domain='other.test')),('exim',dict(exim_id='other-id'))]:
             self.email(key,**changes)

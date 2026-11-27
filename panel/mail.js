@@ -193,7 +193,8 @@
         const row = document.createElement('tr');row.dataset.reviewId=decision.id;row.dataset.reviewAllowed='true';
         const values = [new Date(decision.created * 1000).toISOString(), decision.sender + ' → ' + decision.recipient,
           decision.action + ' · ' + (decision.classification==='incomplete'?'Check incomplete — native delivery':decision.classification),
-          (decision.detail.scan_complete===false?'Scanning did not complete. This message was not classified as clean.\n':'') + spamAssassinLabel(decision.detail) +
+          (decision.detail.scan_complete===false?'Scanning did not complete. This message was not classified as clean.\n':'') +
+          (decision.detail.transport_note?decision.detail.transport_note+'\n':'') + spamAssassinLabel(decision.detail) +
           (decision.detail.spam_score != null ? 'Final policy score: ' + decision.detail.spam_score + '\n' : '') +
           (decision.detail.signature_generation ? 'Signature generation: ' + decision.detail.signature_generation + '\n' : '') +
           (decision.sha256 ? 'Content SHA-256: ' + decision.sha256 + '\n' : '') +
@@ -320,7 +321,7 @@
             const result = await api('mail-preview', {delivery_id: mail.id}), data = result.preview;
             output.textContent = Object.entries(data.headers).map(([key, value]) => key + ': ' + value).join('\n') +
               '\nRecipient: ' + data.recipient + '\nSHA-256: ' + data.sha256 + '\n\n' + data.text +
-              '\n\n' + spamAssassinLabel(data.decision) + (data.decision.detections || []).map(detectionLabel).join('\n') +
+              '\n\n' + (data.decision.transport_note?data.decision.transport_note+'\n':'') + spamAssassinLabel(data.decision) + (data.decision.detections || []).map(detectionLabel).join('\n') +
               (!data.available ? '\n[Plain-text preview unavailable]' : '') + (data.truncated ? '\n[Preview truncated]' : '');
             exceptionEditor.replaceChildren();
             if (mail.status === 'quarantined' && !sourcePending && (root.dataset.admin === 'true' || quarantinePermissions.manage_exceptions)) {

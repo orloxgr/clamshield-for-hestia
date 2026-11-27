@@ -20,6 +20,7 @@ SOURCE = f"""(
  CASE WHEN a.status IS NOT NULL AND a.status!='accepted'
  AND m.status NOT IN ('deleted','aborted') THEN 'source_unconfirmed'
  ELSE m.status END AS status,m.error,
+ COALESCE(json_extract(d.detail,'$.transport_note'),json_extract(m.detail,'$.transport_note')) AS transport_note,
  CASE WHEN m.status='quarantined' AND {_CONFIRMED} THEN 1 ELSE 0 END AS can_deliver,
  CASE WHEN m.status IN ('quarantined','deleting') AND {_CONFIRMED} THEN 1 ELSE 0 END AS can_delete
  FROM mail_recipients m JOIN mail_transactions t ON t.id=m.transaction_id
@@ -30,7 +31,7 @@ SOURCE = f"""(
  SELECT 'decision:'||d.id,NULL,d.id,d.owner,d.identity,d.domain,d.mailbox,d.recipient,
  NULL,d.sender,d.created,d.action,d.classification,
  CASE d.action WHEN 'reject' THEN 'rejected' WHEN 'defer' THEN 'deferred'
- ELSE 'not_retained' END,NULL,0,0
+ ELSE 'not_retained' END,NULL,json_extract(d.detail,'$.transport_note'),0,0
  FROM mail_decisions d WHERE {_DECISION_VISIBLE}
  AND NOT EXISTS(SELECT 1 FROM mail_recipients m JOIN mail_transactions t
  ON t.id=m.transaction_id WHERE {_BOUND})

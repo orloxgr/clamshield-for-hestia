@@ -9,7 +9,7 @@ from clamshield.application import Application
 from clamshield.errors import AccessDenied, ClamShieldError, Conflict
 from clamshield.hestia import Hestia
 from clamshield import mail_inventory
-from clamshield.mail_policy import DEFAULTS, PERMISSIONS, MailPolicies, effective, evaluate, transaction_plan, validate
+from clamshield.mail_policy import DEFAULTS, PERMISSIONS, MailPolicies, effective, evaluate, transaction_decisions, transaction_plan, validate
 from clamshield.settings import Settings
 from clamshield.store import Store
 
@@ -261,8 +261,15 @@ class MailPolicyTests(unittest.TestCase):
         with self.assertRaises(AccessDenied):
             self.mail.record(self.context, target | {'recipient': 'other@bob.test'}, request, 'a' * 64, decision)
 
-    def test_mixed_recipient_transaction_never_captures_while_rejecting_or_deferring(self):
+    def test_mixed_recipient_rejection_cannot_cancel_sibling_handling(self):
         decisions = [{'action': 'junk'}, {'action': 'deliver'}, {'action': 'quarantine'}]
         self.assertEqual({'smtp': 'accept', 'custody': [0, 2], 'native': [1]}, transaction_plan(decisions))
-        self.assertEqual({'smtp': 'reject', 'custody': [], 'native': []}, transaction_plan(decisions + [{'action': 'reject'}]))
+        mixed=decisions+[{'action':'reject','classification':'malware'}]
+        self.assertEqual({'smtp': 'accept', 'custody': [0, 2, 3], 'native': [1]}, transaction_plan(mixed))
+        normalized=transaction_decisions(mixed)
+        self.assertEqual(decisions,normalized[:3]);self.assertEqual('reject',mixed[-1]['action'])
+        self.assertEqual('quarantine',normalized[-1]['action']);self.assertEqual('reject',normalized[-1]['policy_action'])
+        self.assertIn('SMTP cannot reject one recipient',normalized[-1]['transport_note'])
+        self.assertEqual(normalized,transaction_decisions(normalized))
+        self.assertEqual({'smtp':'reject','custody':[],'native':[]},transaction_plan([{'action':'reject'}]*2))
         self.assertEqual({'smtp': 'defer', 'custody': [], 'native': []}, transaction_plan(decisions + [{'action': 'reject'}, {'action': 'defer'}]))

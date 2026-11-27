@@ -21,7 +21,7 @@ from .mail_bridge import Decision,receive,respond
 from .mail_custody import MailCustody
 from .mail_delivery import MailDelivery,PROTOCOL
 from .mail_inventory import inventory,resolve
-from .mail_policy import MailPolicies,evaluate,transaction_plan
+from .mail_policy import MailPolicies,evaluate,transaction_decisions,transaction_plan
 from .mail_scanners import MailClamAV,SpamAssassin,digest_snapshot
 from .mail_generation import GenerationMailScanner
 from .engines import Yara
@@ -138,7 +138,9 @@ class MailBroker:
             if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])
             items.append({'context':context,'target':target,'decision':decision,'managed':policy['enabled']})
-        return {'items':items,'sha256':sha256,'plan':transaction_plan([item['decision'] for item in items])}
+        decisions=transaction_decisions([item['decision'] for item in items])
+        items=[dict(item,decision=decision) for item,decision in zip(items,decisions)]
+        return {'items':items,'sha256':sha256,'plan':transaction_plan(decisions)}
 
     def handle(self,connection,*,expected_uid,expected_binary='/usr/sbin/exim4',request=None):
         replied=False;event=uuid.uuid4().hex;phase='receive';self.last_error=None

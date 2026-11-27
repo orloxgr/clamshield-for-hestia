@@ -13,6 +13,7 @@ $cs_mail_global=($data['context']['view_scope']??'account')==='server';
 <p><a href="#settings/mail-settings" data-tab="mail-settings">Email settings</a> · <a href="#review/email-review" data-tab="email-review">Review email activity</a></p></section>
 <section data-page="mail-settings" hidden><h2>Email settings</h2>
 <p>If a ClamShield check is unavailable, email continues through native delivery and the check remains incomplete. Verified detections follow the selected handling policy.</p>
+<p>If recipients of the same message have different handling, a recipient set to Reject is quarantined instead of cancelling delivery to the other recipients. SMTP rejection applies when every recipient requires rejection.</p>
 <?php require __DIR__.'/mail_global.php'; ?>
 <div id="cs-mail-advanced"><button class="button" type="button" id="cs-mail-refresh">Refresh email controls</button>
 <p id="cs-mail-status" role="status" aria-live="polite">Load email domains to view their policies.</p>
@@ -24,8 +25,8 @@ $cs_mail_global=($data['context']['view_scope']??'account')==='server';
 <?php if(isset($integration['error'])): ?><p class="alert alert-danger"><?=$escape($integration['error'])?></p><?php endif ?>
 <div class="row"><button class="button" type="button" data-action="mail-integration-enable">Enable mail integration</button><button class="button" type="button" data-action="mail-integration-refresh">Refresh mail integration</button><button class="button" type="button" data-action="mail-integration-disable">Drain and disable mail integration</button><button class="button" type="button" data-action="mail-integration-recover">Recover interrupted transition</button></div>
 <p>Activation starts the ClamShield mail services and adds its owned Exim hook. Native Hestia antivirus, antispam and rejection flags run first; their state is shown per domain. Native rejections take precedence over ClamShield policies.</p>
-<p>Disabling first defers new ClamShield handoffs and drains known delivery work. Quarantine and uncertain messages are retained. Re-enable integration before releasing retained email.</p>
-<p>Maintenance refreshes the adapter and owned mail services after a native package or ClamShield code change. During refresh, senders receive a temporary failure and retained deliveries resume after verification. Foreign hook or library changes require review.</p>
+<p>Disabling keeps incoming messages in native delivery and drains known delivery work. Quarantine and uncertain messages are retained. Re-enable integration before releasing retained email.</p>
+<p>Maintenance refreshes the adapter and owned mail services after a native package or ClamShield code change. During refresh, unavailable checks use native delivery and remain incomplete; retained deliveries resume after verification. Foreign hook or library changes require review.</p>
 </details>
 <?php endif ?>
 <?php if($data['context']['admin']): $adapter=$data['mail_adapter']; ?>
