@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import pwd
 from pathlib import Path
 import tempfile
 import unittest
@@ -12,7 +13,7 @@ from clamshield.settings import Settings
 from clamshield.signatures import Signatures
 
 
-@unittest.skipUnless(os.name=='posix','Native filesystem ownership')
+@unittest.skipUnless(os.name=='posix' and os.geteuid()==0,'Root native filesystem ownership')
 class NativeUpdateTests(unittest.TestCase):
     def setUp(self):
         temp=tempfile.TemporaryDirectory();self.addCleanup(temp.cleanup)
@@ -45,6 +46,14 @@ class NativeUpdateTests(unittest.TestCase):
         self.assertFalse(result['check_completed']);self.assertEqual('native-updater-active',result['state'])
         run.assert_called_once();self.assertEqual('/usr/bin/systemctl',run.call_args.args[0][0])
 
+    def test_ubuntu_readonly_clamav_owned_configuration_is_accepted_without_changing_its_owner_or_mode(self):
+        native_config=self.root/'freshclam.conf';native_config.write_text('DatabaseDirectory '+str(self.native)+'\n')
+        account=pwd.getpwnam('clamav');os.chown(native_config,account.pw_uid,account.pw_gid);native_config.chmod(0o444)
+        before=native_config.stat()
+        with patch('clamshield.native_updates.Path',return_value=native_config),patch('clamshield.native_updates.subprocess.run',return_value=Mock(returncode=0)):
+            self.assertFalse(self.updates.check()['check_completed'])
+        after=native_config.stat();self.assertEqual((before.st_uid,before.st_gid,before.st_mode),(after.st_uid,after.st_gid,after.st_mode))
+
     def test_idle_native_updater_uses_its_original_configuration_in_a_bounded_transient_unit(self):
         native_config=self.root/'freshclam.conf';native_config.write_text('DatabaseDirectory '+str(self.native)+'\n');native_config.chmod(0o644)
         with patch('clamshield.native_updates.Path',return_value=native_config),patch('clamshield.native_updates.subprocess.run',side_effect=[Mock(returncode=3),Mock(returncode=0,stdout=b'',stderr=b'')]) as run:
@@ -52,6 +61,7 @@ class NativeUpdateTests(unittest.TestCase):
         argv=run.call_args.args[0]
         self.assertEqual('/usr/bin/systemd-run',argv[0]);self.assertIn('--collect',argv);self.assertIn('--wait',argv)
         self.assertIn('/usr/bin/freshclam',argv);self.assertIn('--config-file='+str(native_config),argv)
+        self.assertIn('--property=User=clamav',argv);self.assertIn('--property=Group=clamav',argv)
         self.assertFalse(any('clamshield-cache' in item or item.startswith('--datadir') for item in argv))
 
     def test_native_provider_cooldown_is_retained_without_exposing_raw_diagnostics(self):

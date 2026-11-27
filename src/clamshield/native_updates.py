@@ -92,7 +92,14 @@ class NativeUpdates:
         """Leave an active native updater in charge; otherwise run its config once."""
         value=self.manager.read();path=Path('/etc/clamav/freshclam.conf')
         if value is None or value.get('phase')!='active':raise Conflict('Native ClamAV integration is not active')
-        NativeConfiguration.trusted(path,65536)
+        info=path.lstat();parent=path.parent.stat();clamav=pwd.getpwnam('clamav')
+        # Ubuntu may install this read-only conffile owned by clamav, not root.
+        # The one-shot runs as that unprivileged account even if its config
+        # requests another DatabaseOwner or an OnUpdateExecute command.
+        if (path.resolve()!=path or not stat.S_ISREG(info.st_mode) or info.st_nlink!=1 or
+                info.st_uid not in (0,clamav.pw_uid) or info.st_mode&0o022 or info.st_size>65536 or
+                parent.st_uid!=0 or parent.st_mode&0o022):
+            raise Conflict('Native freshclam configuration is not protected')
         before=path.stat()
         fingerprint=lambda info:(info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
         directories=re.findall(r'(?m)^\s*DatabaseDirectory\s+(\S+)\s*$',path.read_text())
@@ -109,6 +116,7 @@ class NativeUpdates:
         result=subprocess.run(['/usr/bin/systemd-run','--unit=clamshield-native-freshclam','--collect','--wait','--pipe','--quiet',
             '--property=Type=exec','--property=MemoryMax=3G','--property=CPUQuota=100%',
             '--property=RuntimeMaxSec=540','--property=TimeoutStopSec=20','--setenv=TZ=UTC','--setenv=LANG=C.UTF-8',
+            '--property=User=clamav','--property=Group=clamav',
             '--property=NoNewPrivileges=yes','/usr/bin/freshclam','--config-file='+str(path),'--stdout'],
             capture_output=True,timeout=600,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8','TZ':'UTC'})
         if fingerprint(path.stat())!=fingerprint(before):raise Conflict('Native freshclam configuration changed during its check')
