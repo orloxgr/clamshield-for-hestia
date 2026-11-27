@@ -1,7 +1,7 @@
 import json
 import unittest
 
-from clamshield.native_dnsbl_context import observe
+from clamshield.native_dnsbl_context import observe,verified_listing
 from clamshield.mail_policy import effective,evaluate
 
 
@@ -63,3 +63,11 @@ class NativeDnsblContextTests(unittest.TestCase):
         self.assertIsNone(observe('',''))
         result=self.decision('','');self.assertNotIn('native_dnsbl',result);self.assertTrue(result['scan_complete'])
         self.assertEqual('clean',result['classification'])
+
+    def test_partial_scan_custody_requires_consistent_recognized_native_evidence(self):
+        original=observe('private-key.zen.dq.spamhaus.net','127.255.255.251,127.0.0.2')
+        self.assertTrue(verified_listing(original))
+        for change in (dict(source='header'),dict(listing_codes=['127.0.0.99']),dict(state='clean'),dict(score_contribution=3)):
+            self.assertFalse(verified_listing(original|change))
+        for value in (None,{},observe('zen.spamhaus.org','127.255.255.251'),observe('other.test','127.0.0.2')):
+            self.assertFalse(verified_listing(value))

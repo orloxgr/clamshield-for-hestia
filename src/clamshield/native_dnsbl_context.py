@@ -42,3 +42,14 @@ def observe(zone,value):
     result.update(listing_codes=listings,error_codes=errors,unrecognized_codes=unknown,
                   state='listed' if listings else 'unsupported' if unknown else 'blocked')
     return result
+
+
+def verified_listing(value):
+    """Recheck a persisted canonical observation before partial-scan custody."""
+    if (not isinstance(value,dict) or value.get('access') not in ('public','dqs') or
+            not isinstance(value.get('return_codes'),list) or not 1<=len(value['return_codes'])<=128 or
+            any(not isinstance(code,str) or len(code)>15 for code in value['return_codes'])):return False
+    expected=observe(value.get('zone'),','.join(value['return_codes']))
+    if not expected or not expected['listing_codes']:return False
+    expected['access']=value['access']
+    return value==expected

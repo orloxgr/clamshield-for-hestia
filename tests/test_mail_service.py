@@ -78,6 +78,13 @@ class MailBrokerTests(unittest.TestCase):
             self.assertEqual(('spam','junk',0),(detail['classification'],detail['action'],detail['spam_score']))
             self.assertEqual('listed',detail['native_dnsbl']['state']);self.assertNotIn('private-key',str(detail))
 
+    def test_verified_native_listing_still_gets_selected_custody_during_other_dns_errors(self):
+        self.enable();self.assertEqual((3,'custody'),self.exchange(native_dnsbl=('zen.spamhaus.org','127.255.255.251, 127.0.0.2')))
+        for context in (self.alice,self.bob):
+            detail=self.policies.decisions(context)['decisions'][0]['detail']
+            self.assertEqual(('spam','junk',False),(detail['classification'],detail['action'],detail['scan_complete']))
+            self.assertEqual(['127.0.0.2'],detail['native_dnsbl']['listing_codes'])
+
     def test_mixed_unmanaged_recipient_stays_native_and_others_are_captured(self):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))
         self.assertEqual((4,'custody'),self.exchange())
