@@ -3,6 +3,7 @@ $cs_risks=['low'=>'Low','medium'=>'Medium','high'=>'High','not-rated'=>'Not rate
 ?>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i><?=$escape($cs_provider_title)?> databases</summary>
 <p>Server-wide databases apply to both website and email scans. Other signatures have separate selections.</p>
+<p><a href="#settings/resources" data-tab="resources" data-focus-id="cs-signature-memory">View measured signature memory costs</a> for the active data. Unsaved selections are not included.</p>
 <?php if(!empty($providers['selection_conflicts'][$cs_provider_name])): ?><p class="error">Existing server-wide selections differ between websites and email. Review the shared choices below and save provider settings before activation.</p><?php endif ?>
 <div class="scroll"><table><thead><tr><th>Database / purpose</th><th>False-positive risk</th><th>Website files</th><th>Email</th></tr></thead><tbody>
 <?php foreach($providers['catalog'][$cs_provider_name] as $row): $cs_risk=$cs_risks[$row['risk']??'not-rated']??'Not rated'; ?>

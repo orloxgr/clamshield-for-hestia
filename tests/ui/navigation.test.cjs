@@ -1029,3 +1029,54 @@ test('native DNSBL status distinguishes protected lists from manual review witho
     assert.equal(safe.requests.length,0);assert.equal(review.requests.length,0);
   }finally{await safe.close();await review.close();await tenant.close();}
 });
+
+
+function memoryView(v,measurement){
+  const limits={cpu_percent:100,memory_mib:2048,io_weight:100},service={active:false,memory_current:0,memory_bytes:2147483648,cpu_percent:100,io_weight:100};
+  v.resources={policy:Object.fromEntries(['website_worker','website_clamav','mail_broker','mail_clamav','mail_spamassassin'].map(k=>[k,limits])),
+    services:Object.fromEntries(['website_worker','website_clamav','mail_broker','mail_clamav','mail_spamassassin'].map(k=>[k,{...service,title:k}])),
+    memory:{MemTotal:4294967296,MemAvailable:2147483648},recovery_pending:false,website_policy:{enabled:true},
+    native_clamav:{active:true,memory_current:1258291200,memory_peak:2415919104,memory_bytes:null,rss_bytes:1101004800,pss_bytes:1090519040},signature_memory:measurement};
+}
+function measuredMemory(stale=false){return {available:true,running:false,report:{measured:1000,engine:'ClamAV fixture',stale,repeats:3,
+  baseline:{median_bytes:967.75*1048576},all:{median_bytes:1031.5*1048576},providers:[{label:'SecuriteInfo',delta_bytes:63.75*1048576}]}};}
+
+test('signature memory is an explicit bounded action with deduplicated clicks and a distinct measured-load table',async()=>{
+  let pending=false;
+  const f=fixture({parser:true,hash:'#settings/resources',change:v=>memoryView(v,measuredMemory()),api:async body=>{
+    if(body.action==='signature-memory-measure'){pending=true;return {ok:true,json:async()=>({ok:true,queued:true})};}
+    return {ok:true,json:async()=>({ok:true,measurement:measuredMemory(),pending,latest:pending?{status:'running',result:{phase:'measuring'}}:{status:'completed'}})};
+  }});
+  try{
+    await settle();assert.deepEqual(f.errors,[]);assert.equal(f.requests.filter(r=>r.action==='signature-memory-measure').length,0);
+    const table=f.document.getElementById('cs-memory-values');assert.match(table.textContent,/967.8 MiB/);assert.match(table.textContent,/1031.5 MiB/);assert.match(table.textContent,/\+63.8 MiB/);
+    assert.match(table.textContent,/not the native daemon/);assert.doesNotMatch(table.textContent,/2415919104/);
+    f.click('#cs-memory-measure');f.click('#cs-memory-measure');await settle();assert.equal(f.requests.filter(r=>r.action==='signature-memory-measure').length,1);
+    assert.equal(f.document.getElementById('cs-memory-measure').disabled,true);assert.match(f.document.getElementById('cs-memory-status').textContent,/queued/);
+    pending=false;await f.tick();assert.equal(f.document.getElementById('cs-memory-measure').disabled,false);assert.equal(f.timers.size,0);
+  }finally{await f.close();}
+});
+
+test('unconfirmed signature measurement never retries its write and requires a status read before another action',async()=>{
+  let finished=false,requested=false;
+  const f=fixture({hash:'#settings/resources',change:v=>memoryView(v,{available:true,running:false,report:null}),api:async body=>{
+    if(body.action==='signature-memory-measure'){requested=true;throw new Error('Connection lost');}
+    return {ok:true,json:async()=>({ok:true,measurement:{available:true,running:false,report:null},pending:requested&&!finished,latest:finished?{status:'failed',error:'<b>Memory limit reached</b>'}:requested?{status:'queued'}:null})};
+  }});
+  try{
+    await settle();f.click('#cs-memory-measure');await settle();assert.equal(f.document.getElementById('cs-memory-measure').disabled,true);
+    assert.match(f.document.getElementById('cs-memory-status').textContent,/Refresh status before/);
+    f.click('#cs-memory-measure');assert.equal(f.requests.filter(r=>r.action==='signature-memory-measure').length,1);
+    finished=true;f.click('#cs-memory-refresh');await settle();const output=f.document.getElementById('cs-memory-status');
+    assert.match(output.textContent,/<b>Memory limit reached/);assert.equal(output.children.length,0);assert.equal(f.document.getElementById('cs-memory-measure').disabled,false);
+  }finally{await f.close();}
+});
+
+test('old signature memory is labelled stale and hidden views do not poll or expose controls to tenants',async()=>{
+  const f=fixture({change:v=>memoryView(v,measuredMemory(true))}),tenant=fixture({admin:false,change:v=>memoryView(v,measuredMemory())});
+  try{
+    assert.match(f.document.getElementById('cs-memory-values').textContent,/different signature data or engine/);
+    assert.equal(f.requests.filter(r=>r.action.startsWith('signature-memory-')).length,0);assert.equal(tenant.document.getElementById('cs-signature-memory'),null);
+    assert.match(f.document.querySelector('a[data-focus-id="cs-signature-memory"]').textContent,/memory costs/);
+  }finally{await f.close();await tenant.close();}
+});

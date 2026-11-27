@@ -172,11 +172,12 @@ class Resources:
 
     def status(self):
         try:
+            from .signature_memory import SignatureMemory
             value=self.configured();policy=value['policy'] if value else deepcopy(DEFAULTS)
             services={key:dict(title=row[1],**self.inspect(key)) for key,row in SERVICES.items()}
             memory={line.split(':')[0]:int(line.split()[1])*1024 for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith(('MemTotal:','MemAvailable:'))}
             return dict(policy=policy,configured=value is not None,revision=value['revision'] if value else None,native_clamav=self.native_status(),
-                services=services,memory=memory,website_policy=website_policy(self.settings),recovery_pending=self.journal.exists() or self.website_journal.exists())
+                services=services,memory=memory,website_policy=website_policy(self.settings),signature_memory=SignatureMemory(self.settings).status(),recovery_pending=self.journal.exists() or self.website_journal.exists())
         except (OSError,ValueError,KeyError,TypeError,ClamShieldError,subprocess.SubprocessError):
             return dict(error='Resource state is unavailable or changed; inspect recovery',recovery_pending=self.journal.exists() or self.website_journal.exists())
 

@@ -23,6 +23,12 @@ class Maintenance:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return {'busy': True}
+            from .signature_memory import SignatureMemory
+            try:
+                if SignatureMemory(self.settings).recover().get('running'):return {'busy':True,'signature_memory_running':True}
+            except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
+                self.store.notify('@admin','','maintenance.failed','signature-memory',{'message':'Signature memory workspace needs review'})
+                return {'worked':False,'signature_memory_review':True}
             with self.store.connection() as db:
                 abandoned = [dict(row) for row in db.execute("SELECT * FROM maintenance WHERE status='running'").fetchall()]
             for stale in abandoned:
@@ -78,6 +84,8 @@ class Maintenance:
                     self.store.audit({'actor':context['actor'],'owner':'@admin','identity':''},task['action'],'website-clamav',result)
                 elif task['action']=='resources-recover':
                     result={'limits':resources.recover_limits(),'website':resources.recover_website()}
+                elif task['action']=='signature-memory-measure':
+                    result=SignatureMemory(self.settings).measure(progress=lambda phase:self.store.task_progress(task,phase))
                 elif task['action'] == 'signatures-update':
                     result = signatures.update(task['payload'].get('provider', 'all'))
                 elif task['action'] == 'signatures-ingest-native':

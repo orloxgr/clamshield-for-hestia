@@ -482,6 +482,28 @@ known work and retains custody. Re-enable and verify integration before release.
 
 ## Notifications, history and recovery
 
+**Settings → Resources → Signature memory measurements** measures the active
+signature union on request. Fresh Ubuntu APT `clamscan` processes load the base
+official/native data, all selected data, and selections without each optional
+provider. Each distinct configuration runs three times. The table shows median
+peak RSS and the observed change for a provider's active databases. Differences
+overlap and must not be added; file size is never converted into a RAM estimate.
+
+These load peaks are separate from the resident native daemon's current RAM,
+its recorded peak since startup, and configured memory limits. The measurement
+uses temporary extra RAM; it leaves native mail scanning resident and pauses
+website work. The unprivileged transient unit has 50% CPU, a RAM cap based on
+available memory (maximum 2 GiB), no swap/network and a 180-second loading limit.
+At least 1408 MiB available RAM and staging disk space are required. Preparation
+time depends on database size. The unit stops with the maintenance service.
+
+Results are tied to exact active data and installed ClamAV packages. Changed
+data/engine is labelled stale; failed/incomplete checks retain the previous
+result. Activation of pending provider changes is required before measuring
+those choices. Signature provider settings link to this table. Measurements run
+through the normal administrator maintenance queue; refreshing status never
+starts or retries a measurement.
+
 Review dashboard health, partial/failed scans, stale data, failed maintenance and
 repeated detections. **History** retains policy, update, exception, remediation
 and mail outcomes. A queued task is not an applied setting: wait for its terminal

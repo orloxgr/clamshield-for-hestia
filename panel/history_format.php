@@ -11,7 +11,7 @@ $cs_history_actions=[
     'mail-integration-enable'=>'Enable email protection','mail-integration-disable'=>'Disable email protection',
     'mail-integration-refresh'=>'Refresh email protection',
     'mail-protection-enable'=>'Enable email protection','mail-protection-disable'=>'Disable email protection',
-    'resources-save'=>'Apply scanner resource settings',
+    'resources-save'=>'Apply scanner resource settings','signature-memory-measure'=>'Measure active signature memory',
     'website-engine-start'=>'Start website scanner','website-engine-stop'=>'Stop website scanner',
     'scan.queued'=>'Scan queued','scan.completed'=>'Scan completed','scan.partial'=>'Scan incomplete',
     'scan.failed'=>'Scan failed','scan.cancelled'=>'Scan cancelled','scan.cancel_requested'=>'Scan cancellation requested',

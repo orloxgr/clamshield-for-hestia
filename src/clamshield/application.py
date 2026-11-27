@@ -371,6 +371,15 @@ class Application:
                 return InitialMonitoring.resume(self.store,self.hestia,context,site)
             scheduler=Scheduler(self.settings,self.store,self.hestia)
             return {'policy':scheduler.reset(context,site) if action=='policy-reset' else scheduler.save(context,site,request.get('policy'))}
+        if action in ('signature-memory-status','signature-memory-measure'):
+            if not context['admin']:raise AccessDenied('Administrator access required')
+            from .signature_memory import SignatureMemory
+            task_context=self.hestia.authorize(context['actor'],context['actor'])
+            if action=='signature-memory-measure':return {'queued':True,'task_id':self.store.enqueue_task(task_context,action,{})}
+            rows=[row for row in self.store.list_tasks(task_context) if row['action']=='signature-memory-measure']
+            latest=rows[0] if rows else None
+            return dict(measurement=SignatureMemory(self.settings).status(),pending=any(row['status'] in ('queued','running') for row in rows),
+                        latest={key:latest[key] for key in ('status','error','result')} if latest else None)
         if action in ('providers-save', 'signature-local-save', 'signature-local-delete', 'signatures-update', 'signatures-activate', 'signatures-rollback'):
             if not context['admin']:
                 raise AccessDenied('Administrator access required')

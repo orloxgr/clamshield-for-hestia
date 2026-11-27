@@ -391,6 +391,8 @@ class Installation:
             if self.digest(path)!=expected:raise Conflict('Owned integration changed; no foreign bytes were removed: '+name)
 
     def recover_operations(self):
+        from .signature_memory import SignatureMemory
+        if SignatureMemory(self.settings).recover().get('running'):raise Conflict('Signature memory unit is stopping; retry removal after it finishes')
         from .store import Store
         from .hestia import Hestia
         from .resources import Resources
