@@ -115,7 +115,8 @@ class MailBroker:
             if context['identity']!=target['identity']:raise AccessDenied('Native mail owner changed')
             context=dict(context,actor='clamshield-mail')
             policy=self.policies.get(context,target['domain'],target['mailbox'])['effective']
-            decision=evaluate(policy,scan,sender=request.sender,sha256=sha256)
+            decision=evaluate(policy,scan,sender=request.sender,sha256=sha256,
+                              native_dnsbl=(request.native_dnsbl_zone,request.native_dnsbl_value))
             if request.native_spam_score is not None:
                 decision['native_spamassassin']={'score':request.native_spam_score,'source':'native-exim-acl'}
             if not policy['enabled'] and native_av[index]:

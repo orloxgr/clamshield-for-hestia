@@ -57,7 +57,13 @@
   }
   function spamAssassinLabel(detail) {
     const native=detail.native_spamassassin;
-    const earlier=native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'';
+    const dns=detail.native_dnsbl;
+    const dnsLabel=dns?'Native DNSBL: '+dns.zone+(dns.access==='dqs'?' (DQS)':'')+' · '+
+      ({listed:'Listing observed; selected spam policy applies',blocked:'Provider access/configuration error',unsupported:'Unrecognized provider or response',invalid:'Invalid native response'}[dns.state]||'Unknown')+
+      '\nNative DNSBL score contribution: 0\n'+
+      (dns.return_codes?.length?'Return codes: '+dns.return_codes.join(', ')+'\n':'')+
+      (dns.error_codes?.length?'Operational error codes: '+dns.error_codes.join(', ')+'\n':''):'';
+    const earlier=(native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'')+dnsLabel;
     const sa=detail.spamassassin;if(!sa)return earlier;
     return earlier+'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
       (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+

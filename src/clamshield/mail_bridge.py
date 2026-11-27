@@ -44,6 +44,8 @@ class MailRequest:
     peer_pid: int | None = None
     peer_start: int | None = None
     native_spam_score: float | None = None
+    native_dnsbl_zone: str = ''
+    native_dnsbl_value: str = ''
 
     def close(self):
         os.close(self.fd)
@@ -69,7 +71,7 @@ def process_start(pid):
 
 
 def _parse(data, fd):
-    if len(data) < 16 or data[:8] not in (b'CSMAIL01', b'CSMAIL02'):
+    if len(data) < 16 or data[:8] not in (b'CSMAIL01', b'CSMAIL02', b'CSMAIL03'):
         raise ClamShieldError('Invalid mail bridge protocol')
     count, flags = struct.unpack('!II', data[8:16])
     if not 1 <= count <= 1000 or flags & ~3:
@@ -96,12 +98,13 @@ def _parse(data, fd):
     message_id, sender, remote_ip, authenticated_id, protocol = (
         field(limit) for limit in (128, 1024, 128, 1024, 64))
     native_spam_score = None
-    if data[:8] == b'CSMAIL02':
+    if data[:8] in (b'CSMAIL02',b'CSMAIL03'):
         raw_score = field(32)
         if raw_score:
             if not re.fullmatch(r'-?[0-9]{1,9}',raw_score):
                 raise ClamShieldError('Invalid native SpamAssassin score')
             native_spam_score = int(raw_score) / 10
+    native_dnsbl_zone,native_dnsbl_value=(field(256),field(2048)) if data[:8]==b'CSMAIL03' else ('','')
     recipients = tuple(field(1024) for _ in range(count))
     if at != len(data) or not re.fullmatch(r'[A-Za-z0-9-]{1,128}', message_id):
         raise ClamShieldError('Invalid mail bridge envelope framing')
@@ -113,7 +116,8 @@ def _parse(data, fd):
         except ValueError as exc:
             raise ClamShieldError('Invalid mail bridge peer address') from exc
     return MailRequest(message_id, sender, remote_ip, authenticated_id, protocol,
-                       recipients, flags, fd, native_spam_score=native_spam_score)
+                       recipients, flags, fd, native_spam_score=native_spam_score,
+                       native_dnsbl_zone=native_dnsbl_zone,native_dnsbl_value=native_dnsbl_value)
 
 
 def receive(connection, *, expected_uid, expected_binary, timeout=30):

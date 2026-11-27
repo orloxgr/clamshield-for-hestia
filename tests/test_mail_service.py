@@ -41,9 +41,10 @@ class MailBrokerTests(unittest.TestCase):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='quarantine'))
         self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='reject'))
 
-    def exchange(self,broker=None,protocol='esmtp',native_score=None):
+    def exchange(self,broker=None,protocol='esmtp',native_score=None,native_dnsbl=None):
         broker=broker or self.broker();client,server=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         native_fields={} if native_score is None else dict(native_spam_score=native_score)
+        if native_dnsbl is not None:native_fields.update(native_dnsbl_zone=native_dnsbl[0],native_dnsbl_value=native_dnsbl[1])
         packet=bridge.envelope(message_id=self.request.message_id,sender=self.request.sender,
                                recipients=list(self.request.recipients),protocol=protocol,**native_fields)
         result=[]
@@ -69,6 +70,13 @@ class MailBrokerTests(unittest.TestCase):
             self.assertEqual('deliver',row['action']);self.assertEqual('prepared',row['status'])
             self.assertEqual('response_sent',row['source_status'])
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_delivery_attempts').fetchone()[0])
+
+    def test_native_dnsbl_context_is_retained_in_each_owners_selected_policy_record(self):
+        self.enable();self.assertEqual((3,'custody'),self.exchange(native_dnsbl=('private-key.zen.dq.spamhaus.net','127.0.0.2')))
+        for context in (self.alice,self.bob):
+            detail=self.policies.decisions(context)['decisions'][0]['detail']
+            self.assertEqual(('spam','junk',0),(detail['classification'],detail['action'],detail['spam_score']))
+            self.assertEqual('listed',detail['native_dnsbl']['state']);self.assertNotIn('private-key',str(detail))
 
     def test_mixed_unmanaged_recipient_stays_native_and_others_are_captured(self):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))

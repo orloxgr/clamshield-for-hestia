@@ -58,13 +58,13 @@ async function fixture(options={}) {
       overrides:body.mailbox ? {} : policy.overrides};
     else if (body.action === 'mail-decisions') result = {total:1,decisions:[{created:1,sender:'sender@remote.test',
       recipient:'inbox@alice.test',action:'reject',classification:'malware',sha256:'c'.repeat(64),
-      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.transportNote ? {transport_note:options.transportNote}:{}), ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
+      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.transportNote ? {transport_note:options.transportNote}:{}), ...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}), ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
     else if (body.action === 'mail-quarantine') result = {total:1,next_offset:null,permissions:policy.permissions,
       messages:[{id:'delivery-one',created:1,subject:'Fixture',sender:'sender@remote.test',recipient:'inbox@alice.test',
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
     else if (body.action === 'mail-preview') result = {preview:{domain:'alice.test',mailbox:'inbox',recipient:'inbox@alice.test',
       sha256:'a'.repeat(64),headers:{Subject:'Fixture'},text:'Plain message',available:true,
-      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.transportNote?{transport_note:options.transportNote}:{}),...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
+      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.transportNote?{transport_note:options.transportNote}:{}),...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}),...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
     else if (body.action.startsWith('mail-exception') || body.action === 'mail-policy-save' || body.action === 'mail-policy-reset') {
       if (options.conflict) return {ok:false,json:async()=>({ok:false,error:'Email policy changed. Reload it.'})};
       result = policy;
@@ -317,6 +317,29 @@ test('native prefilter score stays separate from ClamShield contributions in his
     f.byId('quarantine').querySelector('button').click();
     await until(()=>f.byId('quarantine').textContent.includes('Native SpamAssassin before ClamShield: 1000.8'));
     assert.match(f.byId('quarantine').textContent,/SpamAssassin: 2\.395 \/ 5/);
+  }finally{f.close();}
+});
+
+test('authenticated native DNSBL explanation remains separate from SA points in history and preview',async()=>{
+  const f=await fixture({nativeDnsbl:{zone:'zen.spamhaus.org',access:'dqs',state:'listed',return_codes:['127.0.0.2'],listing_codes:['127.0.0.2'],error_codes:[],score_contribution:0},
+    spamassassin:{score:1.25,required_score:5,symbols:[],rules:[]}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('Native DNSBL: zen.spamhaus.org (DQS)'));
+    assert.match(f.byId('history').textContent,/selected spam policy applies/);
+    assert.match(f.byId('history').textContent,/Native DNSBL score contribution: 0/);
+    assert.match(f.byId('history').textContent,/SpamAssassin: 1\.25 \/ 5/);
+    f.byId('quarantine').querySelector('button').click();
+    await until(()=>f.byId('quarantine').textContent.includes('Return codes: 127.0.0.2'));
+  }finally{f.close();}
+});
+
+test('native DNSBL operational error renders as plain diagnostic text without a listing verdict',async()=>{
+  const f=await fixture({nativeDnsbl:{zone:'<img src=x onerror=alert(1)>',state:'blocked',return_codes:['127.255.255.251'],error_codes:['127.255.255.251']}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('Provider access/configuration error'));
+    assert.match(f.byId('history').textContent,/Operational error codes: 127\.255\.255\.251/);
+    assert.doesNotMatch(f.byId('history').textContent,/selected spam policy applies/);
+    assert.equal(f.byId('history').querySelector('img,script'),null);
   }finally{f.close();}
 });
 

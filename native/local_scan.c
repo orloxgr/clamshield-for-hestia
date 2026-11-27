@@ -110,7 +110,7 @@ int local_scan(int body, uschar **return_text)
   if (recipients_count < 1 || recipients_count > CS_RECIPIENTS_MAX) goto done;
   request = malloc(CS_METADATA_MAX);
   if (!request) goto done;
-  memcpy(request, "CSMAIL02", 8);
+  memcpy(request, "CSMAIL03", 8);
   uint32_t count = htonl((uint32_t)recipients_count);
   uint32_t flags = htonl((smtp_input ? 1u : 0u) | (smtp_batched_input ? 2u : 0u));
   memcpy(request + 8, &count, 4);
@@ -120,13 +120,19 @@ int local_scan(int body, uschar **return_text)
   /* Exim's own content-scanning variable, never an RFC822 status header.
    * An empty value means native SpamAssassin did not produce a score. */
   const uschar *native_spam_score = expand_string(US"$spam_score_int");
+  /* Only Exim ACL variables are authoritative. Never read sender-supplied
+   * RFC822 headers as native reputation evidence. Unset ACL fields are empty. */
+  const uschar *native_dnsbl_zone = expand_string(US"$acl_m_clamshield_dnsbl_zone");
+  const uschar *native_dnsbl_value = expand_string(US"$acl_m_clamshield_dnsbl_value");
   if (!authenticated ||
       append_string(request, &used, message_id, 128) ||
       append_string(request, &used, sender_address, 1024) ||
       append_string(request, &used, sender_host_address, 128) ||
       append_string(request, &used, authenticated, 1024) ||
       append_string(request, &used, received_protocol, 64) ||
-      append_string(request, &used, native_spam_score, 32)) goto done;
+      append_string(request, &used, native_spam_score, 32) ||
+      append_string(request, &used, native_dnsbl_zone, 256) ||
+      append_string(request, &used, native_dnsbl_value, 2048)) goto done;
   for (int i = 0; i < recipients_count; ++i)
     if (append_string(request, &used, recipients_list[i].address, 1024)) goto done;
   out = message_snapshot(body);

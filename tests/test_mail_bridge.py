@@ -18,9 +18,11 @@ def envelope(**overrides):
             'recipients': ['first@example.test', 'second@example.test']}
     data.update(overrides)
     fields = [data[k] for k in ('message_id', 'sender', 'remote_ip', 'authenticated_id', 'protocol')]
-    if 'native_spam_score' in data:fields.append(data['native_spam_score'])
+    dnsbl='native_dnsbl_zone' in data or 'native_dnsbl_value' in data
+    if 'native_spam_score' in data or dnsbl:fields.append(data.get('native_spam_score',''))
+    if dnsbl:fields.extend([data.get('native_dnsbl_zone',''),data.get('native_dnsbl_value','')])
     fields.extend(data['recipients'])
-    result = (b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
+    result = (b'CSMAIL03' if dnsbl else b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
     for field in fields:
         value = field.encode()
         result += struct.pack('!I', len(value)) + value
@@ -29,6 +31,21 @@ def envelope(**overrides):
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux sealed descriptors and native credentials')
 class MailBridgeTests(unittest.TestCase):
+    def test_native_dnsbl_fields_are_bounded_versioned_and_not_read_from_rfc822_headers(self):
+        self.send(envelope(native_dnsbl_zone='private-key.zen.dq.spamhaus.net',native_dnsbl_value='127.0.0.2, 127.255.255.251',native_spam_score='13'))
+        request=self.get()
+        try:
+            self.assertEqual(('private-key.zen.dq.spamhaus.net','127.0.0.2, 127.255.255.251',1.3),
+                             (request.native_dnsbl_zone,request.native_dnsbl_value,request.native_spam_score))
+        finally:request.close()
+        for values in (dict(native_dnsbl_zone='x'*257),dict(native_dnsbl_value='x'*2049),dict(native_dnsbl_zone='zone\nFORGED')):
+            self.send(envelope(**values))
+            with self.assertRaises(ClamShieldError):self.get()
+        for packet in (envelope(),envelope(native_spam_score='0')):
+            self.send(packet);request=self.get()
+            try:self.assertEqual(('',''),(request.native_dnsbl_zone,request.native_dnsbl_value))
+            finally:request.close()
+
     def test_native_score_is_a_bounded_authenticated_protocol_field_not_a_header(self):
         for raw,expected in [('10000',1000),('-23',-2.3),('0',0),('',None)]:
             self.send(envelope(native_spam_score=raw))

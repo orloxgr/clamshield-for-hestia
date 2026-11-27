@@ -112,11 +112,14 @@ def matches_sender(patterns, sender):
     return address in patterns or '*@' + address.rsplit('@', 1)[1] in patterns
 
 
-def evaluate(policy, scan, *, sender, sha256, now=None):
+def evaluate(policy, scan, *, sender, sha256, now=None, native_dnsbl=None):
     """Evaluate trusted scanner output; allow-sender entries affect spam only."""
     now = time.time() if now is None else now
     revision = hashlib.sha256(encode(policy).encode()).hexdigest()
     base = {'policy_revision': revision, 'scan_complete': False, 'detections': [], 'suppressed': []}
+    from .native_dnsbl_context import observe
+    native=observe(*native_dnsbl) if native_dnsbl is not None else None
+    if native is not None:base['native_dnsbl']=native
     def incomplete():
         return base | {'action': 'deliver', 'classification': 'incomplete', 'spam_score': None}
     if not policy['enabled']:
@@ -126,9 +129,12 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
     if (not isinstance(scan, dict) or not isinstance(scan.get('detections'), list) or len(scan['detections']) > 2000):
         return incomplete()
     complete = scan.get('complete') is True and not scan.get('errors')
+    native_uncertain=native is not None and (native['state']!='listed' or bool(native['error_codes'] or native['unrecognized_codes']))
+    complete=complete and not native_uncertain
     if not complete:
         base['scan_errors'] = [error for error in scan.get('errors', [])
                                if isinstance(error, str) and re.fullmatch(r'[A-Za-z]{1,64}', error)] if isinstance(scan.get('errors', []), list) else []
+        if native_uncertain:base['scan_errors'].append('NativeDnsblUnavailable')
     for key, pattern in (('signature_generation', r'generation-[A-Za-z0-9_-]{1,100}'),
                          ('signature_content_sha256', r'[0-9a-f]{64}')):
         if key in scan:
@@ -191,12 +197,13 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
             choices.append((policy[category + '_action'], category))
     spam_score += policy['signature_spam_score'] * sum(h['category'] == 'spam' for h in hits)
     spam_allowed = matches_sender(policy['allow_senders'], sender)
+    native_listed=bool(native and native['listing_codes'])
     if not spam_allowed:
         if spam_score >= policy['spam_high_threshold']:
             choices.append((policy['spam_high_action'], 'spam'))
-        elif spam_score >= policy['spam_threshold']:
+        elif spam_score >= policy['spam_threshold'] or native_listed:
             choices.append((policy['spam_action'], 'spam'))
-    default_class = ('excepted' if suppressed else 'allowlisted' if spam_allowed and spam_score >= policy['spam_threshold']
+    default_class = ('excepted' if suppressed else 'allowlisted' if spam_allowed and (spam_score >= policy['spam_threshold'] or native_listed)
                      else 'below-threshold' if hits else 'clean')
     action, classification = max(choices, key=lambda item: ACTIONS[item[0]]) if choices else ('deliver', default_class)
     if not complete and not choices: classification = 'incomplete'

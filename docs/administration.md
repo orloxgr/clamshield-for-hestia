@@ -500,6 +500,19 @@ inode, owner, permissions and exact contents must still match. Administrator
 edits require review; interrupted API changes retain both
 old/new entry identities and never trigger an automatic retry.
 
+The native policy transport can carry Exim-owned DNSBL ACL observations
+separately from sender-supplied message headers. Recognized positive IP-list
+codes follow the selected spam action without adding invented SpamAssassin
+points. Operational errors and unsupported/invalid responses stay diagnostic
+uncertainty; a failed check is not marked clean. A real listing in the same
+response remains actionable. DQS query keys are removed before storing or
+displaying the explanation. History and stored-message preview show the native
+observation separately from SpamAssassin scores and contributions.
+
+This transport support does not itself change the stock Hestia MIME or DNSBL
+ACLs. Those earlier filters still need the owned ACL integration described above;
+absent native observations are not invented successful checks.
+
 A saved ClamShield policy is not enforced while the integration is disconnected.
 The advanced integration controls remain available for maintenance and diagnosis.
 Foreign hook/library changes still require review; automatic activation does not
