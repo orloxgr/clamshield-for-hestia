@@ -14,4 +14,5 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/clamshield
+ReadWritePaths=-/run/clamshield-native -/var/lib/clamav/clamshield-snapshots
 PrivateTmp=true

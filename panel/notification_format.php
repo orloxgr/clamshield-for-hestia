@@ -23,7 +23,7 @@ $notification_subjects = [
     'hestia-inventory'=>'Hestia account and website inventory',
     'provider-official'=>'Official ClamAV signatures', 'provider-securiteinfo'=>'SecuriteInfo signatures',
     'provider-sanesecurity'=>'SaneSecurity signatures',
-    'signatures-update'=>'Signature update', 'signatures-activate'=>'Signature activation',
+    'signatures-update'=>'Signature update', 'signatures-ingest-native'=>'Native signature import', 'signatures-activate'=>'Signature activation',
     'signatures-rollback'=>'Signature rollback', 'rules-web-hosting'=>'Web hosting rule update',
     'rules-update'=>'YARA Forge update',
     'rules-build'=>'Build rule selection', 'rules-fetch'=>'Rule source update',

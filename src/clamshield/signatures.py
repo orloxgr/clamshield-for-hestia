@@ -161,7 +161,10 @@ class Signatures:
         # active data and its immutable catalog. Never mutate an old generation.
         if reuse_current:
             previous=self.manifest()
-            if (previous and previous.get('content_sha256')==manifest['content_sha256'] and
+            same_data=(previous and previous.get('engine_mode')==manifest.get('engine_mode') and
+                previous.get('profiles')==manifest.get('profiles') and previous.get('providers')==manifest.get('providers') and
+                {row['name']:row for row in previous['files']}=={row['name']:row for row in manifest['files']})
+            if (same_data and
                     previous.get('catalog',{}).get('policy')==CATALOG_POLICY):
                 active=(self.base/'current').resolve()
                 self.verify_data(active,previous)
@@ -178,6 +181,37 @@ class Signatures:
             sync_directory(Path(folder))
         sync_directory(stage)
         return stage, manifest
+
+    def stage_native_refresh(self):
+        """Refresh native data while preserving the active supplemental choices."""
+        from .native_updates import NativeUpdates
+        previous=self.manifest()
+        if not previous or not profiles.shared(previous):raise Conflict('Shared native signatures are not active')
+        active=(self.base/'current').resolve();self.verify_data(active,previous)
+        stage=Path(tempfile.mkdtemp(prefix='generation-',dir=self.base));stage.chmod(0o755)
+        manifest=dict(previous,generation=stage.name,created=time.time(),files=[],profiles={name:[] for name in profiles.PROFILES})
+        for field in ('catalog','canary','content_sha256','validation_warnings'):manifest.pop(field,None)
+        try:
+            for row in previous['files']:
+                if row['provider'] in ('official','native'):continue
+                if regular_copy(active/row['name'],stage/row['name'])!=row['sha256']:
+                    raise EngineError('Active supplemental database changed during native refresh')
+                if row['provider']=='sanesecurity':
+                    regular_copy(active/(row['name']+'.sig'),stage/(row['name']+'.sig'),maximum=1024**2)
+                    self.fetch.verify_sane(stage/row['name'],stage/(row['name']+'.sig'))
+                manifest['files'].append(dict(row))
+                for purpose in profiles.PROFILES:
+                    if row['name'] in previous['profiles'][purpose]:manifest['profiles'][purpose].append(row['name'])
+            for provider,name,source in NativeUpdates(self.settings).sources():
+                target=stage/name;checksum=regular_copy(source,target)
+                manifest['files'].append(dict(provider=provider,name=name,sha256=checksum,size=target.stat().st_size))
+                for purpose in profiles.PROFILES:manifest['profiles'][purpose].append(name)
+            manifest['profiles']={name:sorted(files) for name,files in manifest['profiles'].items()}
+            manifest['files'].sort(key=lambda row:(row['provider'],row['name']))
+            return self.complete_stage(stage,manifest,reuse_current=True)
+        except BaseException:
+            if stage.exists():shutil.rmtree(stage)
+            raise
 
     def upgrade_archive(self, stage, manifest):
         """Rebuild old retained data without changing an immutable generation."""
@@ -477,15 +511,25 @@ class Signatures:
             if (self.settings.state / 'signature-activation.json').exists():
                 raise Conflict('An interrupted database activation requires recovery')
             config = self.providers.read()
-            self.seed_official()
+            from .native_integration import enabled
+            native_mode=enabled(self.settings)
+            if not native_mode:self.seed_official()
             if acquire:
                 for name in ('official', 'securiteinfo', 'sanesecurity'):
                     if config[name]['enabled'] and provider in ('all', name):
                         self.fetch.refresh(name, config[name])
+            native_source=None
+            if native_mode:
+                from .native_updates import NativeUpdates
+                native_updates=NativeUpdates(self.settings);native_source=native_updates.fingerprint()
             stage, manifest = self.stage(config, reuse_current=True)
             if stage is None:
+                if native_mode and native_updates.fingerprint()==native_source:
+                    native_updates.record(native_source,'active',generation=manifest['generation'])
                 return {'changed': False, 'catalog_reused': True, **manifest}
             result = self.activate(stage, manifest)
+            if native_mode and native_updates.fingerprint()==native_source:
+                native_updates.record(native_source,'active',generation=manifest['generation'])
             self.providers.status('activation', state='active', last_success=time.time(), generation=stage.name, error=None)
             return {'changed': True, **result}
 

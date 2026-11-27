@@ -4,7 +4,7 @@ $cs_history_words=static function(string $value): string {
     return str_ireplace(['wordpress','spamassassin','yara','clamav','securiteinfo'],['WordPress','SpamAssassin','YARA','ClamAV','SecuriteInfo'],$value);
 };
 $cs_history_actions=[
-    'signatures-update'=>'Update antivirus signatures','rules-update'=>'Update YARA rules',
+    'signatures-update'=>'Update antivirus signatures','signatures-ingest-native'=>'Import native antivirus updates','rules-update'=>'Update YARA rules',
     'rules-install'=>'Install YARA rules','rules-forge'=>'Update YARA Forge rules',
     'rules-build'=>'Validate YARA rules','rules-activate'=>'Activate YARA rules',
     'spamassassin-save'=>'Apply SpamAssassin settings','mail-adapter-build'=>'Prepare email integration',

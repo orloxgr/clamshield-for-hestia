@@ -139,6 +139,17 @@ class Scheduler:
         # Provider downloads are separate maintenance tasks; the monitor never
         # blocks website discovery while waiting for a network transfer.
         providers = Providers(self.settings).public()
+        from .native_integration import enabled as native_enabled
+        if native_enabled(self.settings):
+            from .native_updates import NativeUpdates
+            admin=next((a for a in inventory if a['role']=='admin' and not a['suspended']),None)
+            if admin:
+                try:
+                    if NativeUpdates(self.settings).changed():
+                        self.store.enqueue_task(dict(actor=admin['owner'],owner=admin['owner'],identity=admin['identity']),
+                                                'signatures-ingest-native',{})
+                except (OSError,ValueError,ClamShieldError):
+                    failures.append({'error':'Native signature import needs attention; review the native updater and maintenance history'})
         if providers['automatic']:
             enabled = [name for name in ('official', 'securiteinfo', 'sanesecurity') if providers[name]['enabled']]
             stale = any(now.timestamp() >= providers['schedule'][name]['next_allowed'] for name in enabled)

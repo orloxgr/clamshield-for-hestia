@@ -182,6 +182,14 @@ class Fetch:
             return {'provider': name, 'used_cache': True, 'next_allowed': self.providers.public()['schedule'][name]['next_allowed']}
         self.providers.status(name, last_attempt=time.time(), state='updating', error=None)
         try:
+            from .native_integration import enabled
+            if name=='official' and enabled(self.settings):
+                from .native_updates import NativeUpdates
+                result=NativeUpdates(self.settings).check()
+                status=dict(state=result['state'],error=None)
+                if result['check_completed']:status.update(last_success=time.time(),retry_after=None)
+                self.providers.status(name,**status)
+                return dict(provider=name,used_cache=not result['check_completed'],**result)
             if name in ('official', 'securiteinfo'):
                 self.freshclam(name, config)
             elif name == 'sanesecurity':

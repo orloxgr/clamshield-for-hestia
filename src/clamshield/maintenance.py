@@ -80,6 +80,9 @@ class Maintenance:
                     result={'limits':resources.recover_limits(),'website':resources.recover_website()}
                 elif task['action'] == 'signatures-update':
                     result = signatures.update(task['payload'].get('provider', 'all'))
+                elif task['action'] == 'signatures-ingest-native':
+                    from .native_updates import NativeUpdates
+                    result=NativeUpdates(self.settings).ingest()
                 elif task['action'] == 'signatures-activate':
                     result = signatures.update('local', acquire=False)
                 elif task['action'] == 'signatures-rollback':

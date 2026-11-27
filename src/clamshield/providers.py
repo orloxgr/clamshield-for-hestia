@@ -171,6 +171,8 @@ class Providers:
         result['status'] = json.loads(status_path.read_text()) if status_path.exists() else {}
         result['schedule'] = {name: timing(name, result, result['status']) for name in UPDATE_POLICIES}
         result['catalog'] = catalog()
+        from .native_integration import enabled
+        result['official']['native_updater']=enabled(self.settings)
         result['selection_conflicts']={name:sorted(item for item in
             set(result[name]['website_databases'])^set(result[name]['mail_databases']) if server_wide(item))
             for name in ('securiteinfo','sanesecurity')}

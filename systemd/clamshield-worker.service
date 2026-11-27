@@ -1,7 +1,7 @@
 # Managed by clamshield
 [Unit]
 Description=ClamShield website scan worker
-After=clamshield-clamd.service
+After=clamav-daemon.service
 
 [Service]
 Type=oneshot
@@ -17,5 +17,6 @@ NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=read-only
 ReadWritePaths=/var/lib/clamshield
+ReadWritePaths=-/run/clamshield-native -/var/lib/clamav/clamshield-snapshots
 PrivateTmp=true
 TimeoutStartSec=infinity
