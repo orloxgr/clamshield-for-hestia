@@ -13,6 +13,17 @@ from clamshield.mail_delivery import MailDelivery,NativeExim
 
 
 class NativeSourceEvidenceTests(unittest.TestCase):
+    def test_native_fallback_requires_exact_marker_and_receipt_without_custody_hook(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path=Path(directory)/'mainlog';path.write_bytes(b'');native=NativeExim(log=path);checkpoint=native.checkpoint()
+            event='a'*32;prefix='2026-11-19 07:00:00 source-id '
+            path.write_text(prefix+'ClamShield native delivery fallback; check incomplete\n')
+            self.assertEqual('unknown',native.observe_acceptance('source-id',event,3,checkpoint)['state'])
+            with path.open('a') as stream:stream.write(prefix+'<= sender@test H=host [192.0.2.1] P=esmtp S=100\n')
+            self.assertEqual('native',native.observe_acceptance('source-id',event,3,checkpoint)['state'])
+            with path.open('a') as stream:stream.write(prefix+'ClamShield decision=3 event='+event+'\n')
+            with self.assertRaises(Conflict):native.observe_acceptance('source-id',event,3,checkpoint)
+
     def test_exact_hook_decision_and_native_receipt_are_both_required(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory)/'mainlog';path.write_bytes(b'');native=NativeExim(log=path);checkpoint=native.checkpoint()
@@ -81,6 +92,14 @@ class MailAcceptanceTests(unittest.TestCase):
         self.assertEqual('rejected',acceptance.reconcile(staged['transaction_id']))
         self.assertFalse(self.blob(staged['transaction_id']).exists())
         self.assertEqual([],self.custody.list(self.alice)['messages'])
+
+    def test_proven_native_fallback_aborts_uncertain_capture_without_second_delivery(self):
+        acceptance,native,staged,request,response=self.armed()
+        native.observe_acceptance.return_value={'state':'native','native_id':request.message_id}
+        self.assertEqual('rejected',acceptance.reconcile(staged['transaction_id']))
+        self.assertEqual('rejected',acceptance.reconcile(staged['transaction_id']))
+        self.assertFalse(self.blob(staged['transaction_id']).exists())
+        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_delivery_attempts').fetchone()[0])
 
     def test_kernel_process_changed_snapshot_and_repeat_arming_are_denied(self):
         acceptance,native,staged,request,response=self.armed()

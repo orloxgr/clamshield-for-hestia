@@ -106,7 +106,7 @@ class MailAcceptance:
         meta=dict(meta,proof=observed)
         with self.store.connection(True) as db:
             db.execute('UPDATE mail_acceptance SET status=?,metadata=?,error=NULL,updated=? WHERE transaction_id=?',(proven,encode(meta),time.time(),transaction_id))
-        MailPolicies(self.store,self.hestia).outcome(row['exim_id'],'accepted' if proven=='proven' else 'defer')
+        MailPolicies(self.store,self.hestia).outcome(row['exim_id'],'accepted' if proven=='proven' or observed['state']=='native' else 'defer')
         try:
             if proven=='proven':
                 if transaction['status'] not in ('committed','purged'):self.custody.commit(transaction_id)

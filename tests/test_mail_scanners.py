@@ -31,6 +31,13 @@ def contribution_response(score=5.6, **changes):
 
 
 class MailReportTests(unittest.TestCase):
+    def test_dns_metadata_is_bounded_and_never_accepts_private_query_labels(self):
+        observation=dict(zone='sa-trusted.bondedsender.org',state='blocked')
+        self.assertEqual([observation],SpamAssassin.parse(contribution_response(dns_observations=[observation]),require_details=True)['dns_observations'])
+        for malformed in ([observation,observation],[dict(observation,query='private key')],
+                          [dict(observation,zone='private-key.'+observation['zone'])],[dict(observation,state='available')]):
+            with self.assertRaises(EngineError):SpamAssassin.parse(contribution_response(dns_observations=malformed),require_details=True)
+
     def test_contributions_are_actual_bounded_and_reconcile_with_the_reported_score(self):
         detail = SpamAssassin.parse(contribution_response(2.395), require_details=True)
         self.assertEqual(2.395, detail['rules'][0]['score'])
@@ -162,7 +169,22 @@ class MailScannerTests(unittest.TestCase):
         for scanner in (MailScanner(Broken(), Spam()), MailScanner(Clam(), Broken())):
             report = scanner.scan(self.fd)
             self.assertFalse(report['complete'])
-            self.assertEqual('defer', evaluate(policy, report, sender='', sha256=report['sha256'])['action'])
+            decision = evaluate(policy, report, sender='', sha256=report['sha256'])
+            self.assertEqual('reject' if report['detections'] else 'deliver', decision['action'])
+            self.assertFalse(decision['scan_complete'])
+
+    def test_verified_dns_observations_survive_the_mail_policy_snapshot_without_points(self):
+        observation=dict(zone='sa-trusted.bondedsender.org',state='blocked')
+        detail=SpamAssassin.parse(contribution_response(2.395,dns_observations=[observation]),require_details=True)
+        class Clam:
+            def scan(self,fd,**kwargs):return []
+        class Spam:
+            def scan(self,fd,**kwargs):return detail
+        report=MailScanner(Clam(),Spam()).scan(self.fd)
+        self.assertTrue(report['complete'])
+        decision=evaluate(DEFAULTS|dict(enabled=True),report,sender='',sha256=report['sha256'])
+        self.assertEqual('deliver',decision['action']);self.assertEqual(2.395,decision['spam_score'])
+        self.assertEqual([observation],decision['spamassassin']['dns_observations'])
 
     def test_unsealed_input_is_never_submitted(self):
         fd = os.memfd_create('unsealed-mail')
@@ -204,11 +226,12 @@ class MailScannerTests(unittest.TestCase):
             with self.subTest(data=data), self.assertRaises(EngineError):
                 list(mime_payloads(self.mime_fd(data)))
 
-    def test_shared_mail_deadline_prevents_acceptance_after_a_late_engine(self):
+    def test_shared_mail_deadline_keeps_native_delivery_and_marks_check_incomplete(self):
         class LateClam:
             def scan(self, fd, **kwargs): time.sleep(.04); return []
         class Spam:
             def scan(self, fd, **kwargs): return {'score': 0, 'threshold': 5, 'symbols': []}
         result = MailScanner(LateClam(), Spam(), timeout=.01).scan(self.fd)
         self.assertFalse(result['complete'])
-        self.assertEqual('defer', evaluate(dict(DEFAULTS, enabled=True), result, sender='', sha256=result['sha256'])['action'])
+        verdict=evaluate(dict(DEFAULTS, enabled=True), result, sender='', sha256=result['sha256'])
+        self.assertEqual('deliver',verdict['action']);self.assertEqual('incomplete',verdict['classification'])

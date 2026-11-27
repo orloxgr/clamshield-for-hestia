@@ -27,16 +27,24 @@ BASE = Path('/etc/clamshield/spamassassin')
 MARKER = '# Managed by clamshield\n'
 # Administrative responses describe lookup availability, never message content.
 # Keep these independent of optional per-rule overrides and upstream defaults.
-INFRASTRUCTURE_RULES = (
+INFRASTRUCTURE_RULES_V1 = (
     'RCVD_IN_VALIDITY_CERTIFIED_BLOCKED', 'RCVD_IN_VALIDITY_RPBL_BLOCKED',
     'RCVD_IN_VALIDITY_SAFE_BLOCKED', 'URIBL_BLOCKED', 'RCVD_IN_DNSWL_BLOCKED',
 )
-SAFETY_VERSION = 1
+INFRASTRUCTURE_RULES = INFRASTRUCTURE_RULES_V1 + (
+    'DKIMWL_BLOCKED', 'FROM_FMBLA_NDBLOCKED', 'SURBL_BLOCKED',
+    'RCVD_IN_ZEN_BLOCKED', 'RCVD_IN_ZEN_BLOCKED_OPENDNS',
+    'URIBL_DBL_BLOCKED', 'URIBL_DBL_BLOCKED_OPENDNS',
+    'URIBL_ZEN_BLOCKED', 'URIBL_ZEN_BLOCKED_OPENDNS',
+)
+SAFETY_VERSION = 2
 REPORTER = Path('/opt/clamshield/tools/spamassassin-report.pm')
 
 
-def infrastructure_rule(name):
-    return name in INFRASTRUCTURE_RULES or bool(re.fullmatch(r'RCVD_IN_VALIDITY_[A-Z0-9_]+_BLOCKED', name))
+def infrastructure_rule(name,description='',*,safety_version=SAFETY_VERSION):
+    names=INFRASTRUCTURE_RULES_V1 if safety_version==1 else INFRASTRUCTURE_RULES
+    return (name in names or bool(re.fullmatch(r'RCVD_IN_VALIDITY_[A-Z0-9_]+_BLOCKED', name)) or
+            safety_version!=1 and bool(re.match(r'ADMINISTRATOR NOTICE:\s+The query\b',description,re.I)))
 
 
 def validate(value, *, legacy=False):
@@ -75,13 +83,13 @@ def validate(value, *, legacy=False):
     return result
 
 
-def revision(policy, *, legacy=False):
-    value = policy if legacy else dict(policy=policy, safety_version=SAFETY_VERSION, report_version=1)
+def revision(policy, *, legacy=False,safety_version=SAFETY_VERSION):
+    value = policy if legacy else dict(policy=policy, safety_version=safety_version, report_version=1)
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
-def render(policy, *, legacy=False):
-    policy = validate(policy, legacy=legacy); token = revision(policy, legacy=legacy)
+def render(policy, *, legacy=False,safety_version=SAFETY_VERSION):
+    policy = validate(policy, legacy=legacy or safety_version==1); token = revision(policy, legacy=legacy,safety_version=safety_version)
     lines = [MARKER.rstrip(), 'bayes_auto_learn 0', 'use_bayes 0',
              'ifplugin Mail::SpamAssassin::Plugin::Pyzor', 'use_pyzor 0', 'endif',
              'ifplugin Mail::SpamAssassin::Plugin::Razor2', 'use_razor2 0', 'endif',
@@ -92,7 +100,7 @@ def render(policy, *, legacy=False):
     lines += ['dns_query_restriction deny ' + zone for zone in policy['blocked_zones']]
     lines += ['score %s %.6f' % (name, amount) for name, amount in sorted(policy['scores'].items())]
     if not legacy:
-        lines += ['score %s 0' % name for name in INFRASTRUCTURE_RULES]
+        lines += ['score %s 0' % name for name in (INFRASTRUCTURE_RULES_V1 if safety_version==1 else INFRASTRUCTURE_RULES)]
         reporter = REPORTER
         if not re.fullmatch(r'/[A-Za-z0-9_./-]+', str(reporter)):
             raise EngineError('Unsupported SpamAssassin report plugin path')
@@ -132,10 +140,10 @@ class SpamAssassinControls:
         self.proof.unlink(missing_ok=True); sync_directory(self.settings.state)
 
     @staticmethod
-    def verify_contributions(report, stamp):
+    def verify_contributions(report, stamp,*,safety_version=SAFETY_VERSION):
         if report.get('reporter_sha256') != stamp.get(str(REPORTER.resolve(strict=True))):
             raise EngineError('SpamAssassin process has not loaded the installed report plugin')
-        if any(infrastructure_rule(rule['name']) and rule['score'] != 0 for rule in report.get('rules', [])):
+        if any(infrastructure_rule(rule['name'],rule.get('description',''),safety_version=safety_version) and rule['score'] != 0 for rule in report.get('rules', [])):
             raise EngineError('SpamAssassin assigned points to a DNS blocklist access failure')
 
     def verify_report(self, report, policy, *, deadline=None):
@@ -207,14 +215,16 @@ class SpamAssassinControls:
             if (allow_legacy and value['revision'] == revision(policy, legacy=True) and
                     self.active.read_text() == render(policy, legacy=True)):
                 return value
+            if (allow_legacy and value['revision']==revision(policy,safety_version=1) and
+                    self.active.read_text()==render(policy,safety_version=1)):return value
             raise EngineError('SpamAssassin configuration changed or requires safety activation')
         return value
 
     @staticmethod
-    def verify_infrastructure_scores(parsed):
+    def verify_infrastructure_scores(parsed,*,safety_version=SAFETY_VERSION):
         """Inspect all installed score sets, not just the selected lint mode."""
         for rule in parsed['rules']:
-            if not infrastructure_rule(rule['name']):
+            if not infrastructure_rule(rule['name'],rule.get('description',''),safety_version=safety_version):
                 continue
             scores = rule.get('scores')
             if (not isinstance(scores, list) or len(scores) != 4 or
@@ -268,7 +278,12 @@ class SpamAssassinControls:
                     verified = (proof['revision'] == value['revision'] and proof['identity']['pid'] == int(pid) and
                                 process({key:proof['identity'][key] for key in ('pid','birth')}) == proof['identity'] and
                                 proof['runtime'] == self.runtime_stamp())
-            return dict(policy=value['policy'] if value else deepcopy(DEFAULTS),
+            policy=value['policy'] if value else deepcopy(DEFAULTS)
+            from .dns_health import DnsHealth
+            dns_rows=[];dns_error=None
+            try:dns_rows=DnsHealth(self.settings).status(policy,local_mode)
+            except (OSError,ValueError,TypeError,ClamShieldError):dns_error='DNS observations could not be read; inspect ClamShield storage and mail-service logs.'
+            return dict(policy=policy,dns_observations=dns_rows,dns_observations_error=dns_error,
                         revision=value['revision'] if value else None, configured=value is not None,
                         applied_at=value.get('applied_at') if value else None,
                         service_active=running, local_mode=local_mode, recovery_pending=self.journal.exists(),
@@ -318,12 +333,12 @@ class SpamAssassinControls:
     def _stop():
         subprocess.run(['/usr/bin/systemctl', 'stop', UNIT], check=True, timeout=45)
 
-    def probe(self, policy, *, deadline=None, legacy=False):
-        token = revision(policy, legacy=legacy)
+    def probe(self, policy, *, deadline=None, legacy=False,safety_version=SAFETY_VERSION):
+        token = revision(policy, legacy=legacy,safety_version=safety_version)
         # The daemon canary binds to the safety format as well as user policy.
         # Validate the installed rule scores before accepting process readiness.
         if not legacy:
-            self.verify_infrastructure_scores(self.inspect(self.active))
+            self.verify_infrastructure_scores(self.inspect(self.active),safety_version=safety_version)
         payload = ('From: control@invalid.test\r\nTo: control@invalid.test\r\n'
                    'Subject: ClamShield configuration check\r\nX-ClamShield-Config: ' + token +
                    '\r\n\r\nClamShield inert configuration probe.\r\n').encode()
@@ -346,12 +361,12 @@ class SpamAssassinControls:
                     raise EngineError('SpamAssassin daemon has not loaded the expected configuration')
                 from .spamassassin_binding import process
                 identity = process(report.get('_peer'))
-                current = self.configured(allow_legacy=legacy)
+                current = self.configured(allow_legacy=legacy or safety_version!=SAFETY_VERSION)
                 if current is None or current['revision'] != token:
                     raise EngineError('SpamAssassin settings changed during process verification')
                 stamp = self.runtime_stamp()
                 if not legacy:
-                    self.verify_contributions(report, stamp)
+                    self.verify_contributions(report, stamp,safety_version=safety_version)
                 write_json(self.proof, dict(revision=token, identity=identity, runtime=stamp))
                 return report
         finally:
@@ -372,6 +387,8 @@ class SpamAssassinControls:
                 policy = saved['metadata']['policy']
                 if saved['metadata']['revision'] == revision(policy, legacy=True):
                     self.probe(policy, legacy=True)
+                elif saved['metadata']['revision']==revision(policy,safety_version=1):
+                    self.probe(policy,safety_version=1)
                 else:
                     self.probe(policy)
         self.journal.unlink(); sync_directory(self.settings.state)

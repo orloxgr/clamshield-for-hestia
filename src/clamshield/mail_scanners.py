@@ -139,7 +139,7 @@ class SpamAssassin:
                 if abs(report['score'] - value) > .051 or abs(report['threshold'] - threshold) > .051:
                     raise ValueError('SpamAssassin header and contribution report disagree')
                 return {key: report[key] for key in ('score', 'threshold', 'rules', 'revision', 'engine_version', 'rules_version', 'reporter_sha256')} | {
-                    'symbols': sorted(rule['name'] for rule in report['rules'])}
+                    'symbols': sorted(rule['name'] for rule in report['rules']), 'dns_observations': report.get('dns_observations',[])}
             text = body.decode('ascii').strip('\r\n')
             symbols = text.split(',') if text else []
             if len(symbols) > 1000 or any(not re.fullmatch('[A-Za-z0-9_]{1,128}', symbol) for symbol in symbols):
@@ -338,6 +338,7 @@ class MailScanner:
             if 'rules' in spam:
                 result['spam_report'] = {key: spam[key] for key in
                                         ('score', 'threshold', 'rules', 'engine_version', 'rules_version', 'reporter_sha256')}
+                result['spam_report']['dns_observations']=spam.get('dns_observations',[])
                 result['spamassassin_revision'] = spam['revision']
             if self.yara is not None:
                 seen = set()

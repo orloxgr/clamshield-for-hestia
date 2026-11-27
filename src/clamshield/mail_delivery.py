@@ -28,14 +28,17 @@ MAX_LOG = 32*1024*1024
 MAX_PAYLOAD = 66*1024*1024
 
 
-def payload(original, attempt, action, released=False):
+def payload(original, attempt, action, released=False, classification=None):
     """Preserve MIME bytes; replace only the scanner status header fields."""
     identifier(attempt)
     boundary = re.search(rb'\r?\n\r?\n', original)
     if not boundary or boundary.start()>1024*1024 or len(original)>MAX_PAYLOAD:
         raise Conflict('Stored email has incomplete or oversized headers')
     headers, body = original[:boundary.start()].replace(b'\r\n',b'\n'), original[boundary.end():]
-    kept, skip = [], False
+    prefixes={'malware':b'*** MALWARE ***','phishing':b'*** PHISHING ***',
+              'spam':b'*** SPAM ***','blocked-sender':b'*** BLOCKED SENDER ***'}
+    prefix=prefixes.get(classification)
+    kept, skip, subject = [], False, False
     for line in headers.split(b'\n'):
         if line.startswith((b' ', b'\t')):
             if not kept and not skip:
@@ -46,7 +49,11 @@ def payload(original, attempt, action, released=False):
                 raise Conflict('Stored email has malformed headers')
             skip = key.lower() in (b'x-spam-status', b'x-spam-score', b'x-spam-bar', b'x-spam-report') or key.lower().startswith(b'x-clamshield-')
         if not skip:
+            if line.lower().startswith(b'subject:'):
+                subject=True
+                if prefix and not line[8:].lstrip().startswith(prefix):line=b'Subject: '+prefix+b' '+line[8:].lstrip()
             kept.append(line)
+    if prefix and not subject:kept.append(b'Subject: '+prefix)
     status = 'Released' if released else 'Junk' if action == 'junk' else 'Clean' if action=='deliver' else 'Tagged'
     kept.extend([b'X-ClamShield-Status: '+status.encode(), b'X-ClamShield-Delivery: '+attempt.encode(),
                  b'X-Spam-Status: '+(b'Yes' if action == 'junk' and not released else b'No')])
@@ -223,16 +230,20 @@ class NativeExim:
         identifier(event)
         if decision not in (3,4) or not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9-]{0,127}',native_id):
             raise Conflict('Invalid source acceptance reference')
-        hook=received=rejected=False;conflicting=False
+        hook=received=rejected=fallback=False;conflicting=False
         expected=f'ClamShield decision={decision} event={event}'.encode()
         for record_id,message in self.records(checkpoint):
             if record_id!=native_id:continue
             if message==expected:hook=True
             elif re.fullmatch(rb'ClamShield decision=[0-4] event=[0-9a-f]{32}',message):conflicting=True
+            if message==b'ClamShield native delivery fallback; check incomplete':fallback=True
             if message.startswith(b'<= '):received=True
             if (message.startswith(b'F=') and re.search(rb' (?:temporarily )?rejected by local_scan\(\): (?:ClamShield mail check unavailable; please retry|Message rejected by ClamShield policy)$',message)):
                 rejected=True
         if received and rejected:raise Conflict('Native source acceptance evidence is contradictory')
+        if fallback and (hook or conflicting):raise Conflict('Native fallback conflicts with a custody decision')
+        if received and fallback:
+            return {'state':'native','native_id':native_id,'event':event,'decision':decision,'hook_seen':False}
         if received and (not hook or conflicting):raise Conflict('Native source accepted without the expected custody decision')
         state='accepted' if received and hook else 'rejected' if rejected else 'unknown'
         return {'state':state,'native_id':native_id,'event':event,'decision':decision,'hook_seen':hook}
@@ -290,10 +301,11 @@ class MailDelivery:
                 with self.custody.blob(root,transaction) as fd:
                     original=os.pread(fd,transaction['size'],0)
                 attempt=uuid.uuid4().hex
-                data=payload(original,attempt,row['action'],released=row['status']=='release_queued')
+                classification=json.loads(row['detail']).get('classification')
+                data=payload(original,attempt,row['action'],released=row['status']=='release_queued',classification=classification)
                 metadata={'sha256':hashlib.sha256(data).hexdigest(),'size':len(data),'checkpoint':self.native.checkpoint(),
                           'sender':transaction['metadata']['envelope']['sender'],'recipient':row['recipient'],'pid':None,
-                          'released':row['status']=='release_queued'}
+                          'released':row['status']=='release_queued','subject_classification':classification}
             except (OSError,ClamShieldError):
                 # An unavailable old account must not starve other recipients.
                 with self.store.connection(True) as db:
@@ -342,7 +354,7 @@ class MailDelivery:
                     if meta['recipient']!=row['recipient'] or meta['sender']!=transaction['metadata']['envelope']['sender']:
                         raise Conflict('Delivery preparation envelope changed')
                     with self.custody.blob(root,transaction) as fd:
-                        data=payload(os.pread(fd,transaction['size'],0),attempt['id'],row['action'],released=meta['released'])
+                        data=payload(os.pread(fd,transaction['size'],0),attempt['id'],row['action'],released=meta['released'],classification=meta.get('subject_classification'))
                     if hashlib.sha256(data).hexdigest()!=meta['sha256'] or len(data)!=meta['size']:
                         raise Conflict('Delivery preparation recipe changed')
                     name=attempt['id']+'.delivery'

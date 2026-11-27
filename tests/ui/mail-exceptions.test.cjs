@@ -64,7 +64,7 @@ async function fixture(options={}) {
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
     else if (body.action === 'mail-preview') result = {preview:{domain:'alice.test',mailbox:'inbox',recipient:'inbox@alice.test',
       sha256:'a'.repeat(64),headers:{Subject:'Fixture'},text:'Plain message',available:true,
-      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}]}}};
+      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
     else if (body.action.startsWith('mail-exception') || body.action === 'mail-policy-save' || body.action === 'mail-policy-reset') {
       if (options.conflict) return {ok:false,json:async()=>({ok:false,error:'Email policy changed. Reload it.'})};
       result = policy;
@@ -245,6 +245,17 @@ test('decision history exposes exact content identity for reviewing rejected-mes
     assert.match(f.byId('history').textContent,new RegExp('Content SHA-256: '+'c'.repeat(64)));
     assert.match(f.byId('history').textContent,/reject/);
   } finally {f.close();}
+});
+
+test('recorded DNS access failures are separate from score contributions in both history and stored preview',async()=>{
+  const f=await fixture({spamassassin:{score:2.395,required_score:5,symbols:[],rules:[],
+    dns_observations:[{zone:'sa-trusted.bondedsender.org',state:'blocked'}]}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('Query blocked by provider'));
+    assert.match(f.byId('history').textContent,/0 points/);assert.match(f.byId('history').textContent,/2.395 \/ 5/);
+    f.byId('quarantine').querySelector('button').click();await until(()=>f.byId('quarantine').textContent.includes('Query blocked by provider'));
+    assert.match(f.byId('quarantine').textContent,/2.395 \/ 5/);assert.match(f.byId('quarantine').textContent,/0 points/);
+  }finally{f.close();}
 });
 
 test('native recovery controls recheck original proof without accepting a resend or destination',async()=>{

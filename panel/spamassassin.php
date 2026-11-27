@@ -10,6 +10,13 @@ $sa = $data['spamassassin']; ?>
 <?php if($sa['configured'] && $sa['service_active']): ?><p><?=$sa['daemon_verified']?'Current daemon configuration verified':'Current daemon needs a configuration check before its score can be used'?></p><?php endif ?>
 <p><?=$sa['configured']?'Validated configuration applied':'Initial settings; no UI activation recorded'?><?php if($sa['applied_at']): ?> · <?=$escape(gmdate('Y-m-d H:i:s',(int)$sa['applied_at']))?> UTC<?php endif ?></p>
 <?php if($sa['recovery_pending']): ?><p class="alert alert-danger">An interrupted activation requires recovery. Mail scans will defer until recovery finishes.</p><?php endif ?>
+<h3>DNS query observations</h3>
+<p>Recorded during verified mail scans. These are observed responses, not live availability tests. No observation means unknown. Access failures add zero spam points.</p>
+<?php if(!empty($sa['dns_observations_error'])): ?><p class="error"><?=$escape($sa['dns_observations_error'])?></p><?php endif ?>
+<div class="scroll"><table><thead><tr><th>Provider</th><th>Most recent observation</th><th>Time UTC</th><th>Action</th></tr></thead><tbody>
+<?php foreach($sa['dns_observations']??[] as $cs_dns): $cs_dns_labels=['blocked'=>'Query blocked by provider','response-observed'=>'DNS response observed','unknown'=>'Unknown — no response recorded','disabled'=>'Disabled in current settings']; ?>
+<tr><td><?=$escape($cs_dns['label'])?><br><small><?=$escape($cs_dns['zone'])?></small></td><td><?=$escape($cs_dns_labels[$cs_dns['state']]??'Unknown')?></td><td><?=isset($cs_dns['observation']['observed'])?$escape(gmdate('Y-m-d H:i:s',(int)$cs_dns['observation']['observed'])):'Not recorded'?></td><td><?php if($cs_dns['state']==='blocked'): ?><?=$escape($cs_dns['action'])?> <a href="<?=$escape($cs_dns['help_url'])?>" target="_blank" rel="noopener noreferrer">Provider guidance</a> <button type="button" class="button" data-dns-exclude="<?=$escape($cs_dns['zone'])?>">Exclude this DNS zone</button><?php elseif($cs_dns['state']==='disabled'): ?>Enable the relevant checks or review the zone restrictions below.<?php else: ?>A response for one query does not establish access for every query.<?php endif ?></td></tr>
+<?php endforeach ?></tbody></table></div>
 <form id="cs-spamassassin">
 <label>Required spam score <input class="form-control" type="number" name="required_score" min="0.1" max="100" step="0.1" required value="<?=$escape($sap['required_score'])?>"></label>
 <p>This is SpamAssassin's own classification threshold. The domain's spam and high-spam thresholds apply to its final score, including additional signature weights.</p>
@@ -37,6 +44,11 @@ $sa = $data['spamassassin']; ?>
  const token=<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  const owner=<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  async function request(fields){const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner,...fields})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Operation failed');return result;}
+ for(const button of document.querySelectorAll('[data-dns-exclude]'))button.addEventListener('click',()=>{
+  const field=form.elements.blocked_zones,zones=new Set(field.value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean));
+  zones.add(button.dataset.dnsExclude);field.value=Array.from(zones).join('\n');field.focus();
+  document.getElementById('cs-sa-result').textContent='Added this DNS zone to the form. Review it, then validate and apply settings. Other checks are unchanged.';
+ });
  form.addEventListener('submit',async event=>{event.preventDefault();const out=document.getElementById('cs-sa-result'),button=form.querySelector('button');button.disabled=true;out.textContent='Queuing validation…';
  try{const fields=new FormData(form),scores={};for(const line of fields.get('scores').split(/\r?\n/).map(s=>s.trim()).filter(Boolean)){const match=line.match(/^([A-Za-z][A-Za-z0-9_]*)\s*=\s*(-?(?:\d+(?:\.\d+)?|\.\d+))$/);if(!match||Object.hasOwn(scores,match[1]))throw new Error('Use one unique RULE_NAME=score per line.');scores[match[1]]=Number(match[2]);}
  const policy={required_score:Number(fields.get('required_score')),rbl_enabled:fields.has('rbl_enabled'),uribl_enabled:fields.has('uribl_enabled'),blocked_zones:fields.get('blocked_zones').split(/\r?\n/).map(s=>s.trim()).filter(Boolean),scores};const result=await request({action:'spamassassin-save',policy:JSON.stringify(policy)});out.textContent='Validation queued. Task '+result.task_id+'. Refresh after maintenance finishes to see applied settings.';

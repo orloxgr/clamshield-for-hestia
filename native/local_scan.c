@@ -27,7 +27,9 @@
 #define CS_MESSAGE_MAX (64 * 1024 * 1024)
 #define CS_HEADERS_MAX (1024 * 1024)
 #define CS_RECIPIENTS_MAX 1000
+#ifndef CS_TIMEOUT_SECONDS
 #define CS_TIMEOUT_SECONDS 30
+#endif
 
 int local_scan_version_major(void) { return LOCAL_SCAN_ABI_VERSION_MAJOR; }
 int local_scan_version_minor(void) { return LOCAL_SCAN_ABI_VERSION_MINOR; }
@@ -102,7 +104,7 @@ static int append_string(unsigned char *buffer, size_t *used,
 
 int local_scan(int body, uschar **return_text)
 {
-  int out = -1, connection = -1, result = LOCAL_SCAN_TEMPREJECT_NOLOGHDR;
+  int out = -1, connection = -1, result = LOCAL_SCAN_ACCEPT, fallback = 1;
   unsigned char *request = NULL;
   *return_text = US"ClamShield mail check unavailable; please retry";
   if (recipients_count < 1 || recipients_count > CS_RECIPIENTS_MAX) goto done;
@@ -160,7 +162,7 @@ int local_scan(int body, uschar **return_text)
   uint32_t decision;
   memcpy(&decision, response + 8, 4);
   decision = ntohl(decision);
-  if (decision > 4 || (decision != 4 && received != 44)) goto done;
+  if (decision > 5 || (decision != 4 && received != 44)) goto done;
   if (decision == 4) {
     if (received < 48) goto done;
     uint32_t count;
@@ -181,12 +183,15 @@ int local_scan(int body, uschar **return_text)
   memcpy(event, response + 12, 32);
   event[32] = '\0';
   log_write(0, LOG_MAIN, "ClamShield decision=%u event=%s", decision, event);
+  fallback = decision == 5;
   if (decision == 0) {
     *return_text = NULL;
     result = LOCAL_SCAN_ACCEPT;
   } else if (decision == 1) {
     *return_text = US"Message rejected by ClamShield policy";
     result = LOCAL_SCAN_REJECT_NOLOGHDR;
+  } else if (decision == 2) {
+    result = LOCAL_SCAN_TEMPREJECT_NOLOGHDR;
   } else if (decision == 3) {
     /* The policy service must durably own ALL recipients before returning this. */
     recipients_count = 0;
@@ -202,6 +207,14 @@ int local_scan(int body, uschar **return_text)
     result = LOCAL_SCAN_ACCEPT;
   }
 done:
+  if (fallback) {
+    /* No custody transfer was applied. Native Exim still owns every original
+     * recipient and the spool. This is an incomplete check, never a clean scan.
+     * An exact native log marker also prevents an uncertain broker capture
+     * from later being committed and delivered a second time. */
+    log_write(0, LOG_MAIN, "ClamShield native delivery fallback; check incomplete");
+    *return_text = NULL;
+  }
   if (connection >= 0) close(connection);
   if (out >= 0) close(out);
   free(request);

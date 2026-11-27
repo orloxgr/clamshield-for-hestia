@@ -136,6 +136,35 @@ class SpamAssassinControlsTests(unittest.TestCase):
             self.controls.upgrade_safety()
         self.assertEqual(before, self.controls.active.read_bytes())
 
+    def test_previous_safety_version_is_upgraded_once_without_resetting_admin_policy(self):
+        policy=deepcopy(DEFAULTS)|dict(required_score=7.1,uribl_enabled=False,scores={'GTUBE':9,'SURBL_BLOCKED':1})
+        write(self.controls.active,render(policy,safety_version=1),0o644)
+        write_json(self.controls.metadata,dict(policy=policy,revision=revision(policy,safety_version=1)))
+        with self.assertRaises(ClamShieldError):self.controls.configured()
+        self.assertTrue(self.controls.upgrade_safety());self.assertFalse(self.controls.upgrade_safety())
+        configured=self.controls.configured()
+        self.assertEqual(7.1,configured['policy']['required_score']);self.assertFalse(configured['policy']['uribl_enabled'])
+        self.assertEqual({'GTUBE':9,'SURBL_BLOCKED':0},configured['policy']['scores'])
+        for name in ('DKIMWL_BLOCKED','FROM_FMBLA_NDBLOCKED','SURBL_BLOCKED'):
+            self.assertIn('score '+name+' 0\n',self.controls.active.read_text())
+
+    def test_failed_safety_upgrade_restores_the_exact_previous_version_and_uses_its_probe(self):
+        text=render(DEFAULTS,safety_version=1);write(self.controls.active,text,0o644)
+        write_json(self.controls.metadata,dict(policy=DEFAULTS,revision=revision(DEFAULTS,safety_version=1)))
+        self.controls.active_service=True;self.controls.probe=Mock(side_effect=[EngineError('New daemon failed'),{}])
+        with self.assertRaises(EngineError):self.controls.upgrade_safety()
+        self.assertEqual(text,self.controls.active.read_text());self.assertFalse(self.controls.journal.exists())
+        self.assertEqual({'safety_version':1},self.controls.probe.call_args.kwargs)
+        self.assertEqual(revision(DEFAULTS,safety_version=1),self.controls.configured(allow_legacy=True)['revision'])
+
+    def test_future_administrator_notices_cannot_use_default_scores_or_cached_process_proof(self):
+        rule=dict(name='FUTURE_ACCESS_NOTICE',description='ADMINISTRATOR NOTICE: The query to example.test was blocked.',score=1,scores=[1]*4)
+        with self.assertRaises(EngineError):self.controls.verify_infrastructure_scores(dict(rules=[rule]))
+        self.controls.verify_infrastructure_scores(dict(rules=[dict(rule,score=0,scores=[0]*4)]))
+        identity,wanted,report=self.binding_fixture();write_json(self.controls.proof,wanted)
+        with patch('clamshield.spamassassin_binding.process',return_value=identity),self.assertRaises(EngineError):
+            self.controls.verify_report(report|{'rules':[rule]},DEFAULTS)
+
     def test_upgrade_recognizes_original_initial_settings_without_ui_metadata(self):
         initial = ('# Managed by clamshield\n'
                    '# Initial isolated daemon defaults. Structured UI activation adds a verified revision.\n' +
@@ -334,7 +363,7 @@ $status->finish(); $mail->finish(); $sa->finish();
         self.assertEqual(dict(score=2.5, required_score=8, symbols=['GTUBE'], revision='a'*64), result['spamassassin'])
         for forged in ({'spam_threshold': float('nan')}, {'spam_symbols': ['A\nFORGED']},
                        {'spamassassin_revision': 'not-a-hash'}):
-            self.assertEqual('defer', evaluate(MAIL_DEFAULTS | {'enabled': True}, report | forged,
+            self.assertEqual('deliver', evaluate(MAIL_DEFAULTS | {'enabled': True}, report | forged,
                                              sender='test@example.test', sha256='b'*64)['action'])
 
     def test_tenant_cannot_query_catalog_status_or_queue_server_controls(self):
@@ -386,7 +415,7 @@ $status->finish(); $mail->finish(); $sa->finish();
                     self.assertRaises(EngineError):
                 self.controls.verify_report(report | changes, DEFAULTS)
 
-    def test_historical_contributions_survive_policy_changes_and_invalid_details_defer(self):
+    def test_historical_contributions_survive_policy_changes_and_invalid_details_stay_incomplete(self):
         from clamshield.mail_scanners import SpamAssassin
         from test_mail_scanners import contribution_response
         spam = SpamAssassin.parse(contribution_response(2.395), require_details=True)
@@ -399,7 +428,7 @@ $status->finish(); $mail->finish(); $sa->finish();
         self.assertEqual(2.395, outcome['spamassassin']['rules'][0]['score'])
         self.assertEqual('123456', outcome['spamassassin']['rules_version'])
         damaged = deepcopy(report); damaged['spam_report']['rules'][0]['score'] = 10
-        self.assertEqual('defer', evaluate(MAIL_DEFAULTS | {'enabled': True}, damaged,
+        self.assertEqual('deliver', evaluate(MAIL_DEFAULTS | {'enabled': True}, damaged,
                                          sender='sender@example.test', sha256='b'*64)['action'])
         self.controls.apply(DEFAULTS | {'scores': {'GTUBE': 99}})
         self.assertEqual(2.395, outcome['spamassassin']['rules'][0]['score'])

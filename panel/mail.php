@@ -12,6 +12,7 @@ $cs_mail_global=($data['context']['view_scope']??'account')==='server';
 <?php else: ?><p>Server connection is managed by your administrator. Domain and mailbox controls are available below.</p><?php endif ?>
 <p><a href="#settings/mail-settings" data-tab="mail-settings">Email settings</a> · <a href="#review/email-review" data-tab="email-review">Review email activity</a></p></section>
 <section data-page="mail-settings" hidden><h2>Email settings</h2>
+<p>If a ClamShield check is unavailable, email continues through native delivery and the check remains incomplete. Verified detections follow the selected handling policy.</p>
 <?php require __DIR__.'/mail_global.php'; ?>
 <div id="cs-mail-advanced"><button class="button" type="button" id="cs-mail-refresh">Refresh email controls</button>
 <p id="cs-mail-status" role="status" aria-live="polite">Load email domains to view their policies.</p>

@@ -1,5 +1,6 @@
 """Kernel peer/process identity and fixed owned-daemon launch contract."""
 import hashlib
+import logging
 from pathlib import Path
 
 from .errors import EngineError
@@ -56,4 +57,11 @@ class BoundSpamAssassin:
     def scan(self, fd, *, deadline=None):
         report = self.engine.scan(fd, deadline=deadline)
         self.controls.verify_report(report, self.policy, deadline=deadline)
+        from .dns_health import DnsHealth
+        try:
+            if report.get('dns_observations'):DnsHealth(self.controls.settings).observe(report)
+        except (OSError,ValueError,EngineError) as exc:
+            # Optional aggregate telemetry cannot change a verified score.
+            # Per-message observations remain in the immutable decision.
+            logging.getLogger(__name__).warning('DNS observations could not be saved (%s)',type(exc).__name__)
         return report

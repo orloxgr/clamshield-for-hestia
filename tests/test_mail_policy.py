@@ -3,7 +3,7 @@ from pathlib import Path
 from types import SimpleNamespace
 import tempfile
 import unittest
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from clamshield.application import Application
 from clamshield.errors import AccessDenied, ClamShieldError, Conflict
@@ -178,12 +178,20 @@ class MailPolicyTests(unittest.TestCase):
         result = scan('phishing', score=50)
         self.assertEqual('reject', self.verdict(result)['action'])
 
-    def test_incomplete_or_malformed_scans_never_deliver_even_if_allowlisted(self):
+    def test_unavailable_checks_deliver_without_being_marked_clean(self):
         for value in (scan() | {'complete': False}, scan() | {'errors': ['timeout']},
                       scan() | {'spam_score': float('nan')}, scan() | {'spam_score': None},
                       scan() | {'detections': [{}]}, scan() | {'detections': [{'engine': 'clamav', 'signature': 'x', 'category': 'unknown'}]}):
             verdict = self.verdict(value, allow_senders=['*@remote.test'])
-            self.assertEqual('defer', verdict['action']); self.assertFalse(verdict['scan_complete'])
+            self.assertEqual('deliver', verdict['action']); self.assertFalse(verdict['scan_complete'])
+            self.assertEqual('incomplete', verdict['classification'])
+
+    def test_partial_scan_preserves_verified_detection_and_selected_delivery_action(self):
+        partial = scan('malware') | {'complete': False, 'errors': ['EngineError'], 'spam_score': None}
+        self.assertEqual('reject', self.verdict(partial)['action'])
+        result = self.verdict(partial, malware_action='tag')
+        self.assertEqual('tag', result['action']); self.assertFalse(result['scan_complete'])
+        self.assertEqual('malware', result['classification']); self.assertIsNone(result['spam_score'])
 
     def test_false_positive_exception_requires_same_hash_engine_rule_and_unexpired_time(self):
         policy = self.policy(exceptions=[self.exception()])
@@ -220,7 +228,8 @@ class MailPolicyTests(unittest.TestCase):
                 app.dispatch({'actor': 'alice', **value})
         result = app.dispatch({'actor': 'alice', 'action': 'mail-policy-save', 'domain': 'alice.test', 'policy': {'spam_threshold': 6}})
         self.assertEqual(6,result['effective']['spam_threshold'])
-        self.assertFalse(app.dispatch({'actor': 'alice', 'action': 'mail-dashboard'})['transport_active'])
+        with patch('clamshield.mail_service.transport_active',return_value=False):
+            self.assertFalse(app.dispatch({'actor': 'alice', 'action': 'mail-dashboard'})['transport_active'])
 
     def test_invalid_policy_values_are_rejected(self):
         for value in ({'enabled': 'true'}, {'spam_threshold': float('inf')}, {'spam_threshold': True},

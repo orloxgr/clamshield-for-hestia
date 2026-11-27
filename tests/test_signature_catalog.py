@@ -173,7 +173,8 @@ class GenerationGateTests(unittest.TestCase):
         self.assertEqual(stage.name, decision['signature_generation'])
         self.assertEqual(manifest['content_sha256'], decision['signature_content_sha256'])
         for invalid in ({'signature_generation': '../other'}, {'signature_content_sha256': 'invalid'}):
-            self.assertEqual('defer', evaluate(dict(DEFAULTS, enabled=True), result | invalid, sender='', sha256=result['sha256'])['action'])
+            verdict=evaluate(dict(DEFAULTS, enabled=True), result | invalid, sender='', sha256=result['sha256'])
+            self.assertEqual('deliver',verdict['action']);self.assertFalse(verdict['scan_complete'])
         self.clam.reset_mock(); (stage/'signature-catalog.sqlite3').write_bytes(b'corrupted')
         self.assertFalse(scanner.scan(self.request.fd)['complete']); self.clam.scan.assert_not_called()
 

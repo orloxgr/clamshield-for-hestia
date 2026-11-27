@@ -80,9 +80,10 @@ def baseline(names,resolver):
 
 
 class NativeGate:
-    def __init__(self,client,resolver,*,exim_uid,root='/var/spool/exim4/scan',timeout=25):
+    def __init__(self,client,resolver,*,exim_uid,root='/var/spool/exim4/scan',timeout=25,delegate=False):
         self.client,self.resolver=client,resolver
         self.exim_uid,self.root,self.timeout=exim_uid,Path(root),timeout
+        self.delegate=delegate
 
     def handle(self,connection):
         deadline=time.monotonic()+self.timeout
@@ -112,10 +113,13 @@ class NativeGate:
             else:
                 if not command.startswith(b'SCAN '):raise EngineError('Unsupported native antivirus command')
                 path=command[5:].decode('ascii')
-                with capture(path,self.root,self.exim_uid,self.client.maximum) as source:
-                    hits=self.client.scan_snapshot(source,deadline=deadline)
-                names=baseline(hits,self.resolver)
-                status='infected' if names else 'clean'
+                with capture(path,self.root,self.exim_uid,self.client.maximum if self.client is not None else 80*1024**2) as source:
+                    hits=[] if self.delegate else self.client.scan_snapshot(source,deadline=deadline)
+                names=[] if self.delegate else baseline(hits,self.resolver)
+                # The authenticated later hook has the actual SMTP envelope and
+                # can apply each recipient's malware policy. OK here permits
+                # that hook to run; it does not assert a completed clean scan.
+                status='delegated' if self.delegate else 'infected' if names else 'clean'
                 reply=os.fsencode(path)+b': '+(names[0].encode('utf-8')+b' FOUND' if names else b'OK')
         except Exception as exc:
             # Never translate protocol, capture, provenance or engine failure to OK.

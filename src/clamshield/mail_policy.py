@@ -117,22 +117,29 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
     now = time.time() if now is None else now
     revision = hashlib.sha256(encode(policy).encode()).hexdigest()
     base = {'policy_revision': revision, 'scan_complete': False, 'detections': [], 'suppressed': []}
+    def incomplete():
+        return base | {'action': 'deliver', 'classification': 'incomplete', 'spam_score': None}
     if not policy['enabled']:
         return base | {'action': 'deliver', 'classification': 'unmanaged', 'spam_score': None}
     if not isinstance(sha256, str) or not re.fullmatch(r'[0-9a-f]{64}', sha256):
         raise ClamShieldError('Mail decision requires an exact content hash')
-    if (not isinstance(scan, dict) or scan.get('complete') is not True or scan.get('errors') or
-            not isinstance(scan.get('detections'), list) or len(scan['detections']) > 2000):
-        return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+    if (not isinstance(scan, dict) or not isinstance(scan.get('detections'), list) or len(scan['detections']) > 2000):
+        return incomplete()
+    complete = scan.get('complete') is True and not scan.get('errors')
+    if not complete:
+        base['scan_errors'] = [error for error in scan.get('errors', [])
+                               if isinstance(error, str) and re.fullmatch(r'[A-Za-z]{1,64}', error)] if isinstance(scan.get('errors', []), list) else []
     for key, pattern in (('signature_generation', r'generation-[A-Za-z0-9_-]{1,100}'),
                          ('signature_content_sha256', r'[0-9a-f]{64}')):
         if key in scan:
             if not isinstance(scan[key], str) or not re.fullmatch(pattern, scan[key]):
-                return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+                return incomplete()
             base[key] = scan[key]
     try:
-        spam_score = finite(scan.get('spam_score'), -1000, 1000000)
-        if 'spam_threshold' in scan:
+        score_available = scan.get('spam_score') is not None
+        spam_score = finite(scan.get('spam_score'), -1000, 1000000) if score_available else 0
+        if not score_available and complete: return incomplete()
+        if 'spam_threshold' in scan and score_available:
             threshold = finite(scan['spam_threshold'], -1000000, 1000000)
             symbols = scan.get('spam_symbols', [])
             if (not isinstance(symbols, list) or len(symbols) > 1000 or
@@ -153,23 +160,24 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
                 except (ValueError, TypeError) as exc:
                     raise ClamShieldError('Invalid SpamAssassin contribution report') from exc
                 base['spamassassin'].update({key: detail[key] for key in ('rules', 'engine_version', 'rules_version', 'reporter_sha256')})
+                base['spamassassin']['dns_observations']=detail.get('dns_observations',[])
     except ClamShieldError:
-        return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+        return incomplete()
     hits, suppressed, detail_bytes = [], [], 0
     for hit in scan['detections']:
         if (not isinstance(hit, dict) or hit.get('category') not in ('malware', 'phishing', 'spam') or
                 hit.get('engine') not in ('clamav', 'yara') or not isinstance(hit.get('signature'), str) or
                 not 1 <= len(hit['signature']) <= 512):
-            return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+            return incomplete()
         snapshot = {key: hit[key] for key in ('engine', 'signature', 'category', 'provider', 'source_id', 'source_version', 'classification_basis', 'attribution', 'origins') if key in hit}
         from .signature_catalog import validate_origin
         try:
             validate_origin({key: value for key, value in snapshot.items() if key not in ('engine', 'signature')})
         except ClamShieldError:
-            return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+            return incomplete()
         detail_bytes += len(encode(snapshot).encode())
         if detail_bytes > 1024 * 1024:
-            return base | {'action': 'defer', 'classification': 'incomplete', 'spam_score': None}
+            return incomplete()
         if any(e['engine'] == hit['engine'] and e['signature'] == hit['signature'] and
                e['sha256'] == sha256 and e['expires'] > now for e in policy['exceptions']):
             suppressed.append(snapshot)
@@ -191,8 +199,9 @@ def evaluate(policy, scan, *, sender, sha256, now=None):
     default_class = ('excepted' if suppressed else 'allowlisted' if spam_allowed and spam_score >= policy['spam_threshold']
                      else 'below-threshold' if hits else 'clean')
     action, classification = max(choices, key=lambda item: ACTIONS[item[0]]) if choices else ('deliver', default_class)
-    return base | {'action': action, 'classification': classification, 'scan_complete': True,
-                   'detections': hits, 'suppressed': suppressed, 'spam_score': spam_score,
+    if not complete and not choices: classification = 'incomplete'
+    return base | {'action': action, 'classification': classification, 'scan_complete': complete,
+                   'detections': hits, 'suppressed': suppressed, 'spam_score': spam_score if score_available else None,
                    'spam_allowlisted': spam_allowed}
 
 

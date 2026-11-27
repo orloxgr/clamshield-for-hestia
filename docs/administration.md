@@ -361,6 +361,31 @@ domain counts, stored recipient records and recent decisions, even when the
 administrator's own account has no mail domains. **Manage account** opens that
 account for message previews, release, recovery and complete decision history.
 
+Scanner unavailability, exhausted scan capacity and incomplete reports do not
+defer mail merely because ClamShield could not finish a check. The original
+Exim envelope remains in the native queue; the check is recorded as incomplete,
+never clean. An unavailable policy broker, a timeout or an invalid bridge reply
+also preserves native delivery. Native queue acceptance is not proof of final
+mailbox delivery.
+
+Verified findings follow the recipient's selected policy, including **Tag and
+deliver** for malware. The owned native antivirus gateway delegates these
+decisions to the envelope-authenticated policy hook instead of rejecting malware
+before the selected policy can run. Unmanaged native-antivirus recipients retain
+baseline rejection. Tagged delivery prefixes the subject with `*** MALWARE ***`,
+`*** PHISHING ***`, `*** SPAM ***` or `*** BLOCKED SENDER ***` as appropriate.
+MIME body and attachment bytes are preserved.
+
+Native handoff receipts distinguish a successful custody transfer from fallback
+delivery. If a broker capture was prepared but its reply was lost, an exact
+native fallback marker plus Exim's source receipt aborts the unused private
+capture. Silence or missing evidence never authorizes a second submission.
+
+Native Hestia filters run before the policy hook. In particular, native domain
+spam rejection, SMTP recipient/routing restrictions and mailbox/storage failures
+are separate delivery paths and require their own checks; changing a ClamShield
+dropdown does not rewrite those settings.
+
 Selecting an account exposes **Account email defaults**, which overrides the
 server defaults for all its current/future domains. The inheritance order is
 server → account → domain → mailbox. Saving server/account defaults validates

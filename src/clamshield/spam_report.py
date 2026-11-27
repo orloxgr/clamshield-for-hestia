@@ -12,13 +12,15 @@ def number(value):
 
 def validate(value):
     if (not isinstance(value, dict) or
-            set(value) != {'version', 'complete', 'score', 'threshold', 'engine_version', 'rules_version', 'rules', 'reporter_sha256'} or
+            set(value)-{'dns_observations'} != {'version', 'complete', 'score', 'threshold', 'engine_version', 'rules_version', 'rules', 'reporter_sha256'} or
             type(value['version']) is not int or value['version'] != 1 or
             type(value['complete']) is not int or value['complete'] != 1):
         raise ValueError('Incomplete SpamAssassin contribution report')
     if not isinstance(value['reporter_sha256'], str) or not re.fullmatch(r'[0-9a-f]{64}', value['reporter_sha256']):
         raise ValueError('Invalid SpamAssassin reporter identity')
     number(value['score']); number(value['threshold'])
+    from .dns_health import validate as validate_dns
+    validate_dns(value.get('dns_observations',[]))
     for key in ('engine_version', 'rules_version'):
         if not isinstance(value[key], str) or not re.fullmatch(r'[A-Za-z0-9.,_-]{0,128}', value[key]):
             raise ValueError('Invalid SpamAssassin data version')

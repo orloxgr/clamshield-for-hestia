@@ -12,6 +12,7 @@ from unittest.mock import Mock,patch
 from clamshield.errors import AccessDenied,EngineError
 from clamshield.mail_bridge import SEALS,validate_snapshot
 from clamshield.native_gate import NativeGate,baseline,capture
+from clamshield.native_service import policy_hook_configured
 
 
 def origin(name):
@@ -63,6 +64,25 @@ class NativeGateTests(unittest.TestCase):
         self.client.scan_snapshot.side_effect=scan
         reply=self.exchange(b'SCAN '+os.fsencode(self.path)+b'\n')
         self.assertEqual(os.fsencode(self.path)+b': Eicar-Test-Signature FOUND\n',reply)
+
+    def test_active_policy_hook_decides_official_malware_using_authenticated_envelope(self):
+        self.gate.delegate=True
+        self.assertEqual(os.fsencode(self.path)+b': OK\n',self.exchange(b'SCAN '+os.fsencode(self.path)+b'\n'))
+        self.client.scan_snapshot.assert_not_called()
+        self.assertIn(b'ERROR',self.exchange(b'SCAN /etc/shadow\n'))
+
+    def test_policy_delegation_uses_attached_owned_hook_not_broker_heartbeat(self):
+        from clamshield.mail_integration import MACRO_TEXT
+        import hashlib
+        macro=self.root/'macros';macro.write_text(MACRO_TEXT);macro.chmod(0o644)
+        library=self.root/'local_scan.so';library.write_bytes(b'owned-test-library');library.chmod(0o644)
+        current=dict(phase='active',adapter=dict(library_sha256=hashlib.sha256(library.read_bytes()).hexdigest()))
+        with patch('clamshield.mail_runtime.state',return_value=current), \
+                patch('clamshield.mail_integration.MACRO',macro),patch('clamshield.mail_integration.LIBRARY',library):
+            self.assertTrue(policy_hook_configured(None))
+            current['phase']='starting';self.assertTrue(policy_hook_configured(None))
+            current['phase']='disabled';self.assertFalse(policy_hook_configured(None))
+            current['phase']='active';library.write_bytes(b'foreign');self.assertFalse(policy_hook_configured(None))
 
     def test_proven_supplemental_only_is_left_for_later_policy_but_unknown_stays_actionable(self):
         self.assertEqual([],baseline(['Spam.Selected.UNOFFICIAL'],origin))

@@ -77,7 +77,9 @@ class MailBroker:
             context=self.hestia.authorize(target['owner'])
             if context['identity']!=target['identity']:raise AccessDenied('Native mail owner changed')
             policies.append(self.policies.get(context,target['domain'],target['mailbox'])['effective'])
-        if not any(policy and policy['enabled'] for policy in policies):return None
+        native_av=[bool(target and next(row['native_antivirus'] for row in rows
+                   if row['owner']==target['owner'] and row['domain']==target['domain'])) for target in original]
+        if not any(policy and policy['enabled'] for policy in policies) and not any(native_av):return None
         scanner=self.scanner_factory()
         if hasattr(scanner,'timeout'):
             remaining=25 if self.hestia.deadline is None else self.hestia.deadline-time.monotonic()
@@ -95,7 +97,17 @@ class MailBroker:
             context=dict(context,actor='clamshield-mail')
             policy=self.policies.get(context,target['domain'],target['mailbox'])['effective']
             decision=evaluate(policy,scan,sender=request.sender,sha256=sha256)
-            if policy['enabled'] and decision['action']=='deliver':decision['capture']=True
+            if not policy['enabled'] and native_av[index]:
+                from .native_gate import baseline
+                retained=[]
+                for hit in scan.get('detections',[]):
+                    if hit.get('engine')!='clamav':continue
+                    origin={key:value for key,value in hit.items() if key not in ('engine','signature')}
+                    if baseline([hit['signature']],lambda _name:origin):retained.append(hit)
+                decision.update(action='reject' if retained else 'deliver',
+                    classification='native-malware' if retained else 'unmanaged' if scan.get('complete') else 'incomplete',
+                    scan_complete=scan.get('complete') is True,detections=retained)
+            if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])
             items.append({'context':context,'target':target,'decision':decision,'managed':policy['enabled']})
         return {'items':items,'sha256':sha256,'plan':transaction_plan([item['decision'] for item in items])}
@@ -110,7 +122,7 @@ class MailBroker:
                 respond(connection,Decision.ACCEPT,reinjected['attempt']);return 'reinjected'
             from .mail_runtime import mode
             if mode(self.settings) not in ('legacy','active'):
-                respond(connection,Decision.DEFER,event);return 'transition'
+                respond(connection,Decision.NATIVE_FALLBACK,event);return 'transition'
             phase='plan';result=self.plan(request)
             if result is None:
                 respond(connection,Decision.ACCEPT,event);return 'unmanaged'
@@ -123,7 +135,10 @@ class MailBroker:
                 respond(connection,Decision.REJECT if plan['smtp']=='reject' else Decision.DEFER,event)
                 return plan['smtp']
             if not plan['custody']:
-                respond(connection,Decision.ACCEPT,event);return 'unmanaged'
+                incomplete=any(item['decision'].get('classification')=='incomplete' for item in items)
+                if incomplete:self.policies.outcome(request.message_id,'accepted')
+                respond(connection,Decision.NATIVE_FALLBACK if incomplete else Decision.ACCEPT,event)
+                return 'native-fallback' if incomplete else 'unmanaged'
             phase='stage';staged=self.custody.stage(request,items)
             phase='arm';response=self.acceptance.arm(staged,request);phase='respond'
             respond(connection,response['decision'],response['event'],response['selected']);replied=True
@@ -132,9 +147,9 @@ class MailBroker:
             self.last_error=type(exc).__name__+':'+phase
             if not replied:
                 if request is not None:
-                    try:self.policies.outcome(request.message_id,'defer')
+                    try:self.policies.outcome(request.message_id,'defer' if isinstance(exc,AccessDenied) else 'accepted')
                     except Exception:pass
-                try:respond(connection,Decision.DEFER,event)
+                try:respond(connection,Decision.DEFER if isinstance(exc,AccessDenied) else Decision.NATIVE_FALLBACK,event)
                 except OSError:pass
             return 'error'
         finally:
@@ -224,7 +239,7 @@ def serve(settings=None):
                     count('busy')
                     if request is not None:request.close()
                     with connection:
-                        try:respond(connection,Decision.DEFER,uuid.uuid4().hex)
+                        try:respond(connection,Decision.NATIVE_FALLBACK,uuid.uuid4().hex)
                         except OSError:pass
     finally:
         stop.set();listener.close();readiness.join(timeout=30);maintenance.join(timeout=35);SOCKET.unlink(missing_ok=True)

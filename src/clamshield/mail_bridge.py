@@ -28,6 +28,7 @@ class Decision(IntEnum):
     DEFER = 2
     HANDLED = 3  # Only after durable ownership of every envelope recipient.
     SELECTED = 4  # Durable custody of selected envelope recipients; others stay native.
+    NATIVE_FALLBACK = 5  # Incomplete check; preserve Exim's original recipients.
 
 
 @dataclass(frozen=True)

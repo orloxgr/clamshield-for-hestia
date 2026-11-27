@@ -21,6 +21,23 @@ from .signature_catalog import SignatureCatalog,engine_lock
 from .settings import Settings
 
 
+def policy_hook_configured(settings):
+    """An attached owned hook decides policy even while its broker is offline.
+
+    A heartbeat is deliberately not authority here: losing the broker must not
+    reinstate an earlier unconditional malware rejection over selected delivery.
+    """
+    from .mail_runtime import state
+    from .mail_integration import MACRO,MACRO_TEXT,LIBRARY
+    from .mail_adapter import trusted,sha
+    try:
+        current=state(settings)
+        if current is None or current['phase']=='disabled':return False
+        trusted(MACRO)
+        return MACRO.read_text()==MACRO_TEXT and sha(LIBRARY)==current['adapter']['library_sha256']
+    except (OSError,ValueError,KeyError,TypeError,EngineError):return False
+
+
 def verify_generation(native,manifest,runtime):
     """Bind result attribution to the data actually loaded, under engine_lock."""
     with tempfile.NamedTemporaryFile(dir=runtime) as sample:
@@ -57,18 +74,20 @@ def serve(settings=None):
                 if error.errno!=errno.ECONNREFUSED:raise
             else:raise Conflict('Native frontend listener is still active')
         path.unlink()
-    deadline=time.monotonic()+75
-    while True:
-        try:manager.client('native-mail',timeout=25,maximum=80*1024**2,transition=True);break
-        except EngineError:
-            if time.monotonic()>=deadline:raise
-            time.sleep(.3)
+    # The listener must remain available while the engine reloads or fails.
+    # Engine readiness is checked per request; it is not a gateway startup gate.
     listener=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
     stopping=threading.Event();capacity=threading.BoundedSemaphore(4)
     def stop(_number,_frame):stopping.set()
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def handle(connection):
         try:
+            if policy_hook_configured(settings):
+                class NativeStatus:
+                    maximum=80*1024**2
+                    def version(self):return manager.client('native-mail',timeout=25,maximum=self.maximum,transition=True).version()
+                NativeGate(NativeStatus(),None,exim_uid=exim.pw_uid,delegate=True).handle(connection)
+                return
             with engine_lock(settings):
                 native=manager.client('native-mail',timeout=25,maximum=80*1024**2,transition=True)
                 signatures=Signatures(settings);manifest=signatures.manifest()

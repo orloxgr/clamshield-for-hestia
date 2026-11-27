@@ -16,6 +16,16 @@ from clamshield.mail_bridge import process_start
 
 
 class NativeEvidenceTests(unittest.TestCase):
+    def test_selected_delivery_tags_subject_by_classification_and_preserves_mime(self):
+        original=b'Subject: =?UTF-8?B?VGVzdA==?=\r\n\tfolded\r\nContent-Type: application/octet-stream\r\n\r\n\x00body\xff\r\n'
+        for category,label in [('malware','MALWARE'),('phishing','PHISHING'),('spam','SPAM'),('blocked-sender','BLOCKED SENDER')]:
+            result=payload(original,'a'*32,'tag',classification=category)
+            self.assertIn(('Subject: *** '+label+' *** =?UTF-8?B?VGVzdA==?=\n\tfolded').encode(),result)
+            self.assertEqual(original.split(b'\r\n\r\n',1)[1],result.split(b'\n\n',1)[1])
+            again=payload(result,'b'*32,'tag',classification=category)
+            self.assertEqual(1,again.count(('*** '+label+' ***').encode()))
+        self.assertIn(b'Subject: *** MALWARE ***\n',payload(b'From: a@test\n\nBody','a'*32,'tag',classification='malware'))
+
     def test_reinjection_preserves_existing_headers_and_only_allows_native_fixups(self):
         expected=b'From: sender@test\nSubject: Original\n\nBody\r\n'
         received=b'Received: native trace\n\tfolded\n'+expected.replace(b'\n\n',b'\nDate: Thu, 19 Nov 2026 05:00:00 +0000\nMessage-Id: <native@test>\n\n')

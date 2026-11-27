@@ -85,16 +85,45 @@ class MailBrokerTests(unittest.TestCase):
         self.assertEqual('quarantine',self.policies.decisions(self.alice)['decisions'][0]['detail']['policy_action'])
         self.assertNotIn('inbox@bob.test',str(self.policies.decisions(self.alice)))
 
-    def test_incomplete_engine_report_defers_without_capture(self):
+    def test_incomplete_engine_report_stays_in_native_exim_without_capture(self):
         self.enable();self.report.update(complete=False,errors=['EngineError'])
-        self.assertEqual((2,'defer'),self.exchange())
+        self.assertEqual((5,'native-fallback'),self.exchange())
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+        row=self.policies.decisions(self.alice)['decisions'][0]
+        self.assertEqual('incomplete',row['detail']['policy_classification'])
+        self.assertFalse(row['detail']['scan_complete'])
+        self.assertEqual('accepted',row['detail']['smtp_outcome'])
 
-    def test_engine_start_failure_and_reserved_reference_spoof_cannot_accept(self):
+    def test_native_antivirus_is_preserved_for_unmanaged_recipients(self):
+        original=self.native.call.side_effect
+        def call(command,*args):
+            result=original(command,*args)
+            if command=='v-list-mail-domains':
+                return {key:dict(value,ANTIVIRUS='yes') for key,value in result.items()}
+            return result
+        self.native.call.side_effect=call
+        self.report['detections']=[dict(engine='clamav',signature='Eicar-Test-Signature',category='malware',provider='clamav')]
+        self.assertEqual((1,'reject'),self.exchange())
+        for owner in ('alice','bob'):
+            self.policies.save(self.native.authorize('admin',owner),owner+'.test','',dict(enabled=True,malware_action='tag'))
+        self.assertEqual((3,'custody'),self.exchange())
+
+    def test_engine_start_failure_uses_native_but_reserved_reference_spoof_is_denied(self):
         self.enable()
         self.factory=Mock(side_effect=EngineError('Unavailable'))
-        self.assertEqual((2,'error'),self.exchange())
+        self.assertEqual((5,'error'),self.exchange())
         self.assertEqual((2,'error'),self.exchange(protocol='clamshield-delivery-'+'a'*32))
+
+    def test_partial_known_malware_follows_policy_even_when_spam_engine_fails(self):
+        self.enable();self.report.update(complete=False,errors=['EngineError'],spam_score=None,
+            detections=[dict(engine='clamav',signature='Inert.Test',category='malware')])
+        self.assertEqual((1,'reject'),self.exchange())
+        self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='tag'))
+        self.assertEqual((3,'custody'),self.exchange())
+        with self.store.connection() as db:
+            import json
+            detail=json.loads(db.execute('SELECT detail FROM mail_recipients WHERE owner=?',('bob',)).fetchone()[0])
+        self.assertFalse(detail['scan_complete'])
 
     def test_owner_recreation_during_scan_cannot_commit_old_policy(self):
         self.enable();old=self.factory;parent=self

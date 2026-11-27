@@ -133,7 +133,11 @@ class MailCustody:
         actual = resolve(self.policies.targets(context, target['domain']), recipient)
         if not actual or actual['suspended'] or any(actual[k] != target[k] for k in ('owner', 'identity', 'domain', 'mailbox')):
             raise AccessDenied('Native mail custody ownership changed')
-        if item['decision'].get('scan_complete') is not True or len(encode(item['decision']).encode()) > 2 * 1024 * 1024:
+        # A later engine failure does not invalidate a verified earlier hit.
+        partial_hit = (decision.get('scan_complete') is False and
+                       decision.get('classification') in ('malware','phishing','spam') and
+                       any(hit.get('category')==decision['classification'] for hit in decision.get('detections',[]) if isinstance(hit,dict)))
+        if (decision.get('scan_complete') is not True and not partial_hit) or len(encode(decision).encode()) > 2 * 1024 * 1024:
             raise Conflict('Incomplete or oversized mail decision cannot enter custody')
 
     def stage(self, request, items):

@@ -55,6 +55,15 @@
     }
     return text;
   }
+  function spamAssassinLabel(detail) {
+    const sa=detail.spamassassin;if(!sa)return '';
+    return 'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
+      (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+
+      '\nEngine / rules: '+(sa.engine_version||'unrecorded')+' / '+(sa.rules_version||'unrecorded')+
+      '\nConfiguration: '+(sa.revision||'unrecorded')+'\n'+
+      (sa.dns_observations?.length?'DNS checks (no spam points for access failures):\n'+
+        sa.dns_observations.map(item=>item.zone+': '+(item.state==='blocked'?'Query blocked by provider — 0 points':'DNS response observed')).join('\n')+'\n':'');
+  }
   function showPolicy(value) {
     current = value; permissions = value.permissions;
     byId('native').textContent = 'Native antivirus: ' + (value.native_antivirus ? 'on' : 'off') +
@@ -181,15 +190,8 @@
       for (const decision of result.decisions) {
         const row = document.createElement('tr');row.dataset.reviewId=decision.id;row.dataset.reviewAllowed='true';
         const values = [new Date(decision.created * 1000).toISOString(), decision.sender + ' → ' + decision.recipient,
-          decision.action + ' · ' + decision.classification,
-          (decision.detail.spamassassin ? 'SpamAssassin: ' + decision.detail.spamassassin.score +
-            ' / ' + decision.detail.spamassassin.required_score + '\nRules: ' +
-            (decision.detail.spamassassin.rules ? decision.detail.spamassassin.rules.map(rule =>
-              rule.name + ': ' + (rule.score > 0 ? '+' : '') + rule.score + ' · ' + rule.description).join('\n') :
-              decision.detail.spamassassin.symbols.join(', ')) +
-            '\nEngine / rules: ' + (decision.detail.spamassassin.engine_version || 'unrecorded') +
-              ' / ' + (decision.detail.spamassassin.rules_version || 'unrecorded') +
-            '\nConfiguration: ' + (decision.detail.spamassassin.revision || 'unrecorded') + '\n' : '') +
+          decision.action + ' · ' + (decision.classification==='incomplete'?'Check incomplete — native delivery':decision.classification),
+          (decision.detail.scan_complete===false?'Scanning did not complete. This message was not classified as clean.\n':'') + spamAssassinLabel(decision.detail) +
           (decision.detail.spam_score != null ? 'Final policy score: ' + decision.detail.spam_score + '\n' : '') +
           (decision.detail.signature_generation ? 'Signature generation: ' + decision.detail.signature_generation + '\n' : '') +
           (decision.sha256 ? 'Content SHA-256: ' + decision.sha256 + '\n' : '') +
@@ -316,7 +318,7 @@
             const result = await api('mail-preview', {delivery_id: mail.id}), data = result.preview;
             output.textContent = Object.entries(data.headers).map(([key, value]) => key + ': ' + value).join('\n') +
               '\nRecipient: ' + data.recipient + '\nSHA-256: ' + data.sha256 + '\n\n' + data.text +
-              '\n\n' + (data.decision.detections || []).map(detectionLabel).join('\n') +
+              '\n\n' + spamAssassinLabel(data.decision) + (data.decision.detections || []).map(detectionLabel).join('\n') +
               (!data.available ? '\n[Plain-text preview unavailable]' : '') + (data.truncated ? '\n[Preview truncated]' : '');
             exceptionEditor.replaceChildren();
             if (mail.status === 'quarantined' && !sourcePending && (root.dataset.admin === 'true' || quarantinePermissions.manage_exceptions)) {

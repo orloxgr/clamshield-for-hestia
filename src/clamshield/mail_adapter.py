@@ -197,6 +197,7 @@ class MailAdapter:
         logs=b''.join(path.read_bytes() for path in (probe/'log').iterdir() if path.is_file())
         observed=result.stdout+result.stderr+logs
         success=(b'ClamShield mail check unavailable; please retry' in observed or
+                 (result.returncode==0 and b'ClamShield native delivery fallback; check incomplete' in observed) or
                  (result.returncode==0 and b'ClamShield decision=0 event=' in observed))
         if not success:
             write_json(self.settings.state/'mail-adapter-probe-error.json',dict(exit_code=result.returncode,
