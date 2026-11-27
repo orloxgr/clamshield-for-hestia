@@ -20,10 +20,10 @@ from .native_clamav import CONFIG
 
 FIELDS={'LocalSocket','DatabaseDirectory','AllowAllMatchScan','MaxThreads','MaxQueue',
         'MaxFileSize','StreamMaxLength','MaxScanSize','AlertExceedsMax','AlertEncrypted',
-        'ScanMail','ScanArchive','HeuristicScanPrecedence','OfficialDatabaseOnly'}
+        'ScanMail','ScanArchive','HeuristicScanPrecedence','OfficialDatabaseOnly','MaxScanTime'}
 
 
-def digest(text):return hashlib.sha256(text.encode()).hexdigest()
+def digest(text):return hashlib.sha256(text.encode('utf-8',errors='surrogateescape')).hexdigest()
 
 
 def directives(text):
@@ -67,13 +67,14 @@ class NativeConfiguration:
             before=os.fstat(fd)
             if (before.st_dev,before.st_ino)!=(info.st_dev,info.st_ino):
                 raise Conflict('Native ClamAV configuration was replaced')
-            with os.fdopen(os.dup(fd),'r') as source:text=source.read(128*1024+1)
+            with os.fdopen(os.dup(fd),'rb') as source:raw=source.read(128*1024+1)
+            text=raw.decode('utf-8',errors='surrogateescape')
             attributes={name:base64.b64encode(os.getxattr(fd,name)).decode() for name in os.listxattr(fd)}
             if sum(len(name)+len(value) for name,value in attributes.items())>32768:
                 raise Conflict('Native ClamAV extended attributes exceed the capture limit')
             after=os.fstat(fd)
             if ((after.st_size,after.st_mtime_ns,after.st_ctime_ns)!=(before.st_size,before.st_mtime_ns,before.st_ctime_ns) or
-                    len(text.encode())>128*1024):
+                    len(raw)>128*1024):
                 raise Conflict('Native ClamAV configuration changed during capture')
             directives(text)
             return dict(text=text,mode=stat.S_IMODE(before.st_mode),gid=before.st_gid,attributes=attributes)
@@ -104,9 +105,11 @@ class NativeConfiguration:
         fd,name=tempfile.mkstemp(prefix='.clamshield-clamd-',dir=self.path.parent)
         try:
             os.fchown(fd,0,before['gid']);os.fchmod(fd,before['mode'])
+            for key in os.listxattr(fd):
+                if key not in before['attributes']:os.removexattr(fd,key)
             for key,value in before['attributes'].items():os.setxattr(fd,key,base64.b64decode(value,validate=True))
             with os.fdopen(fd,'wb') as target:
-                fd=None;target.write(after.encode());target.flush();os.fsync(target.fileno())
+                fd=None;target.write(after.encode('utf-8',errors='surrogateescape'));target.flush();os.fsync(target.fileno())
             if self.snapshot()!=before:raise Conflict('Native ClamAV settings changed before publication')
             os.replace(name,self.path);sync_directory(self.path.parent)
         finally:
@@ -148,6 +151,9 @@ class NativeConfiguration:
             elif key in ('MaxThreads','MaxQueue'):
                 if not value.isdecimal() or not 1<=int(value)<=1024:
                     raise EngineError('Invalid native ClamAV concurrency limit')
+            elif key=='MaxScanTime':
+                if not value.isdecimal() or not 1<=int(value)<=120000:
+                    raise EngineError('Invalid native ClamAV evaluation time limit')
             elif key in ('MaxFileSize','StreamMaxLength','MaxScanSize'):
                 match=re.fullmatch(r'([0-9]{1,10})([KMG]?)',value)
                 if not match or not 1<=int(match[1])*{'':1,'K':1024,'M':1024**2,'G':1024**3}[match[2]]<=2**31-1:

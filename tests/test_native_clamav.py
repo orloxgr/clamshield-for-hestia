@@ -1,10 +1,12 @@
 import os
+from contextlib import contextmanager
 from pathlib import Path
 import socket
 import sys
 import tempfile
 from threading import Thread
 import unittest
+from unittest.mock import Mock
 
 from clamshield.errors import EngineError,EncryptedContent
 from clamshield.native_clamav import NativeClamAV,configuration
@@ -17,7 +19,7 @@ class NativeClamAVTests(unittest.TestCase):
         self.base=Path(temp.name);self.base.chmod(0o710)
         self.input=self.base/'input';self.input.write_bytes(b'ignored spam then genuine malware')
 
-    def scan(self,records):
+    def scan(self,records,*,admission=None):
         endpoint=self.base/'socket';server=socket.socket(socket.AF_UNIX,socket.SOCK_STREAM)
         server.bind(str(endpoint));server.listen(1);self.addCleanup(server.close)
         errors=[]
@@ -36,7 +38,7 @@ class NativeClamAVTests(unittest.TestCase):
                     for part in (response[:9],response[9:]):connection.sendall(part)
             except Exception as exc:errors.append(exc)
         thread=Thread(target=run,daemon=True);thread.start()
-        client=NativeClamAV(endpoint,self.base,expected_uid=os.geteuid(),group=os.getgid())
+        client=NativeClamAV(endpoint,self.base,expected_uid=os.geteuid(),group=os.getgid(),admission=admission)
         try:return client.scan(self.input)
         finally:
             thread.join(3);self.assertFalse(thread.is_alive());self.assertEqual([],errors)
@@ -48,6 +50,19 @@ class NativeClamAVTests(unittest.TestCase):
 
     def test_late_failure_is_not_partial_success(self):
         with self.assertRaises(EngineError):self.scan([b'Spam.Ignored.UNOFFICIAL FOUND',b'failed ERROR'])
+
+    def test_admission_is_cleared_only_after_a_complete_native_response(self):
+        reservation=Mock()
+        @contextmanager
+        def reserve(purpose,deadline):
+            self.assertEqual('website',purpose);self.assertGreater(deadline,0)
+            yield reservation
+        admission=Mock();admission.reserve=reserve
+        self.scan([b'Malware.Selected FOUND'],admission=admission)
+        reservation.started.assert_called_once();reservation.complete.assert_called_once()
+        (self.base/'socket').unlink();reservation.reset_mock()
+        with self.assertRaises(EngineError):self.scan([b'Malware.Selected FOUND',b'failed ERROR'],admission=admission)
+        reservation.started.assert_called_once();reservation.complete.assert_not_called()
 
     def test_encrypted_content_is_explicit_incomplete_coverage(self):
         with self.assertRaises(EncryptedContent):self.scan([b'Heuristics.Encrypted.Zip FOUND'])

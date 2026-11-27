@@ -4,7 +4,7 @@ No service/configuration writes occur here. Installation owns any later native
 integration; clients must not guess that a missing socket is a clean verdict.
 """
 import os
-from contextlib import contextmanager
+from contextlib import contextmanager,nullcontext
 from pathlib import Path
 import pwd
 import socket
@@ -54,10 +54,11 @@ class NativeClamAV(ClamAV):
     """One bounded request per captured file; the distro daemon stays resident."""
     name='clamav'
 
-    def __init__(self,endpoint,directory,*,expected_uid,group,timeout=45,maximum=50*1024**2):
+    def __init__(self,endpoint,directory,*,expected_uid,group,timeout=45,maximum=50*1024**2,admission=None,purpose='website'):
         self.socket_path=str(endpoint);self.directory=Path(directory)
         self.expected_uid=expected_uid;self.group=group;self.timeout=timeout;self.maximum=maximum
         self.identity=None
+        self.admission,self.purpose=admission,purpose
 
     @staticmethod
     def native_identity():
@@ -83,7 +84,7 @@ class NativeClamAV(ClamAV):
                 raise EngineError('Native ClamAV process changed while scanning')
 
     @classmethod
-    def discover(cls,directory,*,path=CONFIG,timeout=45,maximum=50*1024**2):
+    def discover(cls,directory,*,path=CONFIG,timeout=45,maximum=50*1024**2,admission=None,purpose='website'):
         values=configuration(path);identity=pwd.getpwnam(values.get('User','clamav'))
         endpoint=Path(values['LocalSocket']);info=endpoint.lstat()
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid!=identity.pw_uid:
@@ -96,7 +97,8 @@ class NativeClamAV(ClamAV):
         native=cls.native_identity()
         if (peer_pid,peer_uid)!=(1,0) and (peer_uid!=identity.pw_uid or peer_pid!=native[0]):
             raise EngineError('Native ClamAV socket peer is unexpected')
-        client=cls(endpoint,directory,expected_uid=peer_uid,group=identity.pw_gid,timeout=timeout,maximum=maximum)
+        client=cls(endpoint,directory,expected_uid=peer_uid,group=identity.pw_gid,timeout=timeout,maximum=maximum,
+                   admission=admission,purpose=purpose)
         client.identity=native
         with client.connection(time.monotonic()+2) as connection:
             connection.sendall(b'zVERSIONCOMMANDS\0')
@@ -110,13 +112,17 @@ class NativeClamAV(ClamAV):
         if info.st_size==0:return []
         deadline=min(deadline if deadline is not None else float('inf'),time.monotonic()+self.timeout)
         try:
-            with readable_snapshot(source,self.directory,self.group) as name:
+            guard=self.admission.reserve(self.purpose,deadline) if self.admission else nullcontext(None)
+            with guard as reservation,readable_snapshot(source,self.directory,self.group) as name:
                 with self.connection(deadline) as connection:
+                    if reservation:reservation.started()
                     connection.sendall(b'zALLMATCHSCAN '+os.fsencode(name)+b'\0')
                     response=_read(connection,deadline)
                 if b': Heuristics.Encrypted' in response:
                     raise EncryptedContent('Native ClamAV encountered encrypted content')
-                return MailClamAV.parse(response,name)
+                names=MailClamAV.parse(response,name)
+                if reservation:reservation.complete()
+                return names
         except OSError as exc:raise EngineError('Native ClamAV is unavailable or timed out') from exc
 
     def scan(self,path):

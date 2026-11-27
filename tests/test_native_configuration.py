@@ -45,6 +45,12 @@ class NativeConfigurationTests(unittest.TestCase):
         self.assertIn('MaxFileSize 100M\n',self.path.read_text())
         self.assertTrue(self.path.read_text().endswith('LogVerbose true\n'))
 
+    def test_non_utf8_comments_and_crlf_are_restored_byte_for_byte(self):
+        raw=self.original.replace('\n','\r\n').encode()+b'\r\n# legacy comment \xff\r\n'
+        self.path.write_bytes(raw)
+        self.manager.configure({'MaxScanTime':'20000'})
+        self.manager.restore();self.assertEqual(raw,self.path.read_bytes())
+
     def test_updates_keep_original_ownership_and_refuse_conflicting_admin_edits(self):
         self.manager.configure({'MaxFileSize':'50M'})
         self.manager.configure({'MaxFileSize':'75M','AlertExceedsMax':'true'})
