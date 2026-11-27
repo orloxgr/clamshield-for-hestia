@@ -119,6 +119,15 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(all(not v['active'] and not v['enabled'] for v in self.controller.units.values()))
         self.assertTrue(self.controller.disable()['unchanged'])
 
+    def test_disable_stops_native_with_runtime_dropin_present_before_removing_it(self):
+        self.controller.enable();calls=[]
+        def stop():
+            self.assertTrue(self.guard.exists(),'systemd must still know the owned RuntimeDirectory')
+            self.assertFalse(self.macro.exists());calls.append('stop')
+        self.controller.stop_native=stop
+        self.controller.disable();self.assertEqual(['stop'],calls)
+        self.assertFalse(self.guard.exists())
+
     def test_readiness_failure_restores_prior_files_and_units_without_native_restart(self):
         self.controller.bad_ready=True
         with self.assertRaises(EngineError):self.controller.enable()

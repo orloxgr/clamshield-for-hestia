@@ -311,6 +311,10 @@ class MailIntegration:
         rejection.remove_extension();rejection.restore()
         self.clear_native_activation()
         self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
+        # Stop while the old unit still declares RuntimeDirectory. Removing the
+        # drop-in and daemon-reloading first loses systemd's cleanup ownership
+        # and leaves an orphan that correctly blocks the next activation.
+        self.stop_native()
         self.put(transaction,GUARD,None);self.system('daemon-reload');self.restart_native()
         self.phase(transaction,'stopping')
         for unit in reversed(UNITS):self.system('stop',unit);self.system('disable',unit)
