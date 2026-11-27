@@ -495,7 +495,9 @@ recipient's ClamShield policy; those earlier native filters remain separate.
 
 Earlier three-code protection is extended once only if the native files still
 exactly match the recorded owned output. The original removal receipt remains
-intact. Administrator edits require review; interrupted API changes retain both
+intact. A native updater's identical recopy may change timestamps; the same
+inode, owner, permissions and exact contents must still match. Administrator
+edits require review; interrupted API changes retain both
 old/new entry identities and never trigger an automatic retry.
 
 A saved ClamShield policy is not enforced while the integration is disconnected.

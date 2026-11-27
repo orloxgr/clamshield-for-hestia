@@ -32,6 +32,16 @@ FIELDS=('st_dev','st_ino','st_size','st_mtime_ns','st_ctime_ns','st_uid','st_gid
 def stamp(info):return {name:getattr(info,name) for name in FIELDS}
 
 
+def same_output(current,expected):
+    """A native updater may recopy identical bytes into the same trusted leaf."""
+    bound=('st_dev','st_ino','st_size','st_uid','st_gid','st_mode','st_nlink')
+    return all((current[name] is None and expected[name] is None) or
+               (current[name] is not None and expected[name] is not None and
+                current[name]['content']==expected[name]['content'] and
+                all(current[name]['stamp'][key]==expected[name]['stamp'][key] for key in bound))
+               for name in ('native','custom'))
+
+
 def entries(content):
     lines=content.decode('utf-8',errors='surrogateescape').splitlines()
     result=[line.strip() for line in lines if line.strip() and not line.lstrip().startswith('#')]
@@ -191,13 +201,13 @@ class NativeDnsbl:
             files=self.files();lines=self.lines(files)
             if value and value['state']=='active':
                 outdated=[row for row in value['rows'] if row['state']=='active' and replacement(row['original'])!=row['replacement']]
-                if outdated and files==value['after'] and all(row['state']=='active' and row['replacement'] in lines and row['original'] not in lines for row in value['rows']):
+                if outdated and same_output(files,value['after']) and all(row['state']=='active' and row['replacement'] in lines and row['original'] not in lines for row in value['rows']):
                     # Extend only our byte-exact prior output. Do not upgrade
                     # through an administrator edit or reset their selections.
                     # The original before-receipt remains the uninstall target.
                     updates=[dict(original=row['replacement'],replacement=replacement(row['original'])) for row in outdated]
                     self.collisions(updates,lines)
-                    value['state']='applying';write_json(self.path,value)
+                    value['after']=files;value['state']='applying';write_json(self.path,value)
                     try:
                         for row in outdated:
                             row['previous_replacement']=row['replacement'];row['replacement']=replacement(row['original'])

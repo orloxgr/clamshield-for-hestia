@@ -107,6 +107,19 @@ class NativeDnsblTests(unittest.TestCase):
         self.assertTrue(self.manager.protect()['review_required']);self.assertEqual(2,len(self.operations))
         self.manager.restore();self.assertIn(b'admin.example.test',self.native.read_bytes());self.assertNotIn(b'!=',self.native.read_bytes())
 
+    def test_native_update_recopying_same_bytes_into_same_leaf_does_not_block_safety_upgrade(self):
+        old=self.legacy_protection();self.native.write_bytes(self.native.read_bytes())
+        self.assertNotEqual(old['after'],self.manager.files())
+        self.assertFalse(self.manager.protect()['review_required']);self.assertEqual(4,len(self.operations))
+        self.assertEqual(old['before'],self.manager.ledger()['before'])
+        self.manager.restore();self.assertEqual(self.default,self.native.read_bytes())
+
+    def test_legacy_upgrade_does_not_bless_replaced_identical_leaf_or_changed_permissions(self):
+        self.legacy_protection();self.native.chmod(0o600)
+        self.assertTrue(self.manager.protect()['review_required']);self.assertEqual(2,len(self.operations))
+        self.native.chmod(0o640);other=self.native.with_name('replacement');other.write_bytes(self.native.read_bytes());other.chmod(0o640);os.replace(other,self.native)
+        self.assertTrue(self.manager.protect()['review_required']);self.assertEqual(2,len(self.operations))
+
     def test_uncertain_legacy_upgrade_keeps_both_receipts_and_never_retries(self):
         old=self.legacy_protection();command=self.command
         def fail_removal(add,entry):
