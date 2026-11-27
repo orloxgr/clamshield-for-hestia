@@ -314,7 +314,7 @@ class MailIntegration:
         value=dict(target,runtime=self.guard()['runtime'])
         self.record(transaction,value)
         self.journal.unlink();sync_directory(self.settings.state)
-        return {'enabled':True,'adapter':value['adapter']['generation']}
+        return {'enabled':True,'adapter':value['adapter']['generation'],'native_dnsbl':self.native_dnsbl_protection()}
 
     def finish_disabled(self,transaction,target):
         # A final send may have crossed the old draining gate just before the
@@ -323,6 +323,8 @@ class MailIntegration:
         from .native_rejection import NativeRejection
         rejection=NativeRejection(self.settings,self.hestia)
         rejection.remove_extension();rejection.restore()
+        from .native_dnsbl import NativeDnsbl
+        NativeDnsbl(self.settings,self.hestia).restore()
         self.clear_native_activation()
         self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
         # Stop while the old unit still declares RuntimeDirectory. Removing the
@@ -430,7 +432,7 @@ class MailIntegration:
         self.record(transaction,value)
         self.record_rebases(transaction,target)
         self.journal.unlink();sync_directory(self.settings.state)
-        return {'enabled':True,'refreshed':True,'adapter':candidate['generation']}
+        return {'enabled':True,'refreshed':True,'adapter':candidate['generation'],'native_dnsbl':self.native_dnsbl_protection()}
 
     def _refresh(self,current):
         if current is None or current['phase']!='active':raise Conflict('Enable mail integration before refreshing it')
@@ -465,6 +467,7 @@ class MailIntegration:
         from becoming an automatic retry loop. Explicit activation can resolve
         a reviewed transition through the same generation-bound receipts.
         """
+        self.native_dnsbl_protection()
         from .mail_policy import MailPolicies
         if not MailPolicies(self.store,self.hestia).server_defaults().get('enabled',False):return
         path=self.settings.state/'native-rejection-activation.json';previous=read(path)
@@ -481,6 +484,17 @@ class MailIntegration:
                 {'message':'Native mail delivery policy delegation needs review'},'native-rejection-failed:'+self.code_identity())
             return {'review_required':True}
         write_json(path,dict(value,phase='active'));return result
+
+    def native_dnsbl_protection(self):
+        from .native_dnsbl import NativeDnsbl
+        try:
+            result=NativeDnsbl(self.settings,self.hestia).protect()
+            if not result.get('review_required'):return result
+        except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
+            result={'review_required':True}
+        self.store.notify('@admin','','mail.refresh_failed','native-dnsbl',
+            {'message':'Native DNSBL error-reply filters need review; no automatic retry was attempted'},'native-dnsbl-review')
+        return result
 
     def reconcile(self):
         with self.locked():
@@ -513,7 +527,7 @@ class MailIntegration:
                 self.guard();self.ready();self.wait_connected()
                 verified=self.guard()
                 current['runtime']=verified['runtime'];write_json(self.state,current)
-                return {'enabled':True,'unchanged':True}
+                return {'enabled':True,'unchanged':True,'native_dnsbl':self.native_dnsbl_protection()}
             if self.journal.exists():raise Conflict('Mail integration recovery is pending')
             if any(row['active'] for row in self.unit_states().values()):raise Conflict('Untracked owned mail services must be reviewed before activation')
             if MACRO.exists() or MACRO.is_symlink():raise Conflict('Existing Exim local macros are not replaced; review the integration conflict')
@@ -561,6 +575,8 @@ class MailIntegration:
                 from .native_rejection import NativeRejection
                 rejection=NativeRejection(self.settings,self.hestia)
                 rejection.remove_extension();restored=rejection.restore()
+                from .native_dnsbl import NativeDnsbl
+                NativeDnsbl(self.settings,self.hestia).restore()
                 self.clear_native_activation()
                 return {'enabled':False,'unchanged':True,**restored}
             # Detaching a known owned hook must remain possible after a native
@@ -646,9 +662,13 @@ class MailIntegration:
     def status(self):
         try:
             current=state(self.settings);journal=read(self.journal)
+            from .native_dnsbl import NativeDnsbl
+            try:dnsbl=NativeDnsbl(self.settings,self.hestia).status()
+            except (OSError,ValueError,KeyError,TypeError,ClamShieldError):dnsbl={'state':'needs-review','review_required':True}
             return dict(configured=current is not None,phase=current['phase'] if current else 'unconfigured',
                         hook_enabled=runtime_hook_ready() if current and MACRO.exists() and MACRO.read_text()==MACRO_TEXT else None,
                         transition=journal['phase'] if journal else None,units=self.unit_states(),
+                        native_dnsbl=dnsbl,
                         native_filters='Native domain filters run before the ClamShield hook',
                         pending=self.pending(),mode=mode(self.settings))
         except (OSError,ValueError,KeyError,TypeError,ClamShieldError,subprocess.SubprocessError):

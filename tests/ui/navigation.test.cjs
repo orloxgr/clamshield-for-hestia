@@ -1015,3 +1015,17 @@ test('website startup distinguishes queued work, scan wait, service start and si
     await f.tick();assert.equal(button.hidden,true);assert.equal(f.timers.size,0);
   }finally{await f.close();}
 });
+
+
+test('native DNSBL status distinguishes protected lists from manual review without exposing query keys',async()=>{
+  const safe=fixture({change:v=>{v.mail_integration={phase:'active',native_dnsbl:{state:'active',protected_entries:1,review_required:false}};}});
+  const review=fixture({change:v=>{v.mail_integration={phase:'active',native_dnsbl:{state:'review',review_required:true}};}});
+  const tenant=fixture({admin:false,change:v=>{v.mail_integration={phase:'active',native_dnsbl:{state:'review',review_required:true}};}});
+  try{
+    assert.match(safe.document.body.textContent,/Spamhaus error replies excluded for 1 native DNSBL list/);
+    assert.match(review.document.body.textContent,/Native DNSBL error-reply filters need review/);
+    assert.match(review.document.body.textContent,/No automatic retry will be attempted/);
+    assert.doesNotMatch(tenant.document.body.textContent,/Native DNSBL error-reply filters need review/);
+    assert.equal(safe.requests.length,0);assert.equal(review.requests.length,0);
+  }finally{await safe.close();await review.close();await tenant.close();}
+});

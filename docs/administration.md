@@ -458,6 +458,17 @@ missing answers and normal NXDOMAIN answers remain unknown. The displayed time
 is the last observation, not a live availability check. Individual mail decisions
 retain their own observations and the applied configuration revision.
 
+The mail integration also excludes Spamhaus's documented access-error replies
+(`127.255.255.252`, `.254` and `.255`) from supported native IP DNSBL entries,
+using Hestia's `v-add-sys-mail-dnsbl` / `v-delete-sys-mail-dnsbl` commands. This
+prevents these errors rejecting mail before the ClamShield hook; real listing
+responses remain enabled. Original choices are recorded privately and restored
+on disable/removal, preserving later administrator changes. Failed or uncertain
+native API calls require review and are never retried automatically. The mail
+integration status shows the protection count or a review notice. This change
+does not delegate native MIME filename checks or genuine DNSBL listings to the
+recipient's ClamShield policy; those earlier native filters remain separate.
+
 A saved ClamShield policy is not enforced while the integration is disconnected.
 The advanced integration controls remain available for maintenance and diagnosis.
 Foreign hook/library changes still require review; automatic activation does not

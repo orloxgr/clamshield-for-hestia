@@ -19,6 +19,7 @@ from clamshield.store import Store
 
 
 class Controller(MailIntegration):
+    def native_dnsbl_protection(self):return {'fixture':True}
     def __init__(self,*args):
         super().__init__(*args)
         self.units={u:{'active':False,'enabled':False} for u in UNITS}
@@ -147,6 +148,30 @@ class IntegrationTests(unittest.TestCase):
         self.controller.stop_native=stop
         self.controller.disable();self.assertEqual(['stop'],calls)
         self.assertFalse(self.guard.exists())
+
+    def test_native_dnsbl_restoration_precedes_hook_detachment(self):
+        self.controller.enable();calls=[];original=self.controller.phase
+        def phase(transaction,value):
+            if value=='detaching':self.assertEqual(['restored'],calls);self.assertTrue(self.macro.exists())
+            return original(transaction,value)
+        self.controller.phase=phase
+        with patch('clamshield.native_dnsbl.NativeDnsbl',return_value=Mock(restore=Mock(side_effect=lambda:calls.append('restored')))):
+            self.controller.disable()
+        self.assertEqual(['restored'],calls);self.assertFalse(self.macro.exists())
+
+    def test_uncertain_native_dnsbl_restoration_retains_hook_and_disable_journal(self):
+        self.controller.enable()
+        with patch('clamshield.native_dnsbl.NativeDnsbl',return_value=Mock(restore=Mock(side_effect=Conflict('Native DNSBL needs review')))):
+            with self.assertRaises(Conflict):self.controller.disable()
+        self.assertTrue(self.macro.exists());self.assertTrue(self.guard.exists());self.assertTrue(self.controller.journal.exists())
+
+    def test_native_dnsbl_review_notification_has_no_raw_provider_configuration(self):
+        self.controller.store=Mock()
+        with patch('clamshield.native_dnsbl.NativeDnsbl',return_value=Mock(protect=Mock(side_effect=EngineError('private query key')))):
+            result=MailIntegration.native_dnsbl_protection(self.controller)
+        self.assertEqual({'review_required':True},result)
+        self.controller.store.notify.assert_called_once()
+        self.assertNotIn('private query key',str(self.controller.store.notify.call_args))
 
     def test_readiness_failure_restores_prior_files_and_units_without_native_restart(self):
         self.controller.bad_ready=True
