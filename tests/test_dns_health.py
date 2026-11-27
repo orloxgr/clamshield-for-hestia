@@ -177,10 +177,16 @@ my $message=$sa->parse("Received: from remote.test (remote.test [8.8.8.8]) by mx
 my $status=$sa->check($message);print $status->get_report();
 $status->finish();$message->finish();$sa->finish();
 '''
-        zone='sa-trusted.bondedsender.org'
-        for answer,wanted in (('127.255.255.255','blocked'),('127.0.0.2','response-observed'),(None,None),
-                              ('SERVFAIL','failed'),('REFUSED','failed'),('FORMERR','failed'),('NOTIMP','failed')):
-            with self.subTest(answer=answer),LoopbackDns(zone,answer) as dns:
+        cases=[('sa-trusted.bondedsender.org',answer,wanted) for answer,wanted in
+               (('127.255.255.255','blocked'),('127.0.0.2','response-observed'),(None,None),
+                ('SERVFAIL','failed'),('REFUSED','failed'),('FORMERR','failed'),('NOTIMP','failed'))]
+        for zone in ('zen.spamhaus.org','dbl.spamhaus.org'):
+            cases.extend((zone,answer,wanted) for answer,wanted in
+                         (('127.255.255.252','blocked'),('127.255.255.254','blocked'),('127.255.255.255','blocked'),
+                          ('127.0.0.2','response-observed'),(None,None),('REFUSED','failed')))
+        cases.append(('dbl.spamhaus.org','127.0.1.255','blocked'))
+        for zone,answer,wanted in cases:
+            with self.subTest(zone=zone,answer=answer),LoopbackDns(zone,answer) as dns:
                 config=self.root/'dns.cf'
                 config.write_text('\n'.join([
                     'loadplugin Mail::SpamAssassin::Plugin::Check',
