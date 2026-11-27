@@ -1,5 +1,6 @@
 """Import native freshclam data without a second official downloader."""
 import hashlib
+from datetime import datetime,timezone
 import json
 from pathlib import Path
 import pwd
@@ -107,8 +108,17 @@ class NativeUpdates:
         # This transient unit disappears on completion and runs no clamd.
         result=subprocess.run(['/usr/bin/systemd-run','--unit=clamshield-native-freshclam','--collect','--wait','--pipe','--quiet',
             '--property=Type=exec','--property=MemoryMax=3G','--property=CPUQuota=100%',
+            '--property=RuntimeMaxSec=540','--property=TimeoutStopSec=20','--setenv=TZ=UTC','--setenv=LANG=C.UTF-8',
             '--property=NoNewPrivileges=yes','/usr/bin/freshclam','--config-file='+str(path),'--stdout'],
             capture_output=True,timeout=600,env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8','TZ':'UTC'})
         if fingerprint(path.stat())!=fingerprint(before):raise Conflict('Native freshclam configuration changed during its check')
+        output=(result.stdout or b'')+b'\n'+(result.stderr or b'');deadlines=[]
+        for text in re.findall(rb'cool-down until after: (\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})',output):
+            try:deadlines.append(datetime.strptime(text.decode('ascii'),'%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc).timestamp())
+            except ValueError:pass
+        if deadlines and max(deadlines)>time.time():
+            from .providers import Providers
+            Providers(self.settings).status('official',retry_after=max(deadlines))
+            raise EngineError('Native freshclam postponed its check until the provider cooldown expires')
         if result.returncode:raise EngineError('Native freshclam check failed; inspect the native updater log and provider cooldown')
         return dict(native_updater=True,state='downloaded',check_completed=True)

@@ -47,12 +47,21 @@ class NativeUpdateTests(unittest.TestCase):
 
     def test_idle_native_updater_uses_its_original_configuration_in_a_bounded_transient_unit(self):
         native_config=self.root/'freshclam.conf';native_config.write_text('DatabaseDirectory '+str(self.native)+'\n');native_config.chmod(0o644)
-        with patch('clamshield.native_updates.Path',return_value=native_config),patch('clamshield.native_updates.subprocess.run',side_effect=[Mock(returncode=3),Mock(returncode=0)]) as run:
+        with patch('clamshield.native_updates.Path',return_value=native_config),patch('clamshield.native_updates.subprocess.run',side_effect=[Mock(returncode=3),Mock(returncode=0,stdout=b'',stderr=b'')]) as run:
             self.assertTrue(self.updates.check()['check_completed'])
         argv=run.call_args.args[0]
         self.assertEqual('/usr/bin/systemd-run',argv[0]);self.assertIn('--collect',argv);self.assertIn('--wait',argv)
         self.assertIn('/usr/bin/freshclam',argv);self.assertIn('--config-file='+str(native_config),argv)
         self.assertFalse(any('clamshield-cache' in item or item.startswith('--datadir') for item in argv))
+
+    def test_native_provider_cooldown_is_retained_without_exposing_raw_diagnostics(self):
+        from clamshield.providers import Providers
+        native_config=self.root/'freshclam.conf';native_config.write_text('DatabaseDirectory '+str(self.native)+'\n');native_config.chmod(0o644)
+        output=b'Private upstream URL\ncool-down until after: 2030-01-01 00:00:00\n'
+        with patch('clamshield.native_updates.Path',return_value=native_config),patch('clamshield.native_updates.subprocess.run',side_effect=[Mock(returncode=3),Mock(returncode=17,stdout=output,stderr=b'')]):
+            with self.assertRaises(EngineError) as error:self.updates.check()
+        self.assertNotIn('Private upstream URL',str(error.exception))
+        self.assertGreater(Providers(self.settings).public()['schedule']['official']['retry_after'],1800000000)
 
     @unittest.skipUnless(Path('/usr/bin/clamscan').is_file() and Path('/usr/bin/sigtool').is_file(),'Real Ubuntu validation and catalog')
     def test_native_refresh_retains_active_profile_choices_and_ignores_unsaved_provider_changes(self):
