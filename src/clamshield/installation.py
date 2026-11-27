@@ -446,7 +446,9 @@ class Installation:
                (self.at('/usr/local/hestia/web/plugins/clamshield'),'ClamShield panel directory and ownership marker')]
         paths.extend((self.at('/etc/systemd/system')/(name+'.d'),'ClamShield unit overrides, including any administrator additions') for name in UNITS)
         paths.extend((self.at('/run')/name,'ClamShield runtime files') for name in
-                     ('clamshield','clamshield-mail','clamshield-mail-scan','clamshield-mail-clamd','clamshield-mail-spamd'))
+                     ('clamshield','clamshield-mail','clamshield-mail-scan','clamshield-mail-clamd','clamshield-mail-spamd',
+                      'clamshield-native','clamshield-exim'))
+        paths.append((self.at('/var/lib/clamav/clamshield-snapshots'),'Native scan snapshots, including any preserved administrator additions'))
         return [dict(path=str(path),purpose=purpose) for path,purpose in paths if path.exists() or path.is_symlink()]
 
     def uninstall(self):

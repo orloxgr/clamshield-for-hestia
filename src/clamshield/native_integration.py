@@ -330,14 +330,31 @@ class NativeIntegration:
         with self.locked():
             value=self.read()
             if value is None:return dict(disconnected=False)
+            self.editor.recover();self.editor.preview_restore()
             value=dict(value,operation='disconnect');write_json(self.journal,value)
             return self.finish_disconnect(value)
 
     def finish_disconnect(self,value):
-        self.system('disable','--now',GATE)
-        self.system('stop',UNIT,'clamav-daemon.socket')
-        self.editor.recover();result=self.editor.restore();self.restore_apparmor(value)
-        self.system('daemon-reload');self.system('start','clamav-daemon.socket',UNIT)
+        self.editor.recover();plan=self.editor.preview_restore()
+        gate_active=self.active(GATE)
+        try:
+            self.system('disable','--now',GATE)
+            self.system('stop',UNIT,'clamav-daemon.socket')
+            result=self.editor.restore(expected=plan);self.restore_apparmor(value)
+            self.system('daemon-reload');self.system('start','clamav-daemon.socket',UNIT)
+        except Exception:
+            # Retain the journal and administrator changes. A failed uninstall
+            # must not simply leave the previously running native scanner off.
+            # The gateway is needed only while the backend socket is still the
+            # managed one; after restoration, native Exim connects directly.
+            try:
+                self.system('daemon-reload');self.system('start','clamav-daemon.socket',UNIT)
+                current=self.editor.snapshot()
+                socket=directives(current['text']).get('LocalSocket',{}).get('value')
+                if gate_active and socket==BACKEND:self.system('enable','--now',GATE)
+            except Exception as recovery:
+                raise EngineError('Native ClamAV removal failed and service recovery needs review; ownership journal retained') from recovery
+            raise
         # Restore native operation before dropping ownership metadata.
         deadline=time.monotonic()+100
         while True:

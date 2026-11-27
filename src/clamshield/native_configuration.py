@@ -180,16 +180,32 @@ class NativeConfiguration:
             self.transaction(before,target,receipt)
             return True
 
-    def restore(self):
+    def restoration(self):
+        """Read the complete restoration before interrupting the native service.
+
+        Caller holds the edit lock. This does not repair an unfinished edit or
+        publish settings; recovery has to complete before the preview is taken.
+        """
+        if self.read(self.journal) is not None:raise Conflict('Native configuration recovery is pending')
+        receipt=self.read(self.receipt);before=self.snapshot()
+        if receipt is None:return dict(before=before,target=before['text'],receipt=None,result=dict(restored=[],preserved=[]))
+        found=directives(before['text']);replacements={};preserved=[]
+        for key,owned in receipt['fields'].items():
+            if key not in FIELDS:raise Conflict('Unexpected owned native ClamAV directive')
+            current=found.get(key)
+            if current is not None and current['value']==owned['after']:replacements[key]=owned['before']
+            else:preserved.append(key)
+        target=receipt['original'] if digest(before['text'])==receipt['target_sha256'] else replace(before['text'],replacements)
+        directives(target)
+        return dict(before=before,target=target,receipt=receipt,result=dict(restored=sorted(replacements),preserved=sorted(preserved)))
+
+    def preview_restore(self):
+        with self.locked():return self.restoration()
+
+    def restore(self,*,expected=None):
         with self.locked():
-            self.recover_locked();receipt=self.read(self.receipt)
-            if receipt is None:return dict(restored=[],preserved=[])
-            before=self.snapshot();found=directives(before['text']);replacements={};preserved=[]
-            for key,owned in receipt['fields'].items():
-                if key not in FIELDS:raise Conflict('Unexpected owned native ClamAV directive')
-                current=found.get(key)
-                if current is not None and current['value']==owned['after']:replacements[key]=owned['before']
-                else:preserved.append(key)
-            target=receipt['original'] if digest(before['text'])==receipt['target_sha256'] else replace(before['text'],replacements)
-            self.transaction(before,target,None)
-            return dict(restored=sorted(replacements),preserved=sorted(preserved))
+            self.recover_locked();plan=self.restoration()
+            if expected is not None and plan!=expected:
+                raise Conflict('Native ClamAV restoration changed after its preflight; administrator edits retained')
+            if plan['receipt'] is not None:self.transaction(plan['before'],plan['target'],None)
+            return plan['result']

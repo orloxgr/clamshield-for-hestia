@@ -153,6 +153,8 @@ class InstalledLifecycle(unittest.TestCase):
         extras=[self.settings.signatures,self.settings.provider_cache,self.settings.mail_adapters,
                 self.installation.at('/var/lib/clamshield-spamd'),self.installation.at('/opt/clamshield-mail'),
                 self.installation.at('/run/clamshield-mail-scan'),
+                self.installation.at('/run/clamshield-native'),self.installation.at('/run/clamshield-exim'),
+                self.installation.at('/var/lib/clamav/clamshield-snapshots'),
                 self.installation.at('/usr/local/hestia/web/plugins/clamshield'),
                 self.installation.at('/etc/systemd/system/clamshield-worker.service.d')]
         for path in extras:path.mkdir(parents=True,exist_ok=True)

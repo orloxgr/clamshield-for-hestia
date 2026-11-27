@@ -45,6 +45,23 @@ class NativeConfigurationTests(unittest.TestCase):
         self.assertIn('MaxFileSize 100M\n',self.path.read_text())
         self.assertTrue(self.path.read_text().endswith('LogVerbose true\n'))
 
+    def test_restore_preview_is_read_only_and_a_later_edit_cannot_be_overwritten(self):
+        self.manager.configure({'LocalSocket':'/run/clamav/clamshield-native.ctl'})
+        before=self.path.read_bytes();receipt=self.manager.receipt.read_bytes()
+        plan=self.manager.preview_restore()
+        self.assertEqual(before,self.path.read_bytes());self.assertEqual(receipt,self.manager.receipt.read_bytes())
+        self.assertEqual(self.original,plan['target'])
+        self.path.write_text(self.path.read_text()+'\nLogVerbose true\n');changed=self.path.read_bytes()
+        with self.assertRaisesRegex(Conflict,'after its preflight'):self.manager.restore(expected=plan)
+        self.assertEqual(changed,self.path.read_bytes());self.assertEqual(receipt,self.manager.receipt.read_bytes())
+
+    def test_pending_native_edit_is_not_silently_replayed_by_restoration_preview(self):
+        with patch.object(self.manager,'publish',side_effect=OSError('interrupted')),self.assertRaises(OSError):
+            self.manager.configure({'MaxFileSize':'50M'})
+        before=self.path.read_bytes()
+        with self.assertRaisesRegex(Conflict,'recovery is pending'):self.manager.preview_restore()
+        self.assertEqual(before,self.path.read_bytes())
+
     def test_non_utf8_comments_and_crlf_are_restored_byte_for_byte(self):
         raw=self.original.replace('\n','\r\n').encode()+b'\r\n# legacy comment \xff\r\n'
         self.path.write_bytes(raw)

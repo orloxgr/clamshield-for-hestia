@@ -106,6 +106,33 @@ class NativeIntegrationTests(unittest.TestCase):
         self.assertFalse(self.manager.runtime.exists());self.assertFalse(self.manager.snapshots.exists())
         discover.return_value.version.assert_called_once()
 
+    def test_disconnect_preflight_failure_does_not_stop_native_or_gateway(self):
+        self.manager.connect();self.operations.clear()
+        self.config.write_text(self.config.read_text()+'LocalSocket /run/clamav/admin.ctl\n')
+        with self.assertRaisesRegex(Exception,'Duplicate'):self.manager.disconnect()
+        self.assertTrue(self.active[UNIT]);self.assertTrue(self.active[GATE])
+        self.assertEqual([],self.operations);self.assertFalse(self.manager.journal.exists())
+
+    def test_concurrent_admin_edit_during_stop_is_retained_and_running_managed_services_resume(self):
+        self.manager.connect();original=self.manager.system
+        def system(*args):
+            result=original(*args)
+            if args==('stop',UNIT,'clamav-daemon.socket'):
+                self.config.write_text(self.config.read_text()+'LogTime true\n')
+            return result
+        self.manager.system=system
+        with self.assertRaisesRegex(Exception,'after its preflight'):self.manager.disconnect()
+        self.assertTrue(self.active[UNIT]);self.assertTrue(self.active[GATE]);self.assertTrue(self.manager.journal.exists())
+        self.assertTrue(self.config.read_text().endswith('LogTime true\n'))
+        self.assertIn('LocalSocket /run/clamav/clamshield-native.ctl',self.config.read_text())
+
+    def test_error_after_restoration_starts_original_native_service_and_retains_recovery_journal(self):
+        self.manager.connect();self.manager.restore_apparmor.side_effect=OSError('AppArmor reload failed')
+        with self.assertRaises(OSError):self.manager.disconnect()
+        self.assertTrue(self.active[UNIT]);self.assertFalse(self.active[GATE])
+        self.assertTrue(self.manager.record.exists());self.assertTrue(self.manager.journal.exists())
+        self.assertIn('LocalSocket /run/clamav/clamd.ctl',self.config.read_text())
+
     def test_package_restart_is_revalidated_only_when_native_configuration_is_unchanged(self):
         self.manager.connect()
         with patch('clamshield.native_integration.NativeClamAV.native_identity',return_value=(124,789)), \
