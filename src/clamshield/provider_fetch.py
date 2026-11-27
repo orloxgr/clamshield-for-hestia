@@ -180,12 +180,13 @@ class Fetch:
     def refresh(self, name, config):
         if not self.due(name):
             return {'provider': name, 'used_cache': True, 'next_allowed': self.providers.public()['schedule'][name]['next_allowed']}
-        self.providers.status(name, last_attempt=time.time(), state='updating', error=None)
+        from .native_integration import enabled
+        native_official=name=='official' and enabled(self.settings)
+        self.providers.status(name, state='updating', error=None,**({} if native_official else {'last_attempt':time.time()}))
         try:
-            from .native_integration import enabled
-            if name=='official' and enabled(self.settings):
+            if native_official:
                 from .native_updates import NativeUpdates
-                result=NativeUpdates(self.settings).check()
+                result=NativeUpdates(self.settings).check(on_attempt=lambda:self.providers.status(name,last_attempt=time.time()))
                 status=dict(state=result['state'],error=None)
                 if result['check_completed']:status.update(last_success=time.time(),retry_after=None)
                 self.providers.status(name,**status)

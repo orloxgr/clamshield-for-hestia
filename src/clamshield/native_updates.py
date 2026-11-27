@@ -88,7 +88,7 @@ class NativeUpdates:
                         all((manager.base/name).resolve()!=stage for name in ('current','previous'))):shutil.rmtree(stage)
                 raise
 
-    def check(self):
+    def check(self,*,on_attempt=None):
         """Leave an active native updater in charge; otherwise run its config once."""
         value=self.manager.read();path=Path('/etc/clamav/freshclam.conf')
         if value is None or value.get('phase')!='active':raise Conflict('Native ClamAV integration is not active')
@@ -106,6 +106,7 @@ class NativeUpdates:
         if len(directories)!=1 or directories[0]!=value['original_directory']:
             raise Conflict('Native freshclam and ClamAV database directories differ; review native updater configuration')
         active=subprocess.run(['/usr/bin/systemctl','is-active','--quiet','clamav-freshclam.service'],capture_output=True,timeout=5)
+        if on_attempt:on_attempt()
         if active.returncode==0:
             return dict(native_updater=True,state='native-updater-active',check_completed=False)
         # Native freshclam's log lock prevents a simultaneous native updater.

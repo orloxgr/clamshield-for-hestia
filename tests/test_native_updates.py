@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from unittest.mock import Mock,patch
 
-from clamshield.errors import EngineError,Conflict
+from clamshield.errors import ClamShieldError,EngineError,Conflict
 from clamshield.native_updates import NativeUpdates
 from clamshield.settings import Settings
 from clamshield.signatures import Signatures
@@ -72,6 +72,18 @@ class NativeUpdateTests(unittest.TestCase):
             with self.assertRaises(EngineError) as error:self.updates.check()
         self.assertNotIn('Private upstream URL',str(error.exception))
         self.assertGreater(Providers(self.settings).public()['schedule']['official']['retry_after'],1800000000)
+
+    def test_local_native_preflight_failure_does_not_start_a_network_cooldown(self):
+        from clamshield.providers import Providers
+        from clamshield.provider_fetch import Fetch
+        providers=Providers(self.settings);fetch=Fetch(self.settings,providers)
+        with patch('clamshield.native_integration.enabled',return_value=True),patch('clamshield.native_updates.NativeUpdates.check',side_effect=EngineError('Local preflight failed')):
+            with self.assertRaises(ClamShieldError):fetch.refresh('official',{})
+            self.assertTrue(providers.due('official'))
+        def checked(*,on_attempt):
+            on_attempt();return dict(native_updater=True,state='downloaded',check_completed=True)
+        with patch('clamshield.native_integration.enabled',return_value=True),patch('clamshield.native_updates.NativeUpdates.check',side_effect=checked):
+            fetch.refresh('official',{});self.assertFalse(providers.due('official'))
 
     @unittest.skipUnless(Path('/usr/bin/clamscan').is_file() and Path('/usr/bin/sigtool').is_file(),'Real Ubuntu validation and catalog')
     def test_native_refresh_retains_active_profile_choices_and_ignores_unsaved_provider_changes(self):
