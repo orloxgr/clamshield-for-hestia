@@ -48,7 +48,10 @@ class Health:
         readiness = WebsiteReadiness(self.settings).check()
         if readiness is not None:
             components['website-coverage'] = readiness
-        for engine in (ClamAV(self.settings.clamd_socket), Yara(self.settings.yara_binary, self.settings.rules)):
+        engine=ClamAV(self.settings.clamd_socket)
+        from .native_integration import enabled,ManagedNativeClamAV
+        if enabled(self.settings):engine=ManagedNativeClamAV(self.settings)
+        for engine in (engine, Yara(self.settings.yara_binary, self.settings.rules)):
             try:
                 version = engine.version()
                 components[engine.name] = {'state': 'healthy', 'version': version}

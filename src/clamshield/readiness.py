@@ -69,6 +69,8 @@ class WebsiteReadiness:
     def clamav(self):
         try:
             engine = ClamAV(self.settings.clamd_socket, timeout=3)
+            from .native_integration import enabled,ManagedNativeClamAV
+            if enabled(self.settings):engine=ManagedNativeClamAV(self.settings,timeout=3)
             with pinned(self.settings, engine, current(self.settings)) as bound:
                 with tempfile.NamedTemporaryFile(dir=self.settings.snapshots) as sample:
                     sample.write(b'ClamShield inert website readiness input.'); sample.flush()

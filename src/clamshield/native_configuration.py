@@ -20,7 +20,7 @@ from .native_clamav import CONFIG
 
 FIELDS={'LocalSocket','DatabaseDirectory','AllowAllMatchScan','MaxThreads','MaxQueue',
         'MaxFileSize','StreamMaxLength','MaxScanSize','AlertExceedsMax','AlertEncrypted',
-        'ScanMail','ScanArchive','HeuristicScanPrecedence','OfficialDatabaseOnly','MaxScanTime'}
+        'ScanMail','ScanArchive','HeuristicScanPrecedence','OfficialDatabaseOnly','MaxScanTime','LocalSocketMode'}
 
 
 def digest(text):return hashlib.sha256(text.encode('utf-8',errors='surrogateescape')).hexdigest()
@@ -154,9 +154,11 @@ class NativeConfiguration:
             elif key=='MaxScanTime':
                 if not value.isdecimal() or not 1<=int(value)<=120000:
                     raise EngineError('Invalid native ClamAV evaluation time limit')
+            elif key=='LocalSocketMode':
+                if not re.fullmatch(r'[0-7]{3,4}',value):raise EngineError('Invalid native ClamAV socket mode')
             elif key in ('MaxFileSize','StreamMaxLength','MaxScanSize'):
                 match=re.fullmatch(r'([0-9]{1,10})([KMG]?)',value)
-                if not match or not 1<=int(match[1])*{'':1,'K':1024,'M':1024**2,'G':1024**3}[match[2]]<=2**31-1:
+                if not match or not 0<=int(match[1])*{'':1,'K':1024,'M':1024**2,'G':1024**3}[match[2]]<=2**31-1:
                     raise EngineError('Invalid native ClamAV size limit')
             elif value.lower() not in ('yes','no','true','false','1','0'):
                 raise EngineError('Invalid native ClamAV boolean directive')

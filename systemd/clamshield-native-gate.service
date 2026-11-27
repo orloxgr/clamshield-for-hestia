@@ -1,0 +1,27 @@
+# Managed by clamshield
+[Unit]
+Description=ClamShield native ClamAV policy gateway
+After=clamav-daemon.service
+Requires=clamav-daemon.service
+PartOf=clamav-daemon.service
+StartLimitIntervalSec=120
+StartLimitBurst=3
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=root
+ExecStart=/usr/local/hestia/bin/v-clamshield native-gate
+Restart=on-failure
+RestartSec=3
+TimeoutStartSec=90
+TimeoutStopSec=35
+UMask=0077
+MemoryMax=1G
+CPUQuota=100%
+NoNewPrivileges=true
+ProtectSystem=full
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

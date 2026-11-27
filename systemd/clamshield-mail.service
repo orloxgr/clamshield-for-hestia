@@ -1,8 +1,8 @@
 # Managed by clamshield
 [Unit]
 Description=ClamShield native mail scanner policy and custody broker
-After=network.target clamshield-mail-clamd.service clamshield-mail-spamd.service
-Wants=clamshield-mail-clamd.service clamshield-mail-spamd.service
+After=network.target clamav-daemon.service clamshield-mail-spamd.service
+Wants=clamav-daemon.service clamshield-mail-spamd.service
 
 [Service]
 Type=simple

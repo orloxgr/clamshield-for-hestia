@@ -58,6 +58,10 @@ class MailIntegration:
         return {unit:dict(active=self.system('is-active','--quiet',unit,check=False).returncode==0,
                          enabled=self.system('is-enabled',unit,check=False).stdout.strip()==b'enabled') for unit in UNITS}
 
+    def service_units(self):
+        from .native_integration import enabled
+        return UNITS[1:] if enabled(self.settings) else UNITS
+
     @staticmethod
     def snapshot(path):
         if not path.exists() and not path.is_symlink():return None
@@ -246,6 +250,8 @@ class MailIntegration:
         for unit in reversed(UNITS):self.system('stop',unit)
         self.restore(transaction,LIBRARY)
         for unit,saved in transaction['units'].items():
+            if unit not in self.service_units():
+                self.system('disable',unit);continue
             self.system('enable' if saved['enabled'] else 'disable',unit)
             if saved['active']:self.system('start',unit)
         self.restore(transaction,self.owner)
@@ -273,7 +279,7 @@ class MailIntegration:
         with submission_guard(self.settings,exclusive=True):write_json(self.journal,transaction)
 
     def finish_active(self,transaction,target):
-        for unit in UNITS:self.system('enable',unit);self.system('start',unit)
+        for unit in self.service_units():self.system('enable',unit);self.system('start',unit)
         self.ready();self.wait_connected()
         value=dict(target,runtime=self.guard()['runtime'])
         self.record(transaction,value)
@@ -376,7 +382,7 @@ class MailIntegration:
         self.put(transaction,GUARD,self.guard_text())
         self.record(transaction,dict(target,phase='recovering',runtime={}))
         self.system('daemon-reload')
-        for unit in UNITS:self.system('enable',unit);self.system('start',unit)
+        for unit in self.service_units():self.system('enable',unit);self.system('start',unit)
         self.ready();self.restart_native();self.wait_connected()
         value=dict(target,runtime=self.guard()['runtime'])
         self.record(transaction,value)
@@ -452,7 +458,7 @@ class MailIntegration:
                 self.put(transaction,LIBRARY,(self.settings.mail_adapters/candidate['generation']/'local_scan.so').read_bytes())
                 self.put(transaction,GUARD,self.guard_text());self.system('daemon-reload')
                 self.phase(transaction,'starting-services')
-                for unit in UNITS:self.system('enable',unit);self.system('start',unit)
+                for unit in self.service_units():self.system('enable',unit);self.system('start',unit)
                 self.ready();self.phase(transaction,'attaching')
                 self.put(transaction,MACRO,MACRO_TEXT)
                 value['runtime']={str(path):fingerprint(path) for path in (LIBRARY,MACRO,Path('/usr/sbin/exim4'))}

@@ -72,17 +72,23 @@ class Signatures:
                     regular_copy(source, destination)
                     os.chown(destination, identity.pw_uid, identity.pw_gid)
 
-    def stage(self, config, *, reuse_current=False):
+    def stage(self, config, *, reuse_current=False, native_directory=None):
+        from .native_integration import NativeIntegration,enabled
+        if native_directory is None and enabled(self.settings):
+            native=NativeIntegration(self.settings).read()
+            if native is None:raise Conflict('Native ClamAV transition is pending')
+            native_directory=native['original_directory']
         stage = Path(tempfile.mkdtemp(prefix='generation-', dir=self.base))
         stage.chmod(0o755)
         manifest = {'files': [], 'providers': [], 'generation': stage.name, 'created': time.time()}
         manifest['profiles'] = {name: [] for name in profiles.PROFILES}
+        if native_directory is not None:manifest['engine_mode']='native-shared'
         try:
             for name in ('official', 'securiteinfo', 'sanesecurity', 'local'):
                 if not config[name]['enabled']:
                     continue
                 if name == 'official':
-                    cache = self.fetch.cache(name)
+                    cache = Path(native_directory) if native_directory is not None else self.fetch.cache(name)
                     files = []
                     for stem in ('main', 'daily', 'bytecode'):
                         chosen = next((p for ext in ('.cld', '.cvd') if (p := cache / (stem + ext)).is_file()), None)
@@ -111,6 +117,19 @@ class Signatures:
                         if name in ('official', 'local') or filename in config[name].get(profile + '_databases', config[name]['databases']):
                             manifest['profiles'][profile].append(destination.name)
                 manifest['providers'].append(name)
+            if native_directory is not None:
+                official={row['name'] for row in manifest['files'] if row['provider']=='official'}
+                extensions={'.cvd','.cld','.ndb','.ldb','.hdb','.hsb','.mdb','.msb','.cdb','.pdb','.wdb',
+                            '.ign','.ign2','.fp','.sfp','.ftm','.yar','.yara','.cbc','.crb','.idb','.db'}
+                for source in sorted(Path(native_directory).iterdir()):
+                    if (source.name in official or re.fullmatch(r'(main|daily|bytecode)\.(cvd|cld)',source.name) or
+                            source.suffix not in extensions):continue
+                    if not re.fullmatch(r'[A-Za-z0-9][A-Za-z0-9_.-]{0,159}',source.name):
+                        raise EngineError('A pre-existing native database has an unsupported filename')
+                    name='native--'+source.name;target=stage/name
+                    checksum=regular_copy(source,target)
+                    manifest['files'].append(dict(provider='native',name=name,sha256=checksum,size=target.stat().st_size))
+                    for purpose in profiles.PROFILES:manifest['profiles'][purpose].append(name)
             if not any(row['provider'] == 'official' for row in manifest['files']):
                 raise ClamShieldError('Official signatures are required')
             manifest['profiles'] = {name: sorted(files) for name, files in manifest['profiles'].items()}
@@ -351,6 +370,8 @@ class Signatures:
         profiles.verify(stage, manifest)
 
     def activate(self, stage, manifest, *, legacy_website_active=True):
+        from .native_integration import NativeIntegration,enabled
+        if enabled(self.settings):return NativeIntegration(self.settings).activate(stage,manifest)
         from .website_policy import website_policy
         if type(legacy_website_active) is not bool:raise EngineError('Invalid retained website service state')
         self.verify_data(stage, manifest)

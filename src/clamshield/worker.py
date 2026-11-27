@@ -30,6 +30,9 @@ class Worker:
         self.engines = engines if engines is not None else [
             ClamAV(settings.clamd_socket, settings.engine_timeout, settings.max_file_bytes),
             Yara(settings.yara_binary, settings.rules, settings.engine_timeout)]
+        if engines is None:
+            from .native_integration import enabled,ManagedNativeClamAV
+            if enabled(settings):self.engines[0]=ManagedNativeClamAV(settings,settings.engine_timeout,settings.max_file_bytes)
         self.worker_id = f'{socket.gethostname()}:{os.getpid()}:{uuid.uuid4().hex}'
 
     def validate(self, job):

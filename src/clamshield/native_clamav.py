@@ -23,7 +23,7 @@ CONFIG=Path('/etc/clamav/clamd.conf')
 UNIT='clamav-daemon.service'
 
 
-def configuration(path=CONFIG):
+def configuration(path=CONFIG,*,require_all_matches=True):
     path=Path(path)
     info=path.lstat()
     if (path.is_symlink() or not stat.S_ISREG(info.st_mode) or info.st_uid!=0 or
@@ -45,7 +45,7 @@ def configuration(path=CONFIG):
         value=values.get(key,'')
         if not value.startswith('/') or any(ord(c)<32 for c in value):
             raise EngineError('Native ClamAV requires a local '+key)
-    if values.get('AllowAllMatchScan','yes').lower() not in ('yes','true','1'):
+    if require_all_matches and values.get('AllowAllMatchScan','yes').lower() not in ('yes','true','1'):
         raise EngineError('Native ClamAV must permit all-match scans')
     return values
 
@@ -85,8 +85,8 @@ class NativeClamAV(ClamAV):
                 raise EngineError('Native ClamAV process changed while scanning')
 
     @classmethod
-    def discover(cls,directory,*,path=CONFIG,timeout=45,maximum=50*1024**2,admission=None,purpose='website'):
-        values=configuration(path);identity=pwd.getpwnam(values.get('User','clamav'))
+    def discover(cls,directory,*,path=CONFIG,timeout=45,maximum=50*1024**2,admission=None,purpose='website',require_all_matches=True):
+        values=configuration(path,require_all_matches=require_all_matches);identity=pwd.getpwnam(values.get('User','clamav'))
         endpoint=Path(values['LocalSocket']);info=endpoint.lstat()
         if not stat.S_ISSOCK(info.st_mode) or info.st_uid!=identity.pw_uid:
             raise EngineError('Native ClamAV socket is not owned by its service account')

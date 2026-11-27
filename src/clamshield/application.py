@@ -491,7 +491,10 @@ class Application:
 
     def engine_status(self):
         result = {}
-        for engine in (ClamAV(self.settings.clamd_socket),
+        engine=ClamAV(self.settings.clamd_socket)
+        from .native_integration import enabled,ManagedNativeClamAV
+        if enabled(self.settings):engine=ManagedNativeClamAV(self.settings)
+        for engine in (engine,
                        Yara(self.settings.yara_binary, self.settings.rules)):
             try:
                 result[engine.name] = {'available': True, 'version': engine.version()}

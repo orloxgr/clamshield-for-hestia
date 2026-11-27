@@ -13,6 +13,7 @@ from .atomic import write_json,sync_directory
 from .errors import ClamShieldError,Conflict
 
 UNITS=('clamshield-clamd.service','clamshield-mail-clamd.service','clamshield-mail-spamd.service',
+    'clamshield-native-gate.service',
     'clamshield-mail.service','clamshield-maintenance.service','clamshield-maintenance.timer',
     'clamshield-monitor.service','clamshield-monitor.timer','clamshield-recovery.service',
     'clamshield-recovery.timer','clamshield-worker.service','clamshield-worker.timer',
@@ -175,6 +176,8 @@ class Installation:
 
     def migrate_website_coverage(self):
         """Resume only fixed own config/service changes under installer gates."""
+        from .native_integration import enabled
+        if enabled(self.settings):return None
         from .engines import ClamAV
         from .errors import CoverageUnavailable
         from .resources import Resources
@@ -291,6 +294,13 @@ class Installation:
         """Honor saved Start without changing its policy bytes or restarting a healthy daemon."""
         from .resources import Resources
         from .website_policy import website_policy
+        from .native_integration import enabled,NativeIntegration
+        if enabled(self.settings):
+            policy=website_policy(self.settings)
+            if policy and policy['enabled']:
+                NativeIntegration(self.settings).client().version()
+                return dict(started=False,verified=True)
+            return dict(started=False,verified=False)
         resources=Resources(self.settings,unit_dir=self.at('/etc/systemd/system'))
         with resources.locked(),resources.worker_lock():
             policy=website_policy(self.settings);unit='clamshield-clamd.service'
@@ -379,6 +389,9 @@ class Installation:
         from .repairs import Repairs
         from .quarantine import Quarantine
         store=Store(self.settings.database);hestia=Hestia(self.settings.hestia);resources=Resources(self.settings)
+        from .native_integration import NativeIntegration
+        native=NativeIntegration(self.settings)
+        if native.journal.exists():native.recover()
         if resources.journal.exists():resources.recover_limits()
         if resources.website_journal.exists():resources.recover_website()
         if (self.settings.state/'signature-activation.json').exists():Signatures(self.settings).recover()
@@ -449,6 +462,8 @@ class Installation:
                     self.detach_mail();value['phase']='recovering';write_json(self.journal,value)
                 if value['phase']=='recovering':
                     self.recover_operations()
+                    from .native_integration import NativeIntegration,enabled
+                    if enabled(self.settings):NativeIntegration(self.settings).disconnect()
                     self.system('stop',*(name for name in UNITS if name.endswith('.service')))
                     self.system('disable',*UNITS)
                     value['phase']='removing';write_json(self.journal,value)

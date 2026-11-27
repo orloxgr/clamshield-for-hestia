@@ -170,6 +170,8 @@ def build(stage, manifest):
                     raise EngineError('ClamAV YARA provenance could not be parsed') from exc
             elif path.suffix in NAMED:
                 names = _names(path)
+            elif provider=='native':
+                continue  # Preserve opaque native formats; their hits remain conservative baseline detections.
             else:
                 raise EngineError('Generation contains an unsupported provenance format')
             batch = []

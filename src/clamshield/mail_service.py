@@ -145,8 +145,12 @@ def scanner_factory(settings,config):
     clam=pwd.getpwnam('clamav');spam=pwd.getpwnam('debian-spamd')
     def factory():
         yara=Yara(settings.yara_binary,settings.rules.resolve(strict=True),timeout=config['timeout'],purpose='mail') if config['yara_enabled'] else None
-        return GenerationMailScanner(settings,MailClamAV('/run/clamshield-mail-clamd/clamd.sock','/run/clamshield-mail-scan',
-                expected_uid=clam.pw_uid,group=clam.pw_gid,timeout=config['timeout']),
+        from .native_integration import NativeIntegration,enabled
+        from .native_clamav import NativeMailClamAV
+        native=(NativeMailClamAV(NativeIntegration(settings).client('mail',timeout=config['timeout'],maximum=65*1024**2))
+                if enabled(settings) else MailClamAV('/run/clamshield-mail-clamd/clamd.sock','/run/clamshield-mail-scan',
+                expected_uid=clam.pw_uid,group=clam.pw_gid,timeout=config['timeout']))
+        return GenerationMailScanner(settings,native,
             SpamAssassin('/run/clamshield-mail-spamd/spamd.sock',expected_uid=spam.pw_uid,timeout=config['timeout']),
             yara=yara,timeout=config['timeout'])
     return factory

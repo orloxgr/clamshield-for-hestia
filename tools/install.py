@@ -223,6 +223,17 @@ def install(args,lifecycle):
     progress.stage('[8/10] Checking scanning-data compatibility and archive coverage')
     lifecycle.migrate_signatures()
     lifecycle.migrate_website_coverage()
+    from clamshield.native_integration import NativeIntegration
+    progress.stage('Connecting website and email scanning to native ClamAV')
+    NativeIntegration(Settings()).connect()
+    from clamshield.mail_runtime import state as mail_runtime_state
+    retained_mail=mail_runtime_state(Settings())
+    if retained_mail and retained_mail['phase']=='active':
+        from clamshield.mail_integration import MailIntegration
+        from clamshield.store import Store
+        from clamshield.hestia import Hestia
+        progress.stage('Refreshing the active email broker for the shared native engine')
+        MailIntegration(Settings(),Store(Settings().database),Hestia(Settings().hestia)).refresh()
     from clamshield.rule_manager import RuleManager
     progress.stage('Checking active YARA sources against the supported selection')
     RuleManager(Settings()).rebuild_supported()
@@ -241,7 +252,7 @@ def install(args,lifecycle):
                'Configure scanning data and start from the panel')
     return {'installed': True, 'mode': 'Update / reinstall' if existing else 'New installation',
             'route': '/plugins/clamshield/', 'code_generation': release.name,
-            'vendor_files_modified': False, 'dependencies_installed': packages,
+            'hestia_files_modified': False, 'native_clamav_conffile_managed': True, 'dependencies_installed': packages,
             'php_templates_checked': len(templates), 'timers_enabled': 4,
             'website_engine': website,
             'next_steps': ([] if ready or (policy is not None and not policy['enabled']) else

@@ -253,6 +253,8 @@ class Resources:
 
     def website_ready(self):
         engine=ClamAV(self.settings.clamd_socket,timeout=2)
+        from .native_integration import enabled,ManagedNativeClamAV
+        if enabled(self.settings):engine=ManagedNativeClamAV(self.settings,timeout=2)
         deadline=time.monotonic()+120
         while True:
             try:engine.version();break
@@ -288,6 +290,15 @@ class Resources:
 
     def website(self,enabled, *, progress=lambda _phase:None):
         if type(enabled) is not bool:raise ClamShieldError('Invalid website service state')
+        from .native_integration import enabled as native_enabled,NativeIntegration,GATE,UNIT
+        if native_enabled(self.settings):
+            with self.locked(),self.worker_lock(timeout=120):
+                if enabled:
+                    progress('starting')
+                    self.system('start',UNIT,GATE)
+                    progress('verifying');self.website_ready()
+                write_json(self.website_metadata,dict(owner='clamshield',schema=1,enabled=enabled,changed_at=time.time()))
+                return dict(active=enabled,enabled=enabled,verified=enabled,shared_native=True)
         progress('waiting-scan')
         with self.locked(),self.worker_lock(timeout=120):
             self.prepare()

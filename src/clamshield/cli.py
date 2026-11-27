@@ -14,7 +14,7 @@ from .store import Store
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description='ClamShield for Hestia')
-    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'notifications', 'tick', 'inventory', 'engines'))
+    parser.add_argument('command', choices=('request', 'worker', 'maintenance', 'recover', 'mail-service', 'mail-delivery', 'mail-guard', 'native-gate', 'notifications', 'tick', 'inventory', 'engines'))
     args = parser.parse_args(argv)
     try:
         if os.geteuid() != 0:
@@ -24,7 +24,7 @@ def main(argv=None):
         settings = Settings()
         settings.prepare()
         from .installation import Installation
-        gate=Installation(settings).runtime() if args.command not in ('mail-service','mail-delivery','mail-guard') else nullcontext()
+        gate=Installation(settings).runtime() if args.command not in ('mail-service','mail-delivery','mail-guard','native-gate') else nullcontext()
         with gate:return execute(args,settings)
     except ClamShieldError as exc:
         print(json.dumps({'ok': False, 'error': str(exc)}))
@@ -35,6 +35,9 @@ def main(argv=None):
 
 
 def execute(args,settings):
+    if args.command=='native-gate':
+        from .native_service import serve
+        serve(settings);return 0
     store, hestia = Store(settings.database), Hestia(settings.hestia)
     app = Application(settings, store, hestia)
     if args.command == 'request':
