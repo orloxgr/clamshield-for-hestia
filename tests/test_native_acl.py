@@ -1,7 +1,7 @@
 import unittest
 
 from clamshield.errors import Conflict,EngineError
-from clamshield.native_acl import render
+from clamshield.native_acl import render,fallback
 from clamshield.native_mime_context import observe,verified
 
 BASE='''acl_smtp_mail = acl_check_mail
@@ -34,6 +34,43 @@ unchanged_router:
 
 
 class NativeAclTests(unittest.TestCase):
+    def fallback_source(self):
+        return ('CLAMSHIELD_NATIVE_CONFIG_INCLUDED=1\n'
+                '.include_if_exists /run/clamshield-exim/hook.conf\n'
+                'acl_smtp_data = acl_check_data\n'+BASE.replace('begin routers',
+                'acl_check_data:\n  accept\nbegin routers'))
+
+    def test_missing_application_fallback_keeps_native_auth_and_explicit_incomplete_status(self):
+        source=self.fallback_source();result=fallback(source)
+        self.assertNotIn('local_scan_path',result)
+        self.assertNotIn('.include_if_exists /run/clamshield-exim/hook.conf',result)
+        self.assertIn('ClamShield native delivery fallback; check incomplete',result)
+        self.assertIn('domains = !+local_domains',result)
+        self.assertIn('  require verify = recipient\n',result)
+        self.assertIn('  deny senders = forbidden@example.test\n',result)
+        self.assertIn('  require message = relay not permitted\n',result)
+
+    def test_fallback_cannot_silently_adopt_a_foreign_binding_or_missing_marker(self):
+        source=self.fallback_source()
+        for value in (source.replace('CLAMSHIELD_NATIVE_CONFIG_INCLUDED=1',''),
+                      source.replace('acl_smtp_data = acl_check_data','acl_smtp_data = foreign_acl'),
+                      source+'\nlocal_scan_path = /foreign/plugin.so\n'):
+            with self.subTest(value=value),self.assertRaises((Conflict,EngineError)):fallback(value)
+
+    def test_bootstrap_module_runs_without_importing_the_application_package(self):
+        import json
+        from pathlib import Path
+        import subprocess
+        import sys
+        import tempfile
+        import clamshield.native_acl as module
+        with tempfile.TemporaryDirectory() as folder:
+            path=Path(folder)/'native_fallback.py';path.write_text(Path(module.__file__).read_text())
+            script='import json,runpy,sys; m=runpy.run_path(sys.argv[1]); print(json.dumps(m["fallback"](sys.stdin.read())))'
+            result=subprocess.run([sys.executable,'-I','-B','-c',script,str(path)],input=self.fallback_source(),
+                                  capture_output=True,text=True,check=True)
+            self.assertEqual(fallback(self.fallback_source()),json.loads(result.stdout))
+
     def test_native_extension_observation_is_not_a_malware_finding_or_score(self):
         value=observe(True);self.assertTrue(verified(value));self.assertEqual(0,value['score_contribution'])
         self.assertIsNone(observe(False));self.assertIsNone(observe(1))

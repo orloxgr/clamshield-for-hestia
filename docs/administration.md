@@ -773,7 +773,8 @@ checks remain native. Nonlocal relay/outbound extension policies remain native.
 The integration owns `/etc/exim4/exim4.conf` only when that path was absent.
 Existing administrator configurations are preserved and reported as conflicts.
 This small selector uses an owned, parsed policy copy with its matching adapter,
-or the independently generated native configuration when preparation fails.
+or an independently prepared delivery fallback when the application helper is
+unavailable.
 The supported distro generator runs with explicit output under
 `/run/clamshield-exim` before start/reload. It reads current native templates,
 settings and local macros; vendor files are not rewritten. The additive owned
@@ -781,9 +782,16 @@ systemd drop-in preserves native start commands and supports the known native
 generator/HUP reload sequence. Unrecognized administrator/vendor reload
 operations require review rather than replacement.
 
-Policy copies are parsed privately before atomic publication. Missing or failed
-addon preparation retains native configuration. Native fallback retains native
-policies; it does not claim a completed ClamShield scan. The selector and drop-in
+Policy copies are parsed privately before atomic publication. An owned
+`/opt/clamshield-mail/native_fallback.py` copy uses only Ubuntu Python's standard
+library, independently of the application release and database. It validates
+the supported native ACL layout and preserves current generated input in
+`/run/clamshield-exim/native-source.conf`. Without a verified application adapter,
+local extension/IP-list observations preserve delivery and log the check as
+incomplete. Native recipient/relay checks and nonlocal policies remain active.
+It does not load an unverified adapter or claim a completed ClamShield scan.
+The normal application helper publishes the selected recipient policy over
+this fallback after its byte/ABI checks succeed. The selector and drop-in
 are journaled with exact ownership. Disable/uninstall removes owned integration
 and regenerates native configuration from current sources. Later administrator
 edits to the selector are preserved and require review before removal.

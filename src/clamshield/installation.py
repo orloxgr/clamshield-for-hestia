@@ -145,7 +145,8 @@ class Installation:
         paths=[self.at('/etc/systemd/system')/name for name in UNITS]
         paths.extend(self.at('/etc/apparmor.d')/name for name in PROFILES)
         paths.extend((self.at('/usr/local/hestia/web/plugins/clamshield/index.php'),
-            self.at('/usr/local/hestia/web/js/custom_scripts/clamshield.js'),self.at('/usr/local/hestia/bin/v-clamshield')))
+            self.at('/usr/local/hestia/web/js/custom_scripts/clamshield.js'),self.at('/usr/local/hestia/bin/v-clamshield'),
+            self.at('/opt/clamshield-mail/native_fallback.py')))
         return paths
 
     @staticmethod
@@ -349,6 +350,10 @@ class Installation:
             if (native_path not in value['files'] and not (release/'src/clamshield/native_integration.py').exists() and
                     not (release/'systemd/clamshield-native-gate.service').exists()):
                 required.discard(native_path)
+            bootstrap=str(self.at('/opt/clamshield-mail/native_fallback.py'))
+            renderer=release/'src/clamshield/native_acl.py'
+            if bootstrap not in value['files'] and (not renderer.exists() or 'def standalone():' not in renderer.read_text()):
+                required.discard(bootstrap)
         if (not isinstance(value,dict) or value.get('owner')!='clamshield' or value.get('schema')!=1 or
                 value.get('phase') not in ('installed','removed') or not isinstance(value.get('files'),dict) or
                 not isinstance(value.get('release'),str) or len(value['release'])>4096 or not required<=set(value['files']) or

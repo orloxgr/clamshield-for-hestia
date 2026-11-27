@@ -6,7 +6,13 @@ Installation/lifecycle must publish this only with the matching policy adapter.
 """
 import re
 
-from .errors import Conflict,EngineError
+# Managed by clamshield. The installer also publishes this exact stdlib-only
+# module outside the application release, for native startup without its CLI.
+if __package__:
+    from .errors import Conflict,EngineError
+else:
+    class EngineError(Exception):pass
+    class Conflict(EngineError):pass
 
 MARKER='# Managed by clamshield: native recipient policy observations\n'
 DNS_MESSAGE='Rejected because $sender_host_address'
@@ -59,3 +65,72 @@ def render(source):
            '          set acl_m_clamshield_dnsbl_value =\n'
            '          set acl_m_clamshield_mime_blocked = 0\n\n')
     return MARKER+result[:at]+reset+result[at:]
+
+
+def fallback(source):
+    """No policy adapter: preserve local delivery, explicitly incomplete.
+
+    Keep native relay/recipient checks and remote policy unchanged. Do not load
+    an unverified local_scan library or depend on the application/database.
+    """
+    include='.include_if_exists /run/clamshield-exim/hook.conf\n'
+    if source.count(include)!=1 or source.splitlines().count('CLAMSHIELD_NATIVE_CONFIG_INCLUDED=1')!=1:
+        raise EngineError('Native fallback has no unique owned integration marker')
+    if re.search(r'^local_scan_path\s*=',source,re.M):
+        raise Conflict('Native fallback cannot adopt a different local_scan binding')
+    result=render(source.replace(include,''))
+    bindings=re.findall(r'^acl_smtp_data\s*=\s*([^\n]+)',result,re.M)
+    if bindings!=['acl_check_data']:raise EngineError('Native data ACL binding is unsupported')
+    at,_=_section(result,'acl_check_data')
+    return (result[:at]+'  warn    condition = '+LOCAL_MESSAGE+'\n'
+            '          log_message = ClamShield native delivery fallback; check incomplete\n\n'+result[at:])
+
+
+def standalone():
+    """Fixed-path root bootstrap; never edit the native generated source."""
+    import hashlib
+    import os
+    from pathlib import Path
+    import stat
+    import subprocess
+    import tempfile
+    if os.geteuid()!=0:raise EngineError('Native startup requires root')
+    runtime=Path('/run/clamshield-exim');base=runtime/'native.conf';original=runtime/'native-source.conf'
+    def trusted(path,directory=False):
+        info=path.lstat()
+        if (path.resolve()!=path or info.st_uid!=0 or info.st_mode&0o022 or
+                (not stat.S_ISDIR(info.st_mode) if directory else not stat.S_ISREG(info.st_mode) or info.st_nlink!=1)):
+            raise EngineError('Untrusted native fallback path')
+        return info
+    trusted(runtime,True);initial=trusted(base)
+    if initial.st_size>8*1024**2:raise EngineError('Native fallback source exceeds its limit')
+    if original.exists() or original.is_symlink():
+        raise Conflict('Native source receipt already exists; regenerate before preparing fallback')
+    source=base.read_bytes()
+    if len(source)>8*1024**2:raise EngineError('Native fallback source exceeds its limit')
+    before=hashlib.sha256(source).digest();content=fallback(source.decode())
+    with tempfile.TemporaryDirectory(prefix='.fallback-check-',dir=runtime) as folder:
+        candidate=Path(folder)/'candidate.conf'
+        fd=os.open(candidate,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        with os.fdopen(fd,'wb') as output:output.write(content.encode());output.flush();os.fsync(output.fileno())
+        subprocess.run(['/usr/sbin/exim4','-C',str(candidate),'-bV'],check=True,timeout=5,
+                       stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,
+                       env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','LANG':'C.UTF-8'})
+        current=trusted(base)
+        if ((initial.st_dev,initial.st_ino,initial.st_size,initial.st_mtime_ns)!=
+                (current.st_dev,current.st_ino,current.st_size,current.st_mtime_ns) or
+                hashlib.sha256(base.read_bytes()).digest()!=before):raise Conflict('Native fallback source changed')
+        # Preserve the freshly generated native input for the full policy
+        # renderer. Both publications stay inside the owned runtime directory.
+        raw=Path(folder)/'native-source.conf'
+        fd=os.open(raw,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o644)
+        with os.fdopen(fd,'wb') as output:output.write(source);output.flush();os.fsync(output.fileno())
+        os.link(raw,original,follow_symlinks=False);raw.unlink()
+        candidate.chmod(0o644);os.replace(candidate,base)
+        fd=os.open(runtime,os.O_RDONLY|os.O_DIRECTORY|os.O_NOFOLLOW)
+        try:os.fsync(fd)
+        finally:os.close(fd)
+
+
+if __name__=='__main__':
+    standalone()

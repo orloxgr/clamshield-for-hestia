@@ -29,6 +29,16 @@ class FixtureInstallation(Installation):
 
 
 class InstalledLifecycle(unittest.TestCase):
+    def test_only_installer_can_upgrade_the_exact_prior_inventory_without_bootstrap(self):
+        bootstrap=str(self.installation.at('/opt/clamshield-mail/native_fallback.py'))
+        value=self.installation.inventory();value['files'].pop(bootstrap)
+        write_json(self.installation.manifest,value)
+        with self.assertRaises(Conflict):self.installation.inventory()
+        self.assertEqual(value,self.installation.inventory(allow_legacy=True))
+        renderer=self.release/'src/clamshield/native_acl.py';renderer.parent.mkdir(parents=True)
+        renderer.write_text('def standalone(): pass\n')
+        with self.assertRaises(Conflict):self.installation.inventory(allow_legacy=True)
+
     def setUp(self):
         self.temp=tempfile.TemporaryDirectory();self.addCleanup(self.temp.cleanup);self.root=Path(self.temp.name)
         self.settings=Settings(state=self.root/'var/lib/clamshield');self.settings.prepare()

@@ -204,6 +204,7 @@ def install(args,lifecycle):
     for folder in ('/var/lib/clamshield-signatures', '/var/lib/clamshield-cache', '/var/lib/clamshield-mail-adapters'):
         owned_directory(Path(folder))
     owned_directory(Path('/opt/clamshield-mail'))
+    write_owned(Path('/opt/clamshield-mail/native_fallback.py'),(release/'src/clamshield/native_acl.py').read_text())
     progress.stage('[6/10] Installing owned services and retaining resource limits')
     for unit in (release / 'systemd').iterdir():
         write_owned(Path('/etc/systemd/system') / unit.name, unit.read_text())
