@@ -538,14 +538,19 @@ class MailPolicies:
             self.store.audit(context, 'mail.decision', event, {'action': decision['action'], 'classification': decision['classification'], 'exim_id': request.message_id}, db)
         return event
 
-    def outcome(self,exim_id,outcome):
+    def outcome(self,exim_id,outcome,*,native_fallback=False):
         """Internal native result, never a browser-supplied history mutation."""
         if outcome not in ('accepted','reject','defer'):raise ClamShieldError('Invalid native mail outcome')
+        if type(native_fallback) is not bool or native_fallback and outcome!='accepted':raise ClamShieldError('Invalid native delivery fallback')
         with self.store.connection(True) as db:
             for row in db.execute('SELECT * FROM mail_decisions WHERE exim_id=?',(exim_id,)).fetchall():
                 detail=json.loads(row['detail']);planned=detail.get('policy_action',detail['action'])
                 classification=detail.get('policy_classification',detail['classification'])
                 detail.update(policy_action=planned,policy_classification=classification,smtp_outcome=outcome)
-                action=planned if outcome=='accepted' else outcome
+                action=detail['action'] if outcome=='accepted' else outcome
+                if native_fallback:
+                    action='deliver';classification='incomplete'
+                    detail.update(action=action,classification=classification,scan_complete=False,
+                        transport_note='ClamShield could not complete the handoff. The original message continued through native delivery; no second submission was authorized.')
                 if outcome!='accepted' and planned!=outcome:classification='transaction-rejected' if outcome=='reject' else 'transaction-deferred'
                 db.execute('UPDATE mail_decisions SET action=?,classification=?,detail=? WHERE id=?',(action,classification,encode(detail),row['id']))

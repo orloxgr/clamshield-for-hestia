@@ -166,7 +166,7 @@ class MailBroker:
                 return plan['smtp']
             if not plan['custody']:
                 incomplete=any(item['decision'].get('classification')=='incomplete' for item in items)
-                if incomplete:self.policies.outcome(request.message_id,'accepted')
+                if incomplete:self.policies.outcome(request.message_id,'accepted',native_fallback=True)
                 respond(connection,Decision.NATIVE_FALLBACK if incomplete else Decision.ACCEPT,event)
                 return 'native-fallback' if incomplete else 'unmanaged'
             phase='stage';staged=self.custody.stage(request,items)
@@ -178,7 +178,7 @@ class MailBroker:
             if not replied:
                 denied=isinstance(exc,AccessDenied) and phase in ('receive','reinjection')
                 if request is not None:
-                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted')
+                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted',native_fallback=not denied)
                     except Exception:pass
                 try:respond(connection,Decision.DEFER if denied else Decision.NATIVE_FALLBACK,event)
                 except OSError:pass

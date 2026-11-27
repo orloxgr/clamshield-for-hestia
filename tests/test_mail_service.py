@@ -87,6 +87,9 @@ class MailBrokerTests(unittest.TestCase):
         denied=self.policies.decisions(self.bob)['decisions'][0]['detail']
         self.assertEqual('reject',denied['policy_action']);self.assertIn('SMTP cannot reject one recipient',denied['transport_note'])
         self.assertNotIn('inbox@bob.test',str(self.policies.decisions(self.alice)))
+        self.policies.outcome(self.request.message_id,'accepted')
+        row=self.policies.decisions(self.bob)['decisions'][0]
+        self.assertEqual('quarantine',row['action']);self.assertEqual('reject',row['detail']['policy_action'])
 
     def test_selected_malware_delivery_survives_other_recipient_rejection(self):
         self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
@@ -122,6 +125,10 @@ class MailBrokerTests(unittest.TestCase):
         with patch.object(broker.custody,'stage',side_effect=OSError('No space available')):
             self.assertEqual((5,'error'),self.exchange(broker))
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+        for context in (self.alice,self.bob):
+            row=self.policies.decisions(context)['decisions'][0]
+            self.assertEqual('deliver',row['action']);self.assertEqual('incomplete',row['classification'])
+            self.assertFalse(row['detail']['scan_complete']);self.assertIn('native delivery',row['detail']['transport_note'])
 
     def test_verified_native_spam_rejection_is_retained_beside_managed_delivery(self):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))
