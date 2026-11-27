@@ -520,6 +520,15 @@ response remains actionable. DQS query keys are removed before storing or
 displaying the explanation. History and stored-message preview show the native
 observation separately from SpamAssassin scores and contributions.
 
+The versioned native transport also carries a MIME extension-policy match from
+an Exim ACL variable, never a message header. This is a separate policy
+observation with zero spam points; it does not establish malware. Where these
+observations are supplied, enabled recipients keep their selected scanner
+policy and disabled recipients retain the native attachment/IP-list policy.
+A mixed message retains a rejecting recipient's copy rather than rejecting
+siblings who selected delivery. These native decisions are account-scoped and
+recorded with their source; technical DNSBL errors alone do not reject mail.
+
 This transport support does not itself change the stock Hestia MIME or DNSBL
 ACLs. Those earlier filters still need the owned ACL integration described above;
 absent native observations are not invented successful checks.

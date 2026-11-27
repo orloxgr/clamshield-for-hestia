@@ -143,6 +143,10 @@ class MailCustody:
         partial_hit = partial_hit or (classification=='native-spam' and isinstance(native_spam,dict) and native_spam.get('complete') is True)
         from .native_dnsbl_context import verified_listing
         partial_hit = partial_hit or (classification=='spam' and verified_listing(decision.get('native_dnsbl')))
+        from .native_dnsbl_context import verified_policy_match
+        from .native_mime_context import verified as verified_mime
+        partial_hit = partial_hit or (classification=='native-dnsbl' and verified_policy_match(decision.get('native_dnsbl')))
+        partial_hit = partial_hit or (classification=='native-mime' and verified_mime(decision.get('native_mime')))
         if (decision.get('scan_complete') is not True and not partial_hit) or len(encode(decision).encode()) > 2 * 1024 * 1024:
             raise Conflict('Incomplete or oversized mail decision cannot enter custody')
 

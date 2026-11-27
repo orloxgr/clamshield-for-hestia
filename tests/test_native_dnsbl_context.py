@@ -1,11 +1,19 @@
 import json
 import unittest
 
-from clamshield.native_dnsbl_context import observe,verified_listing
+from clamshield.native_dnsbl_context import observe,verified_listing,verified_policy_match
 from clamshield.mail_policy import effective,evaluate
 
 
 class NativeDnsblContextTests(unittest.TestCase):
+    def test_native_policy_match_retains_custom_lists_without_calling_them_verified_spam(self):
+        custom=observe('custom.example.test','127.0.0.2')
+        self.assertTrue(verified_policy_match(custom));self.assertFalse(verified_listing(custom))
+        self.assertEqual('unsupported',custom['state'])
+        for observation in (observe('zen.spamhaus.org','127.255.255.251'),observe('zen.spamhaus.org','bad'),
+                            dict(custom,source='header'),dict(custom,score_contribution=3),dict(custom,access='dqs')):
+            self.assertFalse(verified_policy_match(observation))
+        self.assertTrue(verified_policy_match(observe('zen.spamhaus.org','127.255.255.251,127.0.0.2')))
     def decision(self,zone,value,**policy):
         return evaluate(effective(dict(enabled=True,spam_action='tag')|policy),
                         dict(complete=True,errors=[],spam_score=1.25,detections=[]),

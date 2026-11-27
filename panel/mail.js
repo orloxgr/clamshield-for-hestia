@@ -63,7 +63,8 @@
       '\nNative DNSBL score contribution: 0\n'+
       (dns.return_codes?.length?'Return codes: '+dns.return_codes.join(', ')+'\n':'')+
       (dns.error_codes?.length?'Operational error codes: '+dns.error_codes.join(', ')+'\n':''):'';
-    const earlier=(native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'')+dnsLabel;
+    const mimeLabel=detail.native_mime?.matched===true?'Native attachment policy: blocked extension observed. Malware verdict comes from the selected scanner. Score contribution: 0\n':'';
+    const earlier=(native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'')+dnsLabel+mimeLabel;
     const sa=detail.spamassassin;if(!sa)return earlier;
     return earlier+'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
       (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+

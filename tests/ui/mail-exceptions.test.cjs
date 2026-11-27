@@ -58,13 +58,13 @@ async function fixture(options={}) {
       overrides:body.mailbox ? {} : policy.overrides};
     else if (body.action === 'mail-decisions') result = {total:1,decisions:[{created:1,sender:'sender@remote.test',
       recipient:'inbox@alice.test',action:'reject',classification:'malware',sha256:'c'.repeat(64),
-      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.transportNote ? {transport_note:options.transportNote}:{}), ...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}), ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
+      detail:{detections:[{engine:'clamav',signature:'Historical.Rule'}], ...(options.transportNote ? {transport_note:options.transportNote}:{}), ...(options.nativeMime?{native_mime:options.nativeMime}:{}),...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}), ...(options.nativeSpam ? {native_spamassassin:options.nativeSpam}:{}), ...(options.spamassassin ? {spamassassin:options.spamassassin} : {})}}],next_offset:null};
     else if (body.action === 'mail-quarantine') result = {total:1,next_offset:null,permissions:policy.permissions,
       messages:[{id:'delivery-one',created:1,subject:'Fixture',sender:'sender@remote.test',recipient:'inbox@alice.test',
         status:'quarantined',action:'quarantine',source_status:Object.hasOwn(options,'sourceStatus') ? options.sourceStatus : 'accepted'}]};
     else if (body.action === 'mail-preview') result = {preview:{domain:'alice.test',mailbox:'inbox',recipient:'inbox@alice.test',
       sha256:'a'.repeat(64),headers:{Subject:'Fixture'},text:'Plain message',available:true,
-      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.transportNote?{transport_note:options.transportNote}:{}),...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}),...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
+      decision:{detections:[{engine:'clamav',signature:'Detected.Fixture'}],...(options.transportNote?{transport_note:options.transportNote}:{}),...(options.nativeMime?{native_mime:options.nativeMime}:{}),...(options.nativeDnsbl?{native_dnsbl:options.nativeDnsbl}:{}),...(options.nativeSpam?{native_spamassassin:options.nativeSpam}:{}),...(options.spamassassin?{spamassassin:options.spamassassin}:{})}}};
     else if (body.action.startsWith('mail-exception') || body.action === 'mail-policy-save' || body.action === 'mail-policy-reset') {
       if (options.conflict) return {ok:false,json:async()=>({ok:false,error:'Email policy changed. Reload it.'})};
       result = policy;
@@ -354,4 +354,16 @@ test('recovery search is account scoped and unknown stages offer no action',asyn
     const request=f.requests.find(r=>r.action==='mail-review'&&r.search==='inbox@alice.test');
     assert.equal(request.owner,'alice');assert.equal(request.offset,'0');
   } finally {f.close();}
+});
+
+
+test('native extension observation explains its separate policy in history and preview',async()=>{
+  const f=await fixture({nativeMime:{source:'native-exim-acl',policy:'blocked-extension',matched:true,score_contribution:0}});
+  try{
+    await until(()=>f.byId('history').textContent.includes('Native attachment policy: blocked extension observed'));
+    assert.match(f.byId('history').textContent,/Malware verdict comes from the selected scanner/);
+    assert.match(f.byId('history').textContent,/Score contribution: 0/);
+    f.byId('quarantine').querySelector('button').click();
+    await until(()=>f.byId('quarantine').textContent.includes('Native attachment policy: blocked extension observed'));
+  }finally{f.close();}
 });

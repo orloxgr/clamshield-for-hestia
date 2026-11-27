@@ -53,3 +53,21 @@ def verified_listing(value):
     if not expected or not expected['listing_codes']:return False
     expected['access']=value['access']
     return value==expected
+
+
+def verified_policy_match(value):
+    """An authenticated native ACL match, without guessing a spam verdict.
+
+    Unmanaged recipients retain a configured native list's positive condition,
+    including custom lists. Known operational replies alone never authorize it.
+    """
+    if (not isinstance(value,dict) or value.get('access') not in ('public','dqs','unknown') or
+            value.get('state') not in ('listed','unsupported') or not value.get('return_codes') or
+            value.get('error_codes') and not value.get('listing_codes')):return False
+    codes=value['return_codes']
+    if not isinstance(codes,list) or len(codes)>128 or any(not isinstance(c,str) or len(c)>15 for c in codes):return False
+    expected=observe(value.get('zone'),','.join(codes))
+    if expected is None:return False
+    if value['access']!=expected['access'] and not (value['access']=='dqs' and expected['access']=='public'):return False
+    expected['access']=value['access']
+    return expected==value

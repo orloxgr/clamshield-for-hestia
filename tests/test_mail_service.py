@@ -1,4 +1,6 @@
 import array
+from dataclasses import replace
+import json
 import os
 import socket
 import sys
@@ -41,10 +43,11 @@ class MailBrokerTests(unittest.TestCase):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='quarantine'))
         self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='reject'))
 
-    def exchange(self,broker=None,protocol='esmtp',native_score=None,native_dnsbl=None):
+    def exchange(self,broker=None,protocol='esmtp',native_score=None,native_dnsbl=None,native_mime=None):
         broker=broker or self.broker();client,server=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         native_fields={} if native_score is None else dict(native_spam_score=native_score)
         if native_dnsbl is not None:native_fields.update(native_dnsbl_zone=native_dnsbl[0],native_dnsbl_value=native_dnsbl[1])
+        if native_mime is not None:native_fields['native_mime_blocked']=native_mime
         packet=bridge.envelope(message_id=self.request.message_id,sender=self.request.sender,
                                recipients=list(self.request.recipients),protocol=protocol,**native_fields)
         result=[]
@@ -62,6 +65,46 @@ class MailBrokerTests(unittest.TestCase):
     def test_unmanaged_messages_remain_native_without_engine_or_custody_work(self):
         self.assertEqual((0,'unmanaged'),self.exchange());self.assertEqual(0,self.scans)
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+
+    def test_native_mime_policy_rejects_unmanaged_but_does_not_invent_malware_for_managed(self):
+        self.assertEqual((1,'reject'),self.exchange(native_mime='1'));self.assertEqual(0,self.scans)
+        for context in (self.alice,self.bob):
+            detail=self.policies.decisions(context)['decisions'][0]['detail']
+            self.assertEqual('native-mime',detail['classification']);self.assertEqual(0,detail['native_mime']['score_contribution'])
+        self.request=replace(self.request,message_id='mime-managed')
+        self.enable();self.assertEqual((3,'custody'),self.exchange(native_mime='1'))
+        for context in (self.alice,self.bob):
+            detail=self.policies.decisions(context)['decisions'][0]['detail']
+            self.assertEqual(('clean','deliver'),(detail['classification'],detail['action']))
+            self.assertEqual('blocked-extension',detail['native_mime']['policy'])
+
+    def test_native_mime_and_dnsbl_mixed_recipients_keep_selected_delivery_and_native_reject_copy(self):
+        for fields,classification in ((dict(native_mime='1'),'native-mime'),
+                                      (dict(native_dnsbl=('zen.spamhaus.org','127.0.0.2')),'native-dnsbl')):
+            # Independent source identity, never repeat custody of one request.
+            self.request=replace(self.request,message_id='mixed-'+classification)
+            self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,spam_action='tag'))
+            self.assertEqual((3,'custody'),self.exchange(**fields))
+            row=self.custody.list(self.bob)['messages'][0]
+            with self.store.connection() as db:
+                detail=json.loads(db.execute('SELECT detail FROM mail_recipients WHERE id=? AND owner=? AND identity=?',
+                                             (row['id'],*self.store.scope(self.bob))).fetchone()[0])
+            self.assertEqual(('quarantine',classification),(row['action'],detail['classification']))
+
+    def test_native_dnsbl_operational_error_never_rejects_an_unmanaged_message(self):
+        self.assertEqual((5,'native-fallback'),self.exchange(native_dnsbl=('zen.spamhaus.org','127.255.255.251')))
+        self.assertEqual(0,self.scans)
+
+    def test_custom_native_list_keeps_its_unmanaged_policy_without_inventing_spam_points(self):
+        self.assertEqual((1,'reject'),self.exchange(native_dnsbl=('custom.example.test','127.0.0.2')))
+        self.assertEqual(0,self.scans)
+
+    def test_native_spam_result_cannot_clear_another_verified_native_policy_match(self):
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True))
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value={('bob',self.ids['bob'],'bob.test')}), \
+                patch('clamshield.native_spam.rejection_threshold',return_value=dict(required_score=10,source='fixture')):
+            self.assertEqual((3,'custody'),self.exchange(native_mime='1',native_score='0'))
+        self.assertEqual('quarantine',self.custody.list(self.bob)['messages'][0]['action'])
 
     def test_clean_managed_recipients_get_bound_custody_and_await_native_proof(self):
         self.enable();self.assertEqual((3,'custody'),self.exchange());self.assertEqual(1,self.scans)
@@ -131,7 +174,10 @@ class MailBrokerTests(unittest.TestCase):
         self.assertEqual((3,'custody'),self.exchange())
         self.assertEqual('tag',self.custody.list(self.alice)['messages'][0]['action'])
         row=self.custody.list(self.bob)['messages'][0]
-        self.assertEqual('quarantine',row['action']);self.assertEqual([],self.policies.decisions(self.bob)['decisions'])
+        self.assertEqual('quarantine',row['action'])
+        native_record=self.policies.decisions(self.bob)['decisions'][0]
+        self.assertEqual(('quarantine','native-malware'),(native_record['action'],native_record['classification']))
+        self.assertEqual('reject',native_record['detail']['policy_action'])
 
     def test_mixed_rejected_copy_storage_failure_falls_back_without_bouncing_siblings(self):
         self.enable();self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]

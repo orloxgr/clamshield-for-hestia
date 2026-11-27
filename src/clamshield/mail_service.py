@@ -84,7 +84,8 @@ class MailBroker:
         native_spam=[bool(target and (target['owner'],target['identity'],target['domain']) in delegated and
                           not (policy and policy['enabled'])) for target,policy in zip(original,policies)]
         managed=any(policy and policy['enabled'] for policy in policies)
-        if not managed and not any(native_av) and not any(native_spam):return None
+        native_observed=bool(request.native_mime_blocked or request.native_dnsbl_zone or request.native_dnsbl_value)
+        if not managed and not any(native_av) and not any(native_spam) and not native_observed:return None
         native_result=None
         if any(native_spam):
             from .native_spam import rejection_threshold
@@ -117,6 +118,9 @@ class MailBroker:
             policy=self.policies.get(context,target['domain'],target['mailbox'])['effective']
             decision=evaluate(policy,scan,sender=request.sender,sha256=sha256,
                               native_dnsbl=(request.native_dnsbl_zone,request.native_dnsbl_value))
+            from .native_mime_context import observe as mime_observation
+            mime=mime_observation(request.native_mime_blocked)
+            if mime is not None:decision['native_mime']=mime
             if request.native_spam_score is not None:
                 decision['native_spamassassin']={'score':request.native_spam_score,'source':'native-exim-acl'}
             if not policy['enabled'] and native_av[index]:
@@ -129,12 +133,20 @@ class MailBroker:
                 decision.update(action='reject' if retained else 'deliver',
                     classification='native-malware' if retained else 'unmanaged' if scan.get('complete') else 'incomplete',
                     scan_complete=scan.get('complete') is True,detections=retained)
+            if not policy['enabled'] and decision['action']!='reject':
+                from .native_dnsbl_context import verified_policy_match
+                if verified_policy_match(decision.get('native_dnsbl')):
+                    decision.update(action='reject',classification='native-dnsbl')
+                elif mime is not None:
+                    decision.update(action='reject',classification='native-mime')
+                elif decision.get('native_dnsbl') is not None:
+                    decision.update(action='deliver',classification='incomplete',scan_complete=False)
             if native_spam[index] and not policy['enabled']:
                 decision['native_spamassassin']=native_result
                 if native_result['complete']:
                     if native_result['score']>native_result['threshold']['required_score']:
-                        decision.update(action='reject',classification='native-spam')
-                    elif not native_av[index]:decision.update(action='deliver',classification='unmanaged',scan_complete=True)
+                        if decision['action']!='reject':decision.update(action='reject',classification='native-spam')
+                    elif not native_av[index] and decision['action']!='reject':decision.update(action='deliver',classification='unmanaged',scan_complete=True)
                 elif decision['action']!='reject':decision.update(action='deliver',classification='incomplete',scan_complete=False)
             if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])
@@ -160,7 +172,8 @@ class MailBroker:
             items,plan=result['items'],result['plan']
             phase='record'
             for item in items:
-                if item.get('managed'):self.policies.record(item['context'],item['target'],request,result['sha256'],item['decision'])
+                if item.get('managed') or item['decision'].get('classification') in ('native-malware','native-spam','native-mime','native-dnsbl'):
+                    self.policies.record(item['context'],item['target'],request,result['sha256'],item['decision'])
             if plan['smtp']!='accept':
                 self.policies.outcome(request.message_id,plan['smtp'])
                 respond(connection,Decision.REJECT if plan['smtp']=='reject' else Decision.DEFER,event)
