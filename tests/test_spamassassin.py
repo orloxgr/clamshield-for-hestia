@@ -92,6 +92,8 @@ class SpamAssassinControlsTests(unittest.TestCase):
                 with self.subTest(name=name, amount=amount), self.assertRaisesRegex(ClamShieldError, 'zero'):
                     validate(DEFAULTS | {'scores': {name: amount}})
         self.assertNotEqual(revision(DEFAULTS), revision(DEFAULTS, legacy=True))
+        with self.assertRaisesRegex(ClamShieldError, 'zero'):
+            validate(DEFAULTS | {'scores': {'RCVD_IN_VALIDITY_FUTURE_BLOCKED': 1}})
 
     def test_nonzero_inactive_score_set_is_rejected_before_configuration_or_service_change(self):
         original = self.controls.inspect
@@ -378,7 +380,8 @@ $status->finish(); $mail->finish(); $sa->finish();
         identity,wanted,report = self.binding_fixture()
         write_json(self.controls.proof, wanted)
         for changes in ({'reporter_sha256': '0'*64}, {'revision': '0'*64},
-                        {'rules': [dict(name=INFRASTRUCTURE_RULES[0], score=1)]}):
+                        {'rules': [dict(name=INFRASTRUCTURE_RULES[0], score=1)]},
+                        {'rules': [dict(name='RCVD_IN_VALIDITY_FUTURE_BLOCKED', score=1)]}):
             with self.subTest(changes=changes), patch('clamshield.spamassassin_binding.process', return_value=identity), \
                     self.assertRaises(EngineError):
                 self.controls.verify_report(report | changes, DEFAULTS)

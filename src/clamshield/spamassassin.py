@@ -35,6 +35,10 @@ SAFETY_VERSION = 1
 REPORTER = Path('/opt/clamshield/tools/spamassassin-report.pm')
 
 
+def infrastructure_rule(name):
+    return name in INFRASTRUCTURE_RULES or bool(re.fullmatch(r'RCVD_IN_VALIDITY_[A-Z0-9_]+_BLOCKED', name))
+
+
 def validate(value, *, legacy=False):
     if not isinstance(value, dict) or set(value) != set(DEFAULTS):
         raise ClamShieldError('Invalid SpamAssassin settings')
@@ -66,7 +70,7 @@ def validate(value, *, legacy=False):
         decimal = Decimal(str(amount))
         if decimal != decimal.quantize(Decimal('0.000001')):
             raise ClamShieldError('Rule scores support up to six decimal places')
-        if not legacy and name in INFRASTRUCTURE_RULES and amount != 0:
+        if not legacy and infrastructure_rule(name) and amount != 0:
             raise ClamShieldError('DNS blocklist access failures must have a zero spam score')
     return result
 
@@ -131,7 +135,7 @@ class SpamAssassinControls:
     def verify_contributions(report, stamp):
         if report.get('reporter_sha256') != stamp.get(str(REPORTER.resolve(strict=True))):
             raise EngineError('SpamAssassin process has not loaded the installed report plugin')
-        if any(rule['name'] in INFRASTRUCTURE_RULES and rule['score'] != 0 for rule in report.get('rules', [])):
+        if any(infrastructure_rule(rule['name']) and rule['score'] != 0 for rule in report.get('rules', [])):
             raise EngineError('SpamAssassin assigned points to a DNS blocklist access failure')
 
     def verify_report(self, report, policy, *, deadline=None):
@@ -210,13 +214,13 @@ class SpamAssassinControls:
     def verify_infrastructure_scores(parsed):
         """Inspect all installed score sets, not just the selected lint mode."""
         for rule in parsed['rules']:
-            if rule['name'] not in INFRASTRUCTURE_RULES:
+            if not infrastructure_rule(rule['name']):
                 continue
             scores = rule.get('scores')
             if (not isinstance(scores, list) or len(scores) != 4 or
                     any(type(score) not in (int, float) or score != 0 for score in scores) or
                     rule.get('score') != 0):
-                raise EngineError('A DNS blocklist access failure still contributes to spam scoring')
+                raise EngineError('DNS blocklist access failure ' + rule['name'] + ' still contributes to spam scoring')
 
     def upgrade_safety(self):
         """Only rewrite an exactly recognized owned configuration; retain policy."""
@@ -235,8 +239,8 @@ class SpamAssassinControls:
             else:
                 before = self.active.read_text()
                 policy, expected = deepcopy(saved['policy']), saved['revision']
-            for name in INFRASTRUCTURE_RULES:
-                if name in policy['scores']:
+            for name in policy['scores']:
+                if infrastructure_rule(name):
                     policy['scores'][name] = 0
         self.apply(policy, expected_revision=expected, expected_configuration=hashlib.sha256(before.encode()).hexdigest())
         return True
