@@ -10,7 +10,33 @@
     return node;
   }
   const root = document.getElementById('cs-mail');
-  if(!root||root.dataset.global==='true')return;
+  if(!root)return;
+  document.addEventListener('click',async event=>{
+    const button=event.target?.closest?.('.cs-mail-decision-show');if(!button)return;
+    const row=button.closest('tr'),output=button.nextElementSibling;
+    if(!row||!output?.classList.contains('cs-mail-decision-output'))return;
+    if(button.dataset.loaded==='true'){
+      output.hidden=!output.hidden;button.textContent=output.hidden?'Show decision details':'Hide decision details';return;
+    }
+    button.disabled=true;output.hidden=false;output.textContent='Loading decision details…';
+    output.style.whiteSpace='pre-wrap';
+    try{
+      const value=await api('mail-decision-get',{owner:row.dataset.owner,decision_id:button.dataset.decision});
+      const decision=value.decision,detail=decision.detail;
+      const actions={deliver:'Deliver',tag:'Tag and deliver',junk:'Junk',quarantine:'Quarantine',reject:'SMTP rejection',defer:'Temporary failure'};
+      output.textContent='Action: '+(actions[decision.action]||decision.action)+'\nClassification: '+decision.classification+'\n'+
+        (detail.scan_complete===false?'Check incomplete. This message was not classified as clean.\n':'')+
+        (detail.transport_note?detail.transport_note+'\n':'')+spamAssassinLabel(detail)+
+        (detail.spam_score!=null?'Final policy score: '+detail.spam_score+'\n':'')+
+        (!detail.policy_thresholds?'Policy thresholds: not recorded for this decision\n':'')+
+        (detail.signature_generation?'Signature generation: '+detail.signature_generation+'\n':'')+
+        (detail.policy_revision?'Policy revision: '+detail.policy_revision.slice(0,12)+'\n':'')+
+        (detail.detections||[]).map(detectionLabel).join('\n');
+      button.dataset.loaded='true';button.textContent='Hide decision details';
+    }catch(error){output.textContent=error.message;}
+    finally{button.disabled=false;}
+  });
+  if(root.dataset.global==='true')return;
   const byId = id => document.getElementById('cs-mail-' + id);
   const status = byId('status'), domain = byId('domain'), mailbox = byId('box');
   let domains = [], current = null, permissions = {}, loaded = false, busy = false;
@@ -64,7 +90,11 @@
       (dns.return_codes?.length?'Return codes: '+dns.return_codes.join(', ')+'\n':'')+
       (dns.error_codes?.length?'Operational error codes: '+dns.error_codes.join(', ')+'\n':''):'';
     const mimeLabel=detail.native_mime?.matched===true?'Native attachment policy: blocked extension observed. Malware verdict comes from the selected scanner. Score contribution: 0\n':'';
-    const earlier=(native?'Native SpamAssassin before ClamShield: '+native.score+'\n':'')+dnsLabel+mimeLabel;
+    const policy=detail.policy_thresholds;
+    const policyLabel=policy?'Applied policy thresholds: spam '+policy.spam_threshold+' · high spam '+policy.spam_high_threshold+
+      '\nScore per spam signature: '+policy.signature_spam_score+'\n':'';
+    const earlier=(native?'Native SpamAssassin before ClamShield: '+native.score+
+      (native.threshold?.required_score!=null?' / '+native.threshold.required_score:'')+'\n':'')+dnsLabel+mimeLabel+policyLabel;
     const sa=detail.spamassassin;if(!sa)return earlier;
     return earlier+'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
       (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+

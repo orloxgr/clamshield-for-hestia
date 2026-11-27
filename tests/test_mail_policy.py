@@ -20,6 +20,39 @@ def scan(category=None, score=0):
 
 
 class MailPolicyTests(unittest.TestCase):
+    def record_detail_fixture(self,decision=None):
+        target=mail_inventory.resolve(self.mail.targets(self.context),'first@alice.test')
+        request=SimpleNamespace(message_id='native-detail-id',sender='sender@remote.test',recipients=('first@alice.test',))
+        return self.mail.record(self.context,target,request,'a'*64,decision if decision is not None else self.verdict())
+
+    def test_decision_detail_root_api_is_account_scoped_and_respects_cleared_records(self):
+        event=self.record_detail_fixture();app=Application(self.settings,self.store,self.native)
+        result=app.dispatch(dict(actor='admin',owner='alice',action='mail-decision-get',decision_id=event))
+        self.assertEqual(event,result['decision']['id']);self.assertEqual('alice',result['decision']['owner'])
+        self.assertEqual(event,app.dispatch(dict(actor='alice',action='mail-decision-get',decision_id=event))['decision']['id'])
+        for request in (dict(actor='bob'),dict(actor='alice',owner='bob')):
+            with self.subTest(request=request),self.assertRaises(AccessDenied):
+                app.dispatch(dict(request,action='mail-decision-get',decision_id=event))
+        with self.store.connection(True) as db:db.execute('INSERT INTO review_deleted VALUES(?,?,?,?)',('email-decisions',event,*self.store.scope(self.context)))
+        with self.assertRaises(AccessDenied):self.mail.decision(self.native.authorize('admin','alice'),event)
+
+    def test_decision_detail_rejects_invalid_id_and_recreated_account_history(self):
+        event=self.record_detail_fixture()
+        for value in (None,[],"' OR 1=1",'a'*31,'g'*32):
+            with self.subTest(value=value),self.assertRaises(AccessDenied):self.mail.decision(self.context,value)
+        self.ids['alice']='new-generation'
+        with self.assertRaises(AccessDenied):self.mail.decision(self.context,event)
+        with self.assertRaises(AccessDenied):self.mail.decision(self.native.authorize('admin','alice'),event)
+
+    def test_applied_threshold_snapshot_survives_policy_change_and_old_records_stay_uninvented(self):
+        policy=self.policy(spam_threshold=7,spam_high_threshold=12,signature_spam_score=2)
+        decision=evaluate(policy,scan(),sender='',sha256='a'*64);event=self.record_detail_fixture(decision)
+        policy['spam_threshold']=9
+        self.mail.save(self.native.authorize('admin','alice'),'alice.test','',{'enabled':True,'spam_threshold':9})
+        self.assertEqual(dict(spam_threshold=7,spam_high_threshold=12,signature_spam_score=2),self.mail.decision(self.context,event)['detail']['policy_thresholds'])
+        old=dict(decision);old.pop('policy_thresholds');old_event=self.record_detail_fixture(old)
+        self.assertNotIn('policy_thresholds',self.mail.decision(self.context,old_event)['detail'])
+
     def test_selected_domain_avoids_reading_unrelated_mailboxes(self):
         self.domain_rows['alice']['unrelated.test']={}
         self.native.call.reset_mock()

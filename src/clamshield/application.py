@@ -212,7 +212,7 @@ class Application:
             mail=MailPolicies(self.store,self.hestia)
             return mail.save_server(admin,request.get('policy'),request.get('revision')) if action=='mail-server-save' else mail.server(admin)
         if action in ('mail-dashboard', 'mail-policy-get', 'mail-policy-save', 'mail-policy-reset',
-                      'mail-permissions-save', 'mail-permissions-reset', 'mail-decisions'):
+                      'mail-permissions-save', 'mail-permissions-reset', 'mail-decisions','mail-decision-get'):
             mail = MailPolicies(self.store, self.hestia)
             if action == 'mail-dashboard':
                 return mail.list(context)
@@ -223,6 +223,8 @@ class Application:
                                  request.get('policy'), reset=action == 'mail-policy-reset', revision=request.get('revision'))
             if action in ('mail-permissions-save','mail-permissions-reset'):
                 return {'permissions': mail.save_permissions(context, request.get('policy'),reset=action=='mail-permissions-reset')}
+            if action=='mail-decision-get':
+                return {'decision':mail.decision(context,request.get('decision_id'))}
             return mail.decisions(context, request.get('search', ''), request.get('offset', 0))
         if action == 'dashboard':
             scope=request.get('scope','account')

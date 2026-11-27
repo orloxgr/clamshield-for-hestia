@@ -2,7 +2,7 @@
   "name": "clamshield-ui-tests",
   "private": true,
   "scripts": {
-    "test": "node --test mail-exceptions.test.cjs mail-protection.test.cjs wordpress-recovery.test.cjs history-retention.test.cjs server-history.test.cjs scans.test.cjs navigation.test.cjs"
+    "test": "node --test mail-exceptions.test.cjs mail-decision-detail.test.cjs mail-protection.test.cjs wordpress-recovery.test.cjs history-retention.test.cjs server-history.test.cjs scans.test.cjs navigation.test.cjs"
   },
   "devDependencies": {
     "jsdom": "26.1.0"

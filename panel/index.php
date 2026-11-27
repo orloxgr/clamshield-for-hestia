@@ -38,7 +38,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     unset($request['scope']);
     if (!empty($read_only) || !is_string($_POST['token'] ?? null) ||
         !hash_equals($_SESSION['token'] ?? '', $_POST['token'])) $respond(403, ['ok'=>false,'error'=>'Request token invalid or account is read only.']);
-    foreach (['owner','action','scope','domain','mailbox','path','job_id','finding_id','operation_id','plan_id','delivery_id','profile','release','provider','name','content','exception_id','kind','note','notification_id','generation','search','source_id','rule_id','revision','stage','list','confirmation'] as $key) {
+    foreach (['owner','action','scope','domain','mailbox','path','job_id','finding_id','operation_id','plan_id','delivery_id','decision_id','profile','release','provider','name','content','exception_id','kind','note','notification_id','generation','search','source_id','rule_id','revision','stage','list','confirmation'] as $key) {
         if (isset($_POST[$key])) {
             if (!is_string($_POST[$key])) $respond(400, ['ok'=>false,'error'=>'Invalid request field.']);
             $request[$key] = $_POST[$key];

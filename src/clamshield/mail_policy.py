@@ -117,6 +117,8 @@ def evaluate(policy, scan, *, sender, sha256, now=None, native_dnsbl=None):
     now = time.time() if now is None else now
     revision = hashlib.sha256(encode(policy).encode()).hexdigest()
     base = {'policy_revision': revision, 'scan_complete': False, 'detections': [], 'suppressed': []}
+    if policy['enabled']:
+        base['policy_thresholds']={key:policy[key] for key in ('spam_threshold','spam_high_threshold','signature_spam_score')}
     from .native_dnsbl_context import observe
     native=observe(*native_dnsbl) if native_dnsbl is not None else None
     if native is not None:base['native_dnsbl']=native
@@ -502,6 +504,20 @@ class MailPolicies:
                      source_delivery=source, inherited_snapshot=bool(mailbox and 'exceptions' not in old and operation != 'inherit')),
                 db)
         return self.get(context, target['domain'], mailbox)
+
+    def decision(self, context, decision_id):
+        """One visible decision, bound to the freshly authorized account generation."""
+        self.targets(context)
+        if not isinstance(decision_id,str) or not re.fullmatch(r'[0-9a-f]{32}',decision_id):
+            raise AccessDenied('Email decision is unavailable')
+        from .review import visible
+        with self.store.connection() as db:
+            row=db.execute('SELECT * FROM mail_decisions r WHERE id=? AND owner=? AND identity=? AND '+visible('email-decisions'),
+                           (decision_id,*self.store.scope(context))).fetchone()
+        if row is None:raise AccessDenied('Email decision is unavailable')
+        result=dict(row)|{'detail':json.loads(row['detail'])}
+        if len(encode(result).encode())>3*1024*1024:raise ClamShieldError('Mail decision exceeds the report size limit')
+        return result
 
     def decisions(self, context, search='', offset=0):
         self.targets(context)

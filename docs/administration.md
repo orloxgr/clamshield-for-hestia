@@ -772,6 +772,12 @@ checks remain native. Nonlocal relay/outbound extension policies remain native.
 Temporary native DNS-list lookup failures are retained as an unavailable check,
 with zero spam points. A valid negative response remains distinct from a failed
 lookup; a known positive malware/listing result still follows its selected policy.
+Global Email offers Show decision details for the selected message and hosting
+account. Details include actual scores/rules, incomplete checks and recorded
+policy thresholds. New managed decisions retain the thresholds applied at that
+time; later policy edits do not rewrite that explanation. Older records without
+threshold snapshots explicitly say not recorded. Detail reads enforce current
+account identity and visibility, including records cleared from Review.
 
 The integration owns `/etc/exim4/exim4.conf` only when that path was absent.
 Existing administrator configurations are preserved and reported as conflicts.
