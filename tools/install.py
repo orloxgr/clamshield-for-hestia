@@ -98,7 +98,7 @@ def main(argv=None):
 
 
 def validate_source():
-    for name in ('spamassassin-config.pl', 'spamassassin-report.pm'):
+    for name in ('spamassassin-config.pl', 'spamassassin-report.pm','signature-memory-probe.py'):
         helper = SOURCE / 'tools' / name
         if not helper.is_file() or helper.is_symlink():
             raise RuntimeError('ClamShield checkout is incomplete: tools/' + name + ' is missing; update the checkout and retry')

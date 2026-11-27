@@ -21,7 +21,8 @@ for repeat in range(3):
             if output.tell()>65536 or errors.tell()>65536:raise RuntimeError('Load probe output exceeds limit')
             output.seek(0)
             if process.returncode!=1 or (plan['canary']+' FOUND').encode() not in output.read():
-                raise RuntimeError('Signature load canary failed; measurement is incomplete')
+                errors.seek(0);sys.stderr.buffer.write(errors.read(65536))
+                raise RuntimeError('Signature load canary failed (exit '+str(process.returncode)+'); measurement is incomplete')
             rows.append(dict(case=case['id'],repeat=repeat,peak_rss_bytes=int(usage.ru_maxrss)*1024,
                              elapsed_seconds=time.monotonic()-started))
             print(json.dumps({'sample':len(rows),'total':len(plan['cases'])*3}),flush=True)

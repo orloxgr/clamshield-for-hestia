@@ -32,6 +32,8 @@ class DistributionTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'spamassassin-report.pm is missing'):
                 installer.validate_source()
             shutil.copyfile(ROOT / 'tools/spamassassin-report.pm', helper.with_name('spamassassin-report.pm'))
+            with self.assertRaisesRegex(RuntimeError,'signature-memory-probe.py is missing'):installer.validate_source()
+            shutil.copyfile(ROOT/'tools/signature-memory-probe.py',helper.with_name('signature-memory-probe.py'))
             installer.validate_source()
 
     def test_source_archive_retains_exact_runtime_helper_bytes(self):
@@ -40,7 +42,7 @@ class DistributionTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp:
             root = Path(temp)
             for name in ('README.md', 'LICENSE', 'pyproject.toml', 'entry.py', 'tools/install.py',
-                         'tools/uninstall.py', 'tools/package.py', 'tools/spamassassin-config.pl', 'tools/spamassassin-report.pm',
+                         'tools/uninstall.py', 'tools/package.py', 'tools/spamassassin-config.pl', 'tools/spamassassin-report.pm','tools/signature-memory-probe.py',
                          'src/clamshield/__init__.py'):
                 destination = root / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
@@ -57,3 +59,5 @@ class DistributionTests(unittest.TestCase):
                                  archive.extractfile(member).read())
                 reporter = archive.getmember(prefix + '/tools/spamassassin-report.pm')
                 self.assertEqual((ROOT / 'tools/spamassassin-report.pm').read_bytes(), archive.extractfile(reporter).read())
+                probe=archive.getmember(prefix+'/tools/signature-memory-probe.py')
+                self.assertEqual((ROOT/'tools/signature-memory-probe.py').read_bytes(),archive.extractfile(probe).read())

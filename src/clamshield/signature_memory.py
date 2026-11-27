@@ -240,7 +240,11 @@ class SignatureMemory:
                     progress('measuring')
                     with tempfile.TemporaryFile() as output,tempfile.TemporaryFile() as errors:
                         result=subprocess.run(command,stdout=output,stderr=errors,timeout=MAX_SECONDS+20)
-                        if result.returncode or output.tell()>65536:raise EngineError('Signature memory load did not complete; previous measurements retained')
+                        if result.returncode or output.tell()>65536:
+                            errors.seek(0);output.seek(0)
+                            write_json(self.settings.state/'signature-memory-last-error.json',dict(measured=time.time(),unit=record['unit'],exit=result.returncode,
+                                stderr=errors.read(65536).decode(errors='replace'),stdout=output.read(65536).decode(errors='replace')))
+                            raise EngineError('Signature memory load did not complete; previous measurements retained')
                         output.seek(0);lines=output.read().splitlines()
                     try:measured=json.loads(lines[-1])
                     except (ValueError,IndexError) as exc:raise EngineError('Signature memory output is incomplete') from exc
