@@ -309,6 +309,7 @@ class MailIntegration:
         from .native_rejection import NativeRejection
         rejection=NativeRejection(self.settings,self.hestia)
         rejection.remove_extension();rejection.restore()
+        self.clear_native_activation()
         self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
         self.put(transaction,GUARD,None);self.system('daemon-reload');self.restart_native()
         self.phase(transaction,'stopping')
@@ -434,6 +435,11 @@ class MailIntegration:
     def refresh(self):
         with self.locked():return self._refresh(state(self.settings))
 
+    def clear_native_activation(self):
+        path=self.settings.state/'native-rejection-activation.json';value=read(path)
+        if value and value.get('phase')=='active':
+            path.unlink();sync_directory(self.settings.state)
+
     def native_policies(self):
         """Apply inherited native delegation once per installed code generation.
 
@@ -537,6 +543,7 @@ class MailIntegration:
                 from .native_rejection import NativeRejection
                 rejection=NativeRejection(self.settings,self.hestia)
                 rejection.remove_extension();restored=rejection.restore()
+                self.clear_native_activation()
                 return {'enabled':False,'unchanged':True,**restored}
             # Detaching a known owned hook must remain possible after a native
             # package change, even when the old adapter is no longer usable.

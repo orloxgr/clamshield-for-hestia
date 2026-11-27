@@ -119,12 +119,16 @@ class NativeRejectionTests(unittest.TestCase):
 
     def test_native_restoration_precedes_hook_detachment(self):
         from clamshield.mail_integration import MailIntegration
+        from clamshield.atomic import write_json
         manager=MailIntegration(self.settings,None,self.native)
         manager.drain=Mock();manager.phase=Mock(side_effect=EngineError('stop before detach'))
+        activation=self.settings.state/'native-rejection-activation.json'
+        write_json(activation,dict(code_generation='fixture',phase='active'))
         with patch('clamshield.native_rejection.NativeRejection',return_value=self.manager):
             self.suppress()
             with self.assertRaises(EngineError):manager.finish_disabled({},dict(phase='disabled'))
         self.assertTrue(self.flag.exists());self.assertTrue(self.reject)
+        self.assertFalse(activation.exists())
 
     def test_existing_enabled_server_defaults_delegate_once_after_update_without_retry_loop(self):
         from clamshield.mail_integration import MailIntegration
