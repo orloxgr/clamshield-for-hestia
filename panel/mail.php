@@ -19,6 +19,7 @@ $cs_mail_global=($data['context']['view_scope']??'account')==='server';
 <?php if($data['context']['admin']): $integration=$data['mail_integration']; ?>
 <details><summary class="button cs-disclosure"><i class="fas fa-caret-right cs-disclosure-icon" aria-hidden="true"></i>Mail integration</summary>
 <p>State: <?=$escape($integration['phase'])?> <?=$escape($integration['transition']??'')?></p>
+<?php if(($integration['hook_enabled']??null)===false): ?><p>ClamShield mail checks are unavailable. Native mail delivery remains active. Refresh the mail integration to restore the selected policies.</p><?php endif ?>
 <?php if(isset($integration['error'])): ?><p class="alert alert-danger"><?=$escape($integration['error'])?></p><?php endif ?>
 <div class="row"><button class="button" type="button" data-action="mail-integration-enable">Enable mail integration</button><button class="button" type="button" data-action="mail-integration-refresh">Refresh mail integration</button><button class="button" type="button" data-action="mail-integration-disable">Drain and disable mail integration</button><button class="button" type="button" data-action="mail-integration-recover">Recover interrupted transition</button></div>
 <p>Activation starts the ClamShield mail services and adds its owned Exim hook. Native Hestia antivirus, antispam and rejection flags run first; their state is shown per domain. Native rejections take precedence over ClamShield policies.</p>

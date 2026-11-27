@@ -28,13 +28,17 @@ def policy_hook_configured(settings):
     reinstate an earlier unconditional malware rejection over selected delivery.
     """
     from .mail_runtime import state
-    from .mail_integration import MACRO,MACRO_TEXT,LIBRARY
+    from .mail_integration import MACRO,MACRO_TEXT,LEGACY_MACRO_TEXT,LIBRARY,runtime_hook_ready
     from .mail_adapter import trusted,sha
     try:
         current=state(settings)
         if current is None or current['phase']=='disabled':return False
         trusted(MACRO)
-        return MACRO.read_text()==MACRO_TEXT and sha(LIBRARY)==current['adapter']['library_sha256']
+        macro=MACRO.read_text()
+        if macro==MACRO_TEXT:
+            if not runtime_hook_ready():return False
+        elif macro!=LEGACY_MACRO_TEXT:return False
+        return sha(LIBRARY)==current['adapter']['library_sha256']
     except (OSError,ValueError,KeyError,TypeError,EngineError):return False
 
 

@@ -76,10 +76,14 @@ class NativeGateTests(unittest.TestCase):
         import hashlib
         macro=self.root/'macros';macro.write_text(MACRO_TEXT);macro.chmod(0o644)
         library=self.root/'local_scan.so';library.write_bytes(b'owned-test-library');library.chmod(0o644)
+        include=self.root/'hook.conf';include.write_text('local_scan_path = '+str(library)+'\n');include.chmod(0o644)
         current=dict(phase='active',adapter=dict(library_sha256=hashlib.sha256(library.read_bytes()).hexdigest()))
         with patch('clamshield.mail_runtime.state',return_value=current), \
-                patch('clamshield.mail_integration.MACRO',macro),patch('clamshield.mail_integration.LIBRARY',library):
+                patch('clamshield.mail_integration.MACRO',macro),patch('clamshield.mail_integration.LIBRARY',library), \
+                patch('clamshield.mail_integration.HOOK_INCLUDE',include),patch('clamshield.mail_integration.HOOK_RUNTIME',self.root):
             self.assertTrue(policy_hook_configured(None))
+            include.unlink();self.assertFalse(policy_hook_configured(None))
+            include.write_text('local_scan_path = '+str(library)+'\n')
             current['phase']='starting';self.assertTrue(policy_hook_configured(None))
             current['phase']='disabled';self.assertFalse(policy_hook_configured(None))
             current['phase']='active';library.write_bytes(b'foreign');self.assertFalse(policy_hook_configured(None))

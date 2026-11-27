@@ -381,6 +381,14 @@ delivery. If a broker capture was prepared but its reply was lost, an exact
 native fallback marker plus Exim's source receipt aborts the unused private
 capture. Silence or missing evidence never authorizes a second submission.
 
+The owned Exim service drop-in uses an optional hook include in a temporary
+systemd runtime directory. Each native start begins without that include. A
+bounded startup check publishes it only when the native executable, adapter,
+source and owned configuration match the verified binding. Missing addon code,
+failed checks or a timeout leave the hook absent; they do not prevent native
+Exim startup or load an incompatible adapter. Integration diagnostics report the
+missing hook and maintenance can refresh it after compatibility is restored.
+
 Native Hestia filters run before the policy hook. In particular, native domain
 spam rejection, SMTP recipient/routing restrictions and mailbox/storage failures
 are separate delivery paths and require their own checks; changing a ClamShield
