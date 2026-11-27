@@ -191,7 +191,7 @@ class MailIntegration:
         from .native_acl_runtime import verify_unit
         verify_unit(GUARD)
         current=state(self.settings)
-        if current and current.get('acl_default_sha256'):
+        if current and current['phase']!='disabled' and current.get('acl_default_sha256'):
             verify_selector()
         elif DEFAULT.exists() or DEFAULT.is_symlink():
             raise Conflict('Existing native Exim default configuration is preserved')

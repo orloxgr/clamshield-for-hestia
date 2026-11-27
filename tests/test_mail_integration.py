@@ -248,6 +248,19 @@ class IntegrationTests(unittest.TestCase):
         self.assertEqual('concurrent administrator config\n',self.default.read_text())
         self.assertFalse(self.controller.journal.exists());self.assertEqual(0,self.controller.restarts)
 
+    def test_real_preflight_after_disable_does_not_require_the_removed_selector(self):
+        self.controller.enable();self.controller.disable()
+        adapter=Mock();adapter.candidate.return_value={'fixture':'validated adapter'}
+        with patch('clamshield.native_acl_runtime.verify_unit'), \
+                patch('clamshield.mail_integration.HOOK_RUNTIME',self.default.parent/'absent-runtime'), \
+                patch('clamshield.signatures.Signatures',return_value=Mock(manifest=Mock(return_value=None))), \
+                patch('clamshield.providers.Providers',return_value=Mock(read=Mock(return_value={'sanesecurity':{'enabled':False},'securiteinfo':{'enabled':False}}))), \
+                patch('clamshield.mail_service.configuration',return_value={'yara_enabled':False}), \
+                patch('clamshield.spamassassin.SpamAssassinControls',return_value=Mock(configured=Mock(return_value={}))), \
+                patch('clamshield.mail_integration.MailAdapter',return_value=adapter):
+            self.assertEqual({'fixture':'validated adapter'},MailIntegration.preflight(self.controller))
+        adapter.build.assert_called_once();adapter.verify.assert_called_once()
+
     def test_crash_after_later_write_intent_can_restore_prior_intermediate_bytes(self):
         import clamshield.mail_integration as module
         real=module.write;calls=0
