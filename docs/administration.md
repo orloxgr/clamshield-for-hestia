@@ -762,3 +762,28 @@ selected replacements and exact diffs without changing the website. Apply stays
 separate and is invalidated by changed selection or recovery-version choices.
 Earlier analyses that compared recovery releases need a fresh installed-version
 analysis before preview/apply; retained applied recoveries remain undoable.
+
+### Native email policy configuration
+
+The selected recipient action applies to native extension/IP-list observations
+as well as scanner results. A blocked filename extension is an observation,
+not proof of malware and adds no spam points. Recipient verification and relay
+checks remain native. Nonlocal relay/outbound extension policies remain native.
+
+The integration owns `/etc/exim4/exim4.conf` only when that path was absent.
+Existing administrator configurations are preserved and reported as conflicts.
+This small selector uses an owned, parsed policy copy with its matching adapter,
+or the independently generated native configuration when preparation fails.
+The supported distro generator runs with explicit output under
+`/run/clamshield-exim` before start/reload. It reads current native templates,
+settings and local macros; vendor files are not rewritten. The additive owned
+systemd drop-in preserves native start commands and supports the known native
+generator/HUP reload sequence. Unrecognized administrator/vendor reload
+operations require review rather than replacement.
+
+Policy copies are parsed privately before atomic publication. Missing or failed
+addon preparation retains native configuration. Native fallback retains native
+policies; it does not claim a completed ClamShield scan. The selector and drop-in
+are journaled with exact ownership. Disable/uninstall removes owned integration
+and regenerates native configuration from current sources. Later administrator
+edits to the selector are preserved and require review before removal.

@@ -106,6 +106,7 @@ class IntegrationTests(unittest.TestCase):
         self.library=root/'owned-mail/local_scan.so';self.library.parent.mkdir()
         write(self.library.parent/'.clamshield-owner','clamshield\n',0o644);write(self.library,'old adapter',0o644)
         self.macro=root/'native/localmacros';self.macro.parent.mkdir()
+        self.default=root/'native/exim4.conf'
         self.guard=root/'systemd/exim4.service.d/clamshield-mail.conf'
         self.guard.parent.mkdir(parents=True)
         self.settings=Settings(state=root/'state');self.settings.prepare()
@@ -118,6 +119,7 @@ class IntegrationTests(unittest.TestCase):
         def fixture_fingerprint(path):
             return real_fingerprint(executable if Path(path)==Path('/usr/sbin/exim4') else path)
         patches=[patch('clamshield.mail_integration.LIBRARY',self.library),patch('clamshield.mail_integration.MACRO',self.macro),
+                 patch('clamshield.mail_integration.DEFAULT',self.default),patch('clamshield.native_acl_runtime.DEFAULT',self.default),
                  patch('clamshield.mail_integration.fingerprint',side_effect=fixture_fingerprint),
                  patch('clamshield.mail_runtime.fingerprint',side_effect=fixture_fingerprint),
                  patch('clamshield.mail_integration.GUARD',self.guard),
@@ -137,6 +139,7 @@ class IntegrationTests(unittest.TestCase):
         self.assertFalse(self.controller.disable()['enabled'])
         self.assertEqual('disabled',state(self.settings)['phase'])
         self.assertFalse(self.macro.exists());self.assertFalse(self.guard.exists())
+        self.assertFalse(self.default.exists())
         self.assertEqual(b'verified new adapter',self.library.read_bytes())
         self.assertTrue(all(not v['active'] and not v['enabled'] for v in self.controller.units.values()))
         self.assertTrue(self.controller.disable()['unchanged'])
@@ -216,6 +219,33 @@ class IntegrationTests(unittest.TestCase):
         write(self.macro,'foreign administrator macros',0o644)
         with self.assertRaises(Conflict):self.controller.enable()
         self.assertEqual('foreign administrator macros',self.macro.read_text())
+        self.assertFalse(self.controller.journal.exists());self.assertEqual(0,self.controller.restarts)
+
+    def test_foreign_default_and_later_admin_edit_are_preserved(self):
+        write(self.default,'administrator configuration\n',0o644)
+        with self.assertRaises(Conflict):self.controller.enable()
+        self.assertEqual('administrator configuration\n',self.default.read_text())
+        self.default.unlink();self.controller.enable()
+        write(self.default,self.default.read_text()+'# later administrator edit\n',0o644)
+        with self.assertRaises(Conflict):self.controller.disable()
+        self.assertTrue(self.default.read_text().endswith('# later administrator edit\n'))
+        self.assertFalse(self.controller.journal.exists())
+
+    def test_interrupted_default_publication_is_bound_to_journal_and_removed_on_rollback(self):
+        self.controller.begin('enable')
+        transaction=self.controller.transaction()
+        self.controller.put(transaction,self.default,'owned default candidate')
+        self.assertTrue(self.default.exists())
+        self.controller.recover()
+        self.assertFalse(self.default.exists());self.assertFalse(self.controller.journal.exists())
+
+    def test_default_created_during_preflight_is_not_snapshotted_as_replaceable(self):
+        original=self.controller.preflight
+        def preflight():
+            candidate=original();write(self.default,'concurrent administrator config\n',0o644);return candidate
+        self.controller.preflight=preflight
+        with self.assertRaises(Conflict):self.controller.enable()
+        self.assertEqual('concurrent administrator config\n',self.default.read_text())
         self.assertFalse(self.controller.journal.exists());self.assertEqual(0,self.controller.restarts)
 
     def test_crash_after_later_write_intent_can_restore_prior_intermediate_bytes(self):

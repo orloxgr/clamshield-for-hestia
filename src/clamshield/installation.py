@@ -413,11 +413,11 @@ class Installation:
     def detach_mail(self):
         from .store import Store
         from .hestia import Hestia
-        from .mail_integration import MailIntegration,MACRO,GUARD
+        from .mail_integration import MailIntegration,MACRO,GUARD,DEFAULT
         integration=MailIntegration(self.settings,Store(self.settings.database),Hestia(self.settings.hestia))
         if integration.journal.exists():integration.recover()
         result=integration.disable()
-        if GUARD.exists() or GUARD.is_symlink() or (MACRO.exists() and '/opt/clamshield' in MACRO.read_text()):
+        if GUARD.exists() or GUARD.is_symlink() or (MACRO.exists() and '/opt/clamshield' in MACRO.read_text()) or (DEFAULT.exists() and DEFAULT.read_text().startswith('# Managed by clamshield:')):
             raise Conflict('Untracked mail hook/guard remains; no integration files were removed')
         return result
 

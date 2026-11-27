@@ -16,6 +16,7 @@ from .errors import ClamShieldError,Conflict,EngineError
 from .mail_adapter import MailAdapter,native,trusted,sha
 from .mail_runtime import read,state,mode,fingerprint,submission_guard
 from .mail_bridge import process_start
+from .native_acl_runtime import DEFAULT,selector_text,verify_selector
 
 LIBRARY=Path('/opt/clamshield-mail/local_scan.so')
 MACRO=Path('/etc/exim4/exim4.conf.localmacros')
@@ -23,7 +24,8 @@ GUARD=Path('/etc/systemd/system/exim4.service.d/clamshield-mail.conf')
 HOOK_RUNTIME=Path('/run/clamshield-exim')
 HOOK_INCLUDE=HOOK_RUNTIME/'hook.conf'
 LEGACY_MACRO_TEXT='# Managed by clamshield\nlocal_scan_path = '+str(LIBRARY)+'\n'
-MACRO_TEXT='# Managed by clamshield\n.include_if_exists '+str(HOOK_INCLUDE)+'\n'
+PREVIOUS_MACRO_TEXT='# Managed by clamshield\n.include_if_exists '+str(HOOK_INCLUDE)+'\n'
+MACRO_TEXT='# Managed by clamshield\nCLAMSHIELD_NATIVE_CONFIG_INCLUDED=1\n.include_if_exists '+str(HOOK_INCLUDE)+'\n'
 UNITS=('clamshield-mail-clamd.service','clamshield-mail-spamd.service','clamshield-mail.service')
 
 
@@ -96,7 +98,15 @@ class MailIntegration:
 
     def begin(self,action):
         if self.journal.exists():raise Conflict('Mail integration recovery is pending')
-        files={str(p):self.snapshot(p) for p in (self.state,self.owner,LIBRARY,MACRO,GUARD)}
+        files={str(p):self.snapshot(p) for p in (self.state,self.owner,LIBRARY,MACRO,GUARD,DEFAULT)}
+        if action=='enable' and any(files[str(p)] is not None for p in (MACRO,GUARD,DEFAULT)):
+            raise Conflict('Native configuration appeared during activation; foreign files are preserved')
+        saved_default=files[str(DEFAULT)]
+        if action!='enable' and saved_default is not None:
+            current=state(self.settings)
+            if (not current or not current.get('acl_default_sha256') or
+                    saved_default['sha256']!=hashlib.sha256(selector_text().encode()).hexdigest()):
+                raise Conflict('Native default changed before its lifecycle snapshot; review is required')
         result=dict(owner='clamshield',schema=1,transaction_id=uuid.uuid4().hex,action=action,phase='prepared',files=files,expected={},units=self.unit_states())
         with submission_guard(self.settings,exclusive=True):write_json(self.journal,result)
         return result
@@ -104,7 +114,7 @@ class MailIntegration:
     def transaction(self):
         value=read(self.journal)
         if value is None:return None
-        paths={str(p) for p in (self.state,self.owner,LIBRARY,MACRO,GUARD)}
+        paths={str(p) for p in (self.state,self.owner,LIBRARY,MACRO,GUARD,DEFAULT)}
         if (not isinstance(value,dict) or value.get('owner')!='clamshield' or value.get('schema')!=1 or
                 value.get('action') not in ('enable','disable','refresh') or set(value.get('files',{}))!=paths or
                 set(value.get('units',{}))!=set(UNITS) or set(value.get('expected',{}))-paths):
@@ -178,6 +188,13 @@ class MailIntegration:
             raise EngineError('Native Exim did not stop before adapter refresh')
 
     def preflight(self):
+        from .native_acl_runtime import verify_unit
+        verify_unit(GUARD)
+        current=state(self.settings)
+        if current and current.get('acl_default_sha256'):
+            verify_selector()
+        elif DEFAULT.exists() or DEFAULT.is_symlink():
+            raise Conflict('Existing native Exim default configuration is preserved')
         if HOOK_RUNTIME.exists() or HOOK_RUNTIME.is_symlink():
             trusted(HOOK_RUNTIME,directory=True)
             current=state(self.settings)
@@ -265,7 +282,7 @@ class MailIntegration:
         touched_native=str(MACRO) in transaction['expected']
         self.phase(transaction,'rolling-back')
         if transaction['action'] in ('disable','refresh') and not touched_native:
-            for path in (LIBRARY,MACRO,GUARD):
+            for path in (LIBRARY,MACRO,GUARD,DEFAULT):
                 original=transaction['files'][str(path)]
                 current=self.snapshot(path)
                 if (None if current is None else current['sha256'])!=(None if original is None else original['sha256']):
@@ -274,7 +291,7 @@ class MailIntegration:
             self.journal.unlink();sync_directory(self.settings.state)
             return
         # Keep the broker alive until the native hook is restored/removed.
-        for path in (GUARD,MACRO):self.restore(transaction,path)
+        for path in (GUARD,MACRO,DEFAULT):self.restore(transaction,path)
         self.system('daemon-reload')
         if touched_native:self.restart_native()
         for unit in reversed(UNITS):self.system('stop',unit)
@@ -328,7 +345,10 @@ class MailIntegration:
         from .native_spam_safety import NativeSpamSafety
         NativeSpamSafety(self.settings).restore()
         self.clear_native_activation()
-        self.phase(transaction,'detaching');self.put(transaction,MACRO,None)
+        self.phase(transaction,'detaching')
+        if DEFAULT.exists() or DEFAULT.is_symlink():
+            verify_selector();self.put(transaction,DEFAULT,None)
+        self.put(transaction,MACRO,None)
         # Stop while the old unit still declares RuntimeDirectory. Removing the
         # drop-in and daemon-reloading first loses systemd's cleanup ownership
         # and leaves an orphan that correctly blocks the next activation.
@@ -343,10 +363,17 @@ class MailIntegration:
     def refresh_reasons(self,current):
         if current is None or current['phase']!='active':return []
         # Refresh may replace a known old adapter, never bless foreign edits.
-        if (sha(LIBRARY)!=current['adapter']['library_sha256'] or MACRO.read_text() not in (MACRO_TEXT,LEGACY_MACRO_TEXT) or
+        if (sha(LIBRARY)!=current['adapter']['library_sha256'] or MACRO.read_text() not in (MACRO_TEXT,PREVIOUS_MACRO_TEXT,LEGACY_MACRO_TEXT) or
                 sha(GUARD)!=current.get('guard_sha256',hashlib.sha256(self.guard_text().encode()).hexdigest())):
             raise Conflict('Mail hook, guard or library changed; automatic refresh requires review')
         reasons=[]
+        if current.get('acl_default_sha256'):
+            verify_selector()
+            if current['acl_default_sha256']!=hashlib.sha256(selector_text().encode()).hexdigest():
+                raise Conflict('Native ACL selector receipt changed; review is required')
+        else:
+            if DEFAULT.exists() or DEFAULT.is_symlink():raise Conflict('Foreign native Exim default configuration retained')
+            reasons.append('native-acl-lifecycle')
         if MACRO.read_text()!=MACRO_TEXT:reasons.append('startup-hook')
         elif '.include_if_exists ' in MACRO_TEXT and not runtime_hook_ready():reasons.append('startup-hook')
         if current['adapter']['native']!=native():reasons.append('native-package')
@@ -376,7 +403,7 @@ class MailIntegration:
         current_source=sha(MailAdapter(self.settings).source)
         if (target['adapter']['native']==current_native and target['code_generation']==current_code and
                 target['adapter']['source_sha256']==current_source):return target
-        for path in (LIBRARY,MACRO,GUARD):
+        for path in (LIBRARY,MACRO,GUARD,DEFAULT):
             key=str(path);before=transaction['files'][key];actual=self.snapshot(path)
             allowed={None if before is None else before['sha256']}|set(transaction['expected'].get(key,[]))
             if (None if actual is None else actual['sha256']) not in allowed:
@@ -390,7 +417,8 @@ class MailIntegration:
         previous.append(dict(adapter=target['adapter']['generation'],code_generation=target['code_generation'],
                              native=target['adapter']['native'],source_sha256=target['adapter']['source_sha256'],superseded_at=time.time()))
         value=dict(target,adapter=candidate,code_generation=current_code,last_refresh_rebases=len(previous),
-                   guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest(),refreshed_at=time.time(),runtime={})
+                   guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest(),
+                   acl_default_sha256=hashlib.sha256(selector_text().encode()).hexdigest(),refreshed_at=time.time(),runtime={})
         transaction['rebases']=previous
         self.commit(transaction,value)
         return value
@@ -425,6 +453,7 @@ class MailIntegration:
             raise EngineError('Frozen mail adapter changed before activation')
         self.put(transaction,LIBRARY,content)
         self.put(transaction,MACRO,MACRO_TEXT)
+        self.put(transaction,DEFAULT,selector_text())
         self.put(transaction,GUARD,self.guard_text())
         self.record(transaction,dict(target,phase='recovering',runtime={}))
         self.system('daemon-reload')
@@ -447,7 +476,8 @@ class MailIntegration:
             self.record(transaction,dict(current,phase='draining'))
             self.phase(transaction,'draining');self.drain(inflight_only=True)
             target=dict(current,phase='active',adapter=candidate,code_generation=self.code_identity(),
-                        guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest(),refreshed_at=time.time(),runtime={},last_refresh_rebases=0)
+                        guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest(),
+                        acl_default_sha256=hashlib.sha256(selector_text().encode()).hexdigest(),refreshed_at=time.time(),runtime={},last_refresh_rebases=0)
             self.commit(transaction,target)
             return self.finish_refresh(transaction,target)
         except Exception:
@@ -542,6 +572,7 @@ class MailIntegration:
             if any(row['active'] for row in self.unit_states().values()):raise Conflict('Untracked owned mail services must be reviewed before activation')
             if MACRO.exists() or MACRO.is_symlink():raise Conflict('Existing Exim local macros are not replaced; review the integration conflict')
             if GUARD.exists() or GUARD.is_symlink():raise Conflict('Existing Exim ClamShield guard must be reviewed')
+            if DEFAULT.exists() or DEFAULT.is_symlink():raise Conflict('Existing native Exim default configuration is preserved')
             parent=LIBRARY.parent
             if not parent.exists():parent.mkdir(mode=0o755);parent.chmod(0o755);write(parent/'.clamshield-owner','clamshield\n',0o644)
             trusted(parent,directory=True);trusted(parent/'.clamshield-owner')
@@ -550,7 +581,8 @@ class MailIntegration:
             candidate=self.preflight();transaction=self.begin('enable')
             try:
                 value=dict(owner='clamshield',schema=1,phase='starting',adapter=candidate,runtime={},code_generation=self.code_identity(),
-                           guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest())
+                           guard_sha256=hashlib.sha256(self.guard_text().encode()).hexdigest(),
+                           acl_default_sha256=hashlib.sha256(selector_text().encode()).hexdigest())
                 self.record(transaction,value)
                 self.put(transaction,LIBRARY,(self.settings.mail_adapters/candidate['generation']/'local_scan.so').read_bytes())
                 self.put(transaction,GUARD,self.guard_text());self.system('daemon-reload')
@@ -558,6 +590,7 @@ class MailIntegration:
                 for unit in self.service_units():self.system('enable',unit);self.system('start',unit)
                 self.ready();self.phase(transaction,'attaching')
                 self.put(transaction,MACRO,MACRO_TEXT)
+                self.put(transaction,DEFAULT,selector_text())
                 value['runtime']={str(path):fingerprint(path) for path in (LIBRARY,MACRO,Path('/usr/sbin/exim4'))}
                 self.record(transaction,value);self.restart_native();self.wait_connected()
                 value['runtime']=self.guard()['runtime']
@@ -593,8 +626,10 @@ class MailIntegration:
                 return {'enabled':False,'unchanged':True,**restored}
             # Detaching a known owned hook must remain possible after a native
             # package change, even when the old adapter is no longer usable.
-            if MACRO.read_text() not in (MACRO_TEXT,LEGACY_MACRO_TEXT) or not GUARD.read_text().startswith('# Managed by clamshield\n'):
+            if MACRO.read_text() not in (MACRO_TEXT,PREVIOUS_MACRO_TEXT,LEGACY_MACRO_TEXT) or not GUARD.read_text().startswith('# Managed by clamshield\n'):
                 raise Conflict('Native mail hook/guard ownership changed; review is required')
+            if current.get('acl_default_sha256'):verify_selector()
+            elif DEFAULT.exists() or DEFAULT.is_symlink():raise Conflict('Foreign native Exim default configuration retained')
             transaction=self.begin('disable')
             try:
                 value=dict(current,phase='draining');self.record(transaction,value)
@@ -636,10 +671,12 @@ class MailIntegration:
         compatible=(sha(Path('/usr/sbin/exim4'))==current['adapter']['native'].get('binary_sha256') if startup else current['adapter']['native']==native())
         if not compatible or current['adapter']['library_sha256']!=sha(LIBRARY):
             raise EngineError('Native Exim/adapter changed; prepare and refresh integration before startup')
-        if MACRO.read_text() not in ((MACRO_TEXT,) if startup else (MACRO_TEXT,LEGACY_MACRO_TEXT)):
+        startup_macros=(MACRO_TEXT,) if current.get('acl_default_sha256') else (MACRO_TEXT,PREVIOUS_MACRO_TEXT)
+        if MACRO.read_text() not in (startup_macros if startup else (MACRO_TEXT,PREVIOUS_MACRO_TEXT,LEGACY_MACRO_TEXT)):
             raise EngineError('Owned Exim hook changed')
         if current['adapter']['source_sha256']!=sha(MailAdapter(self.settings).source):
             raise EngineError('Addon adapter source changed; prepare and refresh integration')
+        if current.get('acl_default_sha256'):verify_selector()
         if check_configuration:
             parsed=subprocess.run(['/usr/sbin/exim4','-bP','local_scan_path'],capture_output=True,text=True,timeout=5)
             if parsed.returncode or parsed.stdout.strip()!='local_scan_path = '+str(LIBRARY):
@@ -652,8 +689,9 @@ class MailIntegration:
         """Publish an optional hook only after exact byte/ABI identity checks.
 
         systemd supplies an empty owned RuntimeDirectory on every native start.
-        This method neither regenerates native configuration nor starts/stops a
-        service. Failure leaves the optional include absent and native mail up.
+        The native unit independently generates its owned baseline, even if the
+        addon is missing. The parsed policy includes its verified adapter
+        binding in the same publication. Failure leaves native mail up.
         """
         trusted(HOOK_RUNTIME,directory=True)
         if HOOK_INCLUDE.exists() or HOOK_INCLUDE.is_symlink():
@@ -661,14 +699,22 @@ class MailIntegration:
             if HOOK_INCLUDE.read_text()!='local_scan_path = '+str(LIBRARY)+'\n':
                 raise Conflict('Foreign runtime hook configuration retained')
             HOOK_INCLUDE.unlink();sync_directory(HOOK_RUNTIME)
+        from . import native_acl_runtime
+        native_acl_runtime.clear_policy()
         try:
             result=self.guard(check_configuration=False,startup=True)
             if not result.get('guarded') or result.get('disabling') or result.get('recovering'):
                 return {'hook_enabled':False,'native_fallback':True}
-            # The include is the final publication, never an early readiness flag.
+            # A rollback can restore the preceding owned optional-hook layout.
+            # It has no selector and must not depend on a newer derived config.
+            previous=(not DEFAULT.exists() and not DEFAULT.is_symlink() and MACRO.read_text()==PREVIOUS_MACRO_TEXT and
+                      not state(self.settings).get('acl_default_sha256'))
+            policy=None if previous else native_acl_runtime.prepare()
+            # The hook file also records readiness for the native antivirus gate.
             write(HOOK_INCLUDE,'local_scan_path = '+str(LIBRARY)+'\n',0o644)
-            return {'hook_enabled':True,'native_fallback':False}
-        except (OSError,ValueError,KeyError,TypeError,ClamShieldError):
+            return {'hook_enabled':True,'native_fallback':False,'native_acl':policy}
+        except (OSError,ValueError,KeyError,TypeError,subprocess.SubprocessError,ClamShieldError):
+            native_acl_runtime.clear_policy()
             return {'hook_enabled':False,'native_fallback':True,'error':'Hook compatibility check failed; native mail retained'}
 
     def status(self):
