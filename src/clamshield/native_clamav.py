@@ -138,7 +138,7 @@ class NativeClamAV(ClamAV):
             with self.connection(deadline) as connection:
                 connection.sendall(b'zVERSION\0')
                 value=_read(connection,deadline,maximum=4096).rstrip(b'\0\n').decode('ascii')
-            if not value.startswith('ClamAV ') or len(value)>512:
+            if not value.startswith('ClamAV ') or len(value)>512 or any(ord(char)<32 or ord(char)==127 for char in value):
                 raise EngineError('Native ClamAV returned an invalid version')
             return value
         except (OSError,UnicodeError) as exc:raise EngineError('Native ClamAV version is unavailable') from exc

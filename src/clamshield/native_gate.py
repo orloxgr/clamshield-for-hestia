@@ -14,7 +14,7 @@ import stat
 import struct
 import time
 
-from .errors import AccessDenied, ClamShieldError, EngineError
+from .errors import AccessDenied, EngineError
 from .mail_bridge import SEALS
 from .signature_catalog import validate_origin
 
@@ -104,6 +104,7 @@ class NativeGate:
             command=bytes(request[:-1])
             if command[:1] in (b'z',b'n'):command=command[1:]
             if command==b'PING':
+                self.client.version()
                 reply=b'PONG'
             elif command in (b'VERSION',b'VERSIONCOMMANDS'):
                 reply=self.client.version().encode('ascii')

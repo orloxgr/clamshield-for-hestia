@@ -86,6 +86,8 @@ class NativeGateTests(unittest.TestCase):
                 self.assertIn(b'ERROR',self.exchange(command,uid=uid))
         self.client.scan_snapshot.assert_not_called()
         self.assertEqual(b'PONG\0',self.exchange(b'zPING\0'))
+        self.client.version.side_effect=EngineError('Native daemon stopped')
+        self.assertIn(b'ERROR',self.exchange(b'PING\n'))
 
     def test_capture_rejects_symlinks_hardlinks_and_special_files(self):
         self.path.unlink();self.path.symlink_to('/etc/hosts')
