@@ -236,7 +236,7 @@ class MailClamAV:
             raise EngineError('Mail ClamAV is unavailable or timed out') from exc
 
     @staticmethod
-    def parse(response, name):
+    def parse(response, name, *, allow_coverage=False):
         prefix = os.fsencode(name) + b': '
         if not response.endswith(b'\0'):
             raise EngineError('Mail ClamAV returned a truncated report')
@@ -257,7 +257,7 @@ class MailClamAV:
             signature = re.sub(r' \([0-9a-fA-F]{32}:[0-9]+\)$', '', signature)
             if not 1 <= len(signature) <= 512 or any(ord(c) < 32 or ord(c) == 127 for c in signature):
                 raise EngineError('Mail ClamAV returned an invalid signature')
-            if signature.startswith(('Heuristics.Limits.Exceeded', 'Heuristics.Encrypted')):
+            if not allow_coverage and signature.startswith(('Heuristics.Limits.Exceeded', 'Heuristics.Encrypted')):
                 raise EngineError('Mail ClamAV coverage is incomplete')
             if signature not in results:
                 results.append(signature)

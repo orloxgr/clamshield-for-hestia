@@ -133,17 +133,17 @@ class Resources:
         if check and value.returncode:raise EngineError('Owned service resource operation failed')
         return value
 
-    def inspect(self,key):
-        unit=SERVICES[key][0]
+    def inspect(self,key,*,unit=None):
+        unit=unit or SERVICES[key][0]
         result=self.system('show',unit,'-p','ActiveState','-p','UnitFileState','-p','MainPID','-p','ControlGroup',
-                           '-p','CPUQuotaPerSecUSec','-p','MemoryMax','-p','MemoryCurrent','-p','IOWeight')
+                           '-p','CPUQuotaPerSecUSec','-p','MemoryMax','-p','MemoryCurrent','-p','MemoryPeak','-p','IOWeight')
         fields=dict(line.split('=',1) for line in result.stdout.splitlines() if '=' in line)
         def numeric(name):
             value=fields.get(name,'')
             return int(value) if value.isdigit() and int(value)<2**63 else None
         info=dict(active=fields.get('ActiveState') in ('active','activating','deactivating') and bool(numeric('MainPID')),enabled=fields.get('UnitFileState')=='enabled',
                   pid=numeric('MainPID') or 0,cpu_percent=quota(fields.get('CPUQuotaPerSecUSec','infinity')),
-                  memory_bytes=numeric('MemoryMax'),memory_current=numeric('MemoryCurrent'),io_weight=numeric('IOWeight'),cgroup=None)
+                  memory_bytes=numeric('MemoryMax'),memory_current=numeric('MemoryCurrent'),memory_peak=numeric('MemoryPeak'),io_weight=numeric('IOWeight'),cgroup=None)
         group=fields.get('ControlGroup','')
         if info['active']:
             if not group.startswith('/') or '..' in Path(group).parts or not group.endswith('/'+unit):
@@ -151,17 +151,31 @@ class Resources:
             base=Path('/sys/fs/cgroup')/group.lstrip('/')
             cpu=(base/'cpu.max').read_text().split();weight=(base/'io.weight').read_text().split() if (base/'io.weight').exists() else []
             info['memory_current']=int((base/'memory.current').read_text())
+            if (base/'memory.peak').exists():info['memory_peak']=int((base/'memory.peak').read_text())
             info['cgroup']=dict(cpu_percent=None if cpu[0]=='max' else int(cpu[0])*100/int(cpu[1]),
                 memory_bytes=None if (base/'memory.max').read_text().strip()=='max' else int((base/'memory.max').read_text()),
                 io_weight=int(weight[1]) if len(weight)>=2 and weight[0]=='default' else None)
         return info
+
+    def native_status(self):
+        from .native_integration import enabled,NativeIntegration
+        if not enabled(self.settings):return None
+        value=self.inspect(None,unit='clamav-daemon.service')
+        value.update(title='Native ClamAV — websites and email',rss_bytes=None,pss_bytes=None)
+        if value['active']:
+            identity=NativeIntegration(self.settings).client().identity
+            if identity[0]!=value['pid']:raise EngineError('Native ClamAV changed during resource inspection')
+            path=Path('/proc')/str(value['pid'])/'smaps_rollup'
+            fields={line.split(':')[0]:int(line.split()[1])*1024 for line in path.read_text().splitlines() if line.startswith(('Rss:','Pss:'))}
+            value.update(rss_bytes=fields.get('Rss'),pss_bytes=fields.get('Pss'))
+        return value
 
     def status(self):
         try:
             value=self.configured();policy=value['policy'] if value else deepcopy(DEFAULTS)
             services={key:dict(title=row[1],**self.inspect(key)) for key,row in SERVICES.items()}
             memory={line.split(':')[0]:int(line.split()[1])*1024 for line in Path('/proc/meminfo').read_text().splitlines() if line.startswith(('MemTotal:','MemAvailable:'))}
-            return dict(policy=policy,configured=value is not None,revision=value['revision'] if value else None,
+            return dict(policy=policy,configured=value is not None,revision=value['revision'] if value else None,native_clamav=self.native_status(),
                 services=services,memory=memory,website_policy=website_policy(self.settings),recovery_pending=self.journal.exists() or self.website_journal.exists())
         except (OSError,ValueError,KeyError,TypeError,ClamShieldError,subprocess.SubprocessError):
             return dict(error='Resource state is unavailable or changed; inspect recovery',recovery_pending=self.journal.exists() or self.website_journal.exists())

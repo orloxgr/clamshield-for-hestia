@@ -150,18 +150,22 @@ class NativeIntegration:
             else:raise Conflict('Native AppArmor integration changed outside installation')
         rules=('# Managed by clamshield\n'+str(self.settings.signatures)+'/** r,\n'+
                BACKEND+' w,\n'+str(self.snapshots)+'/** r,\n')
+        digest=hashlib.sha256(rules.encode()).hexdigest()
         if AA_RULE.exists():
             NativeConfiguration.trusted(AA_RULE,16384)
-            if AA_RULE.read_text()!=rules:raise Conflict('Owned native AppArmor rules changed')
-        else:write(AA_RULE,rules,0o644)
-        value['apparmor_rule_sha256']=hashlib.sha256(rules.encode()).hexdigest();write_json(self.journal,value)
+            if value.get('apparmor_rule_sha256')!=digest or AA_RULE.read_text()!=rules:
+                raise Conflict('Owned native AppArmor rules changed or were not recorded')
+        else:
+            value['apparmor_rule_sha256']=digest;write_json(self.journal,value)
+            write(AA_RULE,rules,0o644)
         self.reload_apparmor()
 
     @staticmethod
     def reload_apparmor():
         profiles=Path('/sys/kernel/security/apparmor/profiles')
         if profiles.exists() and '/usr/sbin/clamd (' in profiles.read_text():
-            subprocess.run(['/usr/sbin/apparmor_parser','-r','/etc/apparmor.d/usr.sbin.clamd'],check=True,capture_output=True,timeout=20)
+            flags=['-r','-C'] if '/usr/sbin/clamd (complain)' in profiles.read_text() else ['-r']
+            subprocess.run(['/usr/sbin/apparmor_parser',*flags,'/etc/apparmor.d/usr.sbin.clamd'],check=True,capture_output=True,timeout=20)
 
     def restore_apparmor(self,value):
         if value.get('apparmor') and AA_LOCAL.exists():

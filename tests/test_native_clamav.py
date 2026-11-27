@@ -65,7 +65,12 @@ class NativeClamAVTests(unittest.TestCase):
         reservation.started.assert_called_once();reservation.complete.assert_not_called()
 
     def test_encrypted_content_is_explicit_incomplete_coverage(self):
-        with self.assertRaises(EncryptedContent):self.scan([b'Heuristics.Encrypted.Zip FOUND'])
+        reservation=Mock()
+        @contextmanager
+        def reserve(purpose,deadline):yield reservation
+        admission=Mock();admission.reserve=reserve
+        with self.assertRaises(EncryptedContent):self.scan([b'Heuristics.Encrypted.Zip FOUND'],admission=admission)
+        reservation.started.assert_called_once();reservation.complete.assert_called_once()
 
     def test_clean_and_extended_detection_reports(self):
         self.assertEqual([],self.scan([b'OK']))

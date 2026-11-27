@@ -16,6 +16,14 @@ from clamshield.signatures import Signatures
 
 @unittest.skipUnless(sys.platform=='linux' and os.geteuid()==0,'Root native integration orchestration')
 class NativeIntegrationTests(unittest.TestCase):
+    def test_reloading_native_apparmor_preserves_complain_mode(self):
+        with patch('clamshield.native_integration.Path') as path,patch('clamshield.native_integration.subprocess.run') as run:
+            path.return_value.exists.return_value=True
+            path.return_value.read_text.return_value='/usr/sbin/clamd (complain)\n'
+            NativeIntegration.reload_apparmor();self.assertIn('-C',run.call_args.args[0])
+            path.return_value.read_text.return_value='/usr/sbin/clamd (enforce)\n'
+            NativeIntegration.reload_apparmor();self.assertNotIn('-C',run.call_args.args[0])
+
     def test_gateway_refuses_catalog_for_a_generation_not_loaded_by_native_daemon(self):
         from clamshield.native_service import verify_generation
         native=Mock();native.scan.return_value=[{'signature':'Other.Generation.UNOFFICIAL'}]

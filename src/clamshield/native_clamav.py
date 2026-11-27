@@ -119,10 +119,12 @@ class NativeClamAV(ClamAV):
                     if reservation:reservation.started()
                     connection.sendall(b'zALLMATCHSCAN '+os.fsencode(name)+b'\0')
                     response=_read(connection,deadline)
-                if b': Heuristics.Encrypted' in response:
-                    raise EncryptedContent('Native ClamAV encountered encrypted content')
-                names=MailClamAV.parse(response,name)
+                names=MailClamAV.parse(response,name,allow_coverage=True)
                 if reservation:reservation.complete()
+                if any(hit.startswith('Heuristics.Encrypted') for hit in names):
+                    raise EncryptedContent('Native ClamAV encountered encrypted content')
+                if any(hit.startswith('Heuristics.Limits.Exceeded') for hit in names):
+                    raise CoverageUnavailable('Native ClamAV coverage is incomplete')
                 return names
         except OSError as exc:raise EngineError('Native ClamAV is unavailable or timed out') from exc
 

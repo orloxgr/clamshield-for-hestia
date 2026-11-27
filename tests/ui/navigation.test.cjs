@@ -238,6 +238,28 @@ test('provider Save timeout releases the form without claiming the server failed
     assert.equal(form.querySelector('[type="submit"]').disabled,false);assert.equal(form.getAttribute('aria-busy'),'false');
   }finally{await f.close();}
 });
+test('native resources show measured current and peak RAM separately from limits with one shared engine',async()=>{
+  const limits={cpu_percent:100,memory_mib:2048,io_weight:100};
+  const f=fixture({hash:'#settings/resources',change:v=>{
+    const service={active:false,memory_current:0,memory_bytes:2147483648,cpu_percent:100,io_weight:100};
+    v.resources={policy:{website_clamav:limits,mail_clamav:limits,website_worker:limits},
+      services:{website_clamav:{...service,title:'Website ClamAV'},mail_clamav:{...service,title:'Email ClamAV'},website_worker:{...service,title:'Website worker'}},
+      memory:{MemTotal:4294967296,MemAvailable:2147483648},recovery_pending:false,website_policy:{enabled:true},
+      native_clamav:{active:true,memory_current:1073741824,memory_peak:1610612736,memory_bytes:null,rss_bytes:1006632960,pss_bytes:996147200}};
+  }});
+  try{
+    const view=f.document.querySelector('[data-page="resources"]');assert.match(view.textContent,/One shared native engine/);
+    assert.match(view.textContent,/Service RAM now/);assert.match(view.textContent,/1024 MiB/);
+    assert.match(view.textContent,/Service peak since start/);assert.match(view.textContent,/1536 MiB/);
+    assert.match(view.textContent,/Configured service memory limit/);assert.match(view.textContent,/Unlimited/);
+    assert.equal(view.querySelectorAll('input[type="number"][name^="website_clamav."]').length,0);
+    assert.equal(view.querySelectorAll('input[type="number"][name^="mail_clamav."]').length,0);
+    assert.equal(view.querySelectorAll('input[type="hidden"][name^="mail_clamav."]').length,3);
+    assert.match(view.querySelector('[data-action="website-engine-stop"]').textContent,/Disable website ClamAV scanning/);
+    assert.match(view.textContent,/leaves the native daemon running for email/);
+  }finally{await f.close();}
+});
+
 test('server-wide database controls are shared and preserve saved choices until explicit save',async()=>{
   const f=fixture({hash:'#settings/provider-settings',change:v=>{
     v.providers.securiteinfo.plan='professional';v.providers.securiteinfo.databases=['securiteinfo.ign2','securiteinfo.pdb'];
