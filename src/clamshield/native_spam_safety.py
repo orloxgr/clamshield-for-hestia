@@ -144,6 +144,29 @@ class NativeSpamSafety:
         result=subprocess.run(['/usr/bin/systemctl','try-restart',service['unit']],capture_output=True,timeout=45)
         if result.returncode:raise EngineError('Native SpamAssassin restart failed; review required, no automatic retry')
 
+    @staticmethod
+    def listening():
+        from .native_spam_client import endpoint
+        for name in ('tcp','tcp6'):
+            with open('/proc/net/'+name) as stream:data=stream.read(4*1024**2+1)
+            if len(data)>4*1024**2:raise EngineError('Native TCP inventory exceeded its limit')
+            for line in data.splitlines()[1:]:
+                fields=line.split()
+                if len(fields)>9 and fields[3]=='0A' and endpoint(fields[1])==('127.0.0.1',783):return True
+        return False
+
+    def wait_listener(self,service):
+        # A forking native unit may finish starting before its TCP listener is
+        # bound. Observe that same process; never issue another service action
+        # or submit a scan until a listener exists. The scan authenticates its
+        # accepted peer separately before sending any bytes.
+        until=time.monotonic()+15
+        while True:
+            if self.service()!=service:raise Conflict('Native SpamAssassin changed while its listener was starting')
+            if self.listening():return
+            if time.monotonic()>=until:raise EngineError('Native SpamAssassin listener did not become ready')
+            time.sleep(.05)
+
     def probe(self,revision):
         from .native_spam_client import NativeSpamAssassin
         raw=('From: probe@localhost\r\nTo: probe@localhost\r\nSubject: Native configuration proof\r\nX-ClamShield-Native-Safety: '+revision+'\r\n\r\nClamShield local native configuration proof.\r\n').encode()
@@ -177,16 +200,18 @@ class NativeSpamSafety:
                     if value['expected'][str(path)] is None or value['expected'][str(path)]['sha256']!=hashlib.sha256(data).hexdigest():
                         value['pending']=dict(path=str(path),sha256=hashlib.sha256(data).hexdigest());write_json(self.path,value)
                         write(path,data,0o644);value['expected']=self.files();del value['pending'];write_json(self.path,value);changed=True
-                self.verify_catalog(self.inspect())
+                value['phase']='inspecting-active-config';write_json(self.path,value);self.verify_catalog(self.inspect())
                 if service['active']:
                     if changed:
                         value['phase']='restart-intent';write_json(self.path,value);self.restart(service)
                     probed=self.service();probed_stamp=self.configuration_stamp()
                     if not probed['active']:raise Conflict('Native SpamAssassin stopped before its live proof')
+                    value['phase']='waiting-native-listener';write_json(self.path,value);self.wait_listener(probed)
+                    value['phase']='verifying-native-daemon';write_json(self.path,value)
                     self.probe(revision)
                     if self.service()!=probed or self.configuration_stamp()!=probed_stamp:
                         raise Conflict('Native SpamAssassin changed during its live proof')
-                value.update(state='active',verified_service=probed if service['active'] else service,
+                value.update(state='active',phase='verified' if service['active'] else 'configured-inactive',verified_service=probed if service['active'] else service,
                              stamp=probed_stamp if service['active'] else self.configuration_stamp());write_json(self.path,value)
             except Exception:
                 value['state']='review';write_json(self.path,value);raise

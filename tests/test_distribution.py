@@ -34,6 +34,9 @@ class DistributionTests(unittest.TestCase):
             shutil.copyfile(ROOT / 'tools/spamassassin-report.pm', helper.with_name('spamassassin-report.pm'))
             with self.assertRaisesRegex(RuntimeError,'signature-memory-probe.py is missing'):installer.validate_source()
             shutil.copyfile(ROOT/'tools/signature-memory-probe.py',helper.with_name('signature-memory-probe.py'))
+            for name in ('native-spam-config.pl','native-spam-safety.pm'):
+                with self.assertRaisesRegex(RuntimeError,name+' is missing'):installer.validate_source()
+                shutil.copyfile(ROOT/'tools'/name,helper.with_name(name))
             installer.validate_source()
 
     def test_source_archive_retains_exact_runtime_helper_bytes(self):
@@ -43,7 +46,7 @@ class DistributionTests(unittest.TestCase):
             root = Path(temp)
             for name in ('README.md', 'LICENSE', 'pyproject.toml', 'entry.py', 'tools/install.py',
                          'tools/uninstall.py', 'tools/package.py', 'tools/spamassassin-config.pl', 'tools/spamassassin-report.pm','tools/signature-memory-probe.py',
-                         'src/clamshield/__init__.py'):
+                         'tools/native-spam-config.pl','tools/native-spam-safety.pm','src/clamshield/__init__.py'):
                 destination = root / name
                 destination.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(ROOT / name, destination)
@@ -61,3 +64,5 @@ class DistributionTests(unittest.TestCase):
                 self.assertEqual((ROOT / 'tools/spamassassin-report.pm').read_bytes(), archive.extractfile(reporter).read())
                 probe=archive.getmember(prefix+'/tools/signature-memory-probe.py')
                 self.assertEqual((ROOT/'tools/signature-memory-probe.py').read_bytes(),archive.extractfile(probe).read())
+                for name in ('native-spam-config.pl','native-spam-safety.pm'):
+                    self.assertEqual((ROOT/'tools'/name).read_bytes(),archive.extractfile(prefix+'/tools/'+name).read())

@@ -25,7 +25,7 @@ class NativeSpamSafetyTests(unittest.TestCase):
         self.catalog=dict(rules=[dict(name='RCVD_IN_VALIDITY_FUTURE_BLOCKED',description='Access failure',scores=[0]*4),dict(name='LEGITIMATE',description='Content signal',scores=[2.395]*4)])
         self.manager.inspect=Mock(side_effect=lambda text='':self.catalog)
         self.manager.configuration_stamp=Mock(return_value='same-configuration')
-        self.manager.probe=Mock();self.manager.restart=Mock(side_effect=self.restart)
+        self.manager.probe=Mock();self.manager.restart=Mock(side_effect=self.restart);self.manager.wait_listener=Mock()
 
     def restart(self,service):
         value=self.manager.receipt();self.assertEqual('restart-intent',value['phase'])
@@ -104,6 +104,18 @@ class NativeSpamSafetyTests(unittest.TestCase):
         with self.assertRaises(Conflict):self.manager.ensure()
         self.assertFalse(self.manager.status()['verified'])
         self.assertEqual(1,self.manager.restart.call_count)
+
+    def test_waits_for_same_native_process_listener_without_restarting_or_scanning(self):
+        manager=NativeSpamSafety(self.settings);manager.service=Mock(return_value=dict(self.active))
+        manager.listening=Mock(side_effect=[False,False,True]);manager.probe=Mock();manager.restart=Mock()
+        with patch('clamshield.native_spam_safety.time.sleep') as sleep:manager.wait_listener(self.active)
+        self.assertEqual(2,sleep.call_count);manager.probe.assert_not_called();manager.restart.assert_not_called()
+        manager.service.return_value=dict(self.active,pid=999)
+        with self.assertRaises(Conflict):manager.wait_listener(self.active)
+
+    def test_missing_listener_times_out_without_repeating_any_service_action(self):
+        manager=NativeSpamSafety(self.settings);manager.service=Mock(return_value=dict(self.active));manager.listening=Mock(return_value=False)
+        with patch('clamshield.native_spam_safety.time.monotonic',side_effect=[0,16]),self.assertRaises(EngineError):manager.wait_listener(self.active)
 
     def test_preflight_nonzero_or_missing_score_sets_fail_before_owned_file_change(self):
         for scores in ([0,0,1,0],[None]*4,[0]):
