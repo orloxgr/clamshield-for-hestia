@@ -5,6 +5,7 @@ use warnings;
 use Mail::SpamAssassin::Plugin;
 use JSON::PP;
 use Digest::SHA qw(sha256_hex);
+use Scalar::Util qw(blessed reftype);
 our @ISA = qw(Mail::SpamAssassin::Plugin);
 my $reporter_sha256;
 {
@@ -61,6 +62,29 @@ sub dns_observations {
     'dbl.spamhaus.org'=>qr/^127\.255\.255\.(?:254|255)$/,
   );
   my %seen = %{$pms->{clamshield_dns_observed} // {}};
+  # SA 4.x retains the actual resolver packets in its per-message AsyncLoop.
+  # Inspect this optional cache read-only: no extra provider queries, DNS labels
+  # in reports, or assumptions about missing replies/timeouts. An unfamiliar
+  # cache layout remains unknown. NXDOMAIN is a normal negative answer.
+  my $async = $pms->{async};
+  my $lookups = blessed($async) && $async->isa('Mail::SpamAssassin::AsyncLoop')
+    && (reftype($async) // '') eq 'HASH' ? $async->{all_lookups} : undef;
+  if (ref($lookups) eq 'HASH' && keys(%$lookups) <= 10000) {
+    for my $key (keys %$lookups) {
+      next unless length($key) <= 512 && $key =~ /^A\/([A-Za-z0-9_.-]+)$/i;
+      my $query = lc($1); $query =~ s/\.$//;
+      my $info = $lookups->{$key};
+      next unless ref($info) eq 'HASH' && !$info->{blocked} && defined $info->{id};
+      my $packet = $info->{pkt};
+      next unless blessed($packet) && $packet->isa('Net::DNS::Packet');
+      my $rcode = eval { $packet->header->rcode } // '';
+      next unless $rcode =~ /^(?:SERVFAIL|REFUSED|FORMERR|NOTIMP)$/;
+      for my $zone (keys %zones) {
+        next unless $query eq $zone || $query =~ /\.\Q$zone\E$/;
+        $seen{$zone} = 'failed' unless ($seen{$zone} // '') eq 'blocked';
+      }
+    }
+  }
   my $rbl = $pms->get_tag('RBL') // '';
   if (length($rbl) <= 262144) {
     for my $line (split /\n/, $rbl) {
@@ -74,7 +98,8 @@ sub dns_observations {
           next unless $ip =~ /^(?:\d{1,3}\.){3}\d{1,3}$/;
           next if grep { $_ > 255 } split /\./, $ip;
           my $state = $ip =~ $zones{$zone} ? 'blocked' : 'response-observed';
-          $seen{$zone} = $state unless ($seen{$zone} // '') eq 'blocked';
+          $seen{$zone} = $state if $state eq 'blocked' ||
+            (($seen{$zone} // '') ne 'blocked' && ($seen{$zone} // '') ne 'failed');
         }
       }
     }

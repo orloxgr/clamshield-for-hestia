@@ -64,7 +64,7 @@
       '\nEngine / rules: '+(sa.engine_version||'unrecorded')+' / '+(sa.rules_version||'unrecorded')+
       '\nConfiguration: '+(sa.revision||'unrecorded')+'\n'+
       (sa.dns_observations?.length?'DNS checks (no spam points for access failures):\n'+
-        sa.dns_observations.map(item=>item.zone+': '+(item.state==='blocked'?'Query blocked by provider — 0 points':'DNS response observed')).join('\n')+'\n':'');
+        sa.dns_observations.map(item=>item.zone+': '+({blocked:'Query blocked by provider — 0 points',failed:'DNS query failed — 0 points','response-observed':'DNS response observed'}[item.state]||'Unknown')).join('\n')+'\n':'');
   }
   function showPolicy(value) {
     current = value; permissions = value.permissions;

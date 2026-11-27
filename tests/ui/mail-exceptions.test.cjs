@@ -249,12 +249,12 @@ test('decision history exposes exact content identity for reviewing rejected-mes
 
 test('recorded DNS access failures are separate from score contributions in both history and stored preview',async()=>{
   const f=await fixture({spamassassin:{score:2.395,required_score:5,symbols:[],rules:[],
-    dns_observations:[{zone:'sa-trusted.bondedsender.org',state:'blocked'}]}});
+    dns_observations:[{zone:'sa-trusted.bondedsender.org',state:'blocked'},{zone:'sa-accredit.habeas.com',state:'failed'}]}});
   try{
     await until(()=>f.byId('history').textContent.includes('Query blocked by provider'));
     assert.match(f.byId('history').textContent,/0 points/);assert.match(f.byId('history').textContent,/2.395 \/ 5/);
     f.byId('quarantine').querySelector('button').click();await until(()=>f.byId('quarantine').textContent.includes('Query blocked by provider'));
-    assert.match(f.byId('quarantine').textContent,/2.395 \/ 5/);assert.match(f.byId('quarantine').textContent,/0 points/);
+    assert.match(f.byId('quarantine').textContent,/2.395 \/ 5/);assert.match(f.byId('quarantine').textContent,/0 points/);assert.match(f.byId('quarantine').textContent,/DNS query failed — 0 points/);
   }finally{f.close();}
 });
 

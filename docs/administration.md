@@ -450,6 +450,14 @@ shows installed base scores; the editor records applied overrides. Zone/list
 access also depends on the server resolver and provider restrictions. A saved
 toggle does not prove public-list access. Pyzor/Razor2/DCC are disabled by default.
 
+DNS query observations come from verified message scans. Provider-blocked replies
+and resolver error replies appear separately; neither adds administrative spam
+points. Resolver errors are observed passively from SpamAssassin 4.x's existing
+per-message packets. No extra queries are sent. Unsupported packet-cache layouts,
+missing answers and normal NXDOMAIN answers remain unknown. The displayed time
+is the last observation, not a live availability check. Individual mail decisions
+retain their own observations and the applied configuration revision.
+
 A saved ClamShield policy is not enforced while the integration is disconnected.
 The advanced integration controls remain available for maintenance and diagnosis.
 Foreign hook/library changes still require review; automatic activation does not

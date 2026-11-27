@@ -265,13 +265,14 @@ test('DNS observations stay unknown without evidence and excluding one zone pres
     v.spamassassin.policy.blocked_zones=['existing.test'];
     v.spamassassin.dns_observations=[
       {label:'Validity Certified',zone:'sa-trusted.bondedsender.org',state:'blocked',observation:{observed:1},action:'Review provider access',help_url:'https://example.test/help'},
+      {label:'Validity Safe',zone:'sa-accredit.habeas.com',state:'failed',observation:{observed:3},action:'Review resolver access',help_url:'https://example.test/help'},
       {label:'URIBL',zone:'multi.uribl.com',state:'unknown',observation:null,help_url:'https://example.test/help'},
       {label:'DNSWL',zone:'list.dnswl.org',state:'response-observed',observation:{observed:2},help_url:'https://example.test/help'}];
   }});
   try{
     const section=f.document.querySelector('[data-page="spamassassin"]');
     assert.match(section.textContent,/Unknown — no response recorded/);assert.match(section.textContent,/not live availability tests/);
-    assert.match(section.textContent,/DNS response observed/);assert.match(section.textContent,/Query blocked by provider/);
+    assert.match(section.textContent,/DNS query failed/);assert.match(section.textContent,/Review resolver access/);assert.match(section.textContent,/DNS response observed/);assert.match(section.textContent,/Query blocked by provider/);
     const form=f.document.getElementById('cs-spamassassin'),button=section.querySelector('[data-dns-exclude]');
     assert.equal(button.className,'button');button.click();button.click();assert.equal(f.requests.length,0);
     assert.equal(form.elements.blocked_zones.value,'existing.test\nsa-trusted.bondedsender.org');

@@ -37,7 +37,7 @@ INFRASTRUCTURE_RULES = INFRASTRUCTURE_RULES_V1 + (
     'URIBL_DBL_BLOCKED', 'URIBL_DBL_BLOCKED_OPENDNS',
     'URIBL_ZEN_BLOCKED', 'URIBL_ZEN_BLOCKED_OPENDNS',
 )
-SAFETY_VERSION = 2
+SAFETY_VERSION = 3
 REPORTER = Path('/opt/clamshield/tools/spamassassin-report.pm')
 
 
@@ -215,8 +215,10 @@ class SpamAssassinControls:
             if (allow_legacy and value['revision'] == revision(policy, legacy=True) and
                     self.active.read_text() == render(policy, legacy=True)):
                 return value
-            if (allow_legacy and value['revision']==revision(policy,safety_version=1) and
-                    self.active.read_text()==render(policy,safety_version=1)):return value
+            if allow_legacy:
+                for version in (1,2):
+                    if (value['revision']==revision(policy,safety_version=version) and
+                            self.active.read_text()==render(policy,safety_version=version)):return value
             raise EngineError('SpamAssassin configuration changed or requires safety activation')
         return value
 
@@ -387,10 +389,10 @@ class SpamAssassinControls:
                 policy = saved['metadata']['policy']
                 if saved['metadata']['revision'] == revision(policy, legacy=True):
                     self.probe(policy, legacy=True)
-                elif saved['metadata']['revision']==revision(policy,safety_version=1):
-                    self.probe(policy,safety_version=1)
                 else:
-                    self.probe(policy)
+                    previous=next((version for version in (1,2) if
+                                   saved['metadata']['revision']==revision(policy,safety_version=version)),None)
+                    self.probe(policy,**({'safety_version':previous} if previous else {}))
         self.journal.unlink(); sync_directory(self.settings.state)
 
     def recover(self):

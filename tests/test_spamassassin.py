@@ -157,6 +157,19 @@ class SpamAssassinControlsTests(unittest.TestCase):
         self.assertEqual({'safety_version':1},self.controls.probe.call_args.kwargs)
         self.assertEqual(revision(DEFAULTS,safety_version=1),self.controls.configured(allow_legacy=True)['revision'])
 
+    def test_dns_reporter_upgrade_preserves_version_two_policy_and_recovers_its_exact_revision(self):
+        policy=deepcopy(DEFAULTS)|dict(required_score=7.1,uribl_enabled=False,scores={'GTUBE':9})
+        text=render(policy,safety_version=2);write(self.controls.active,text,0o644)
+        write_json(self.controls.metadata,dict(policy=policy,revision=revision(policy,safety_version=2)))
+        self.controls.active_service=True;self.controls.probe=Mock(side_effect=[EngineError('New daemon failed'),{}])
+        with self.assertRaises(EngineError):self.controls.upgrade_safety()
+        self.assertEqual(text,self.controls.active.read_text());self.assertFalse(self.controls.journal.exists())
+        self.assertEqual({'safety_version':2},self.controls.probe.call_args.kwargs)
+        self.controls.probe=Mock()
+        self.assertTrue(self.controls.upgrade_safety());self.assertFalse(self.controls.upgrade_safety())
+        self.assertEqual(policy,self.controls.configured()['policy'])
+        self.assertNotEqual(revision(policy,safety_version=2),self.controls.configured()['revision'])
+
     def test_future_administrator_notices_cannot_use_default_scores_or_cached_process_proof(self):
         rule=dict(name='FUTURE_ACCESS_NOTICE',description='ADMINISTRATOR NOTICE: The query to example.test was blocked.',score=1,scores=[1]*4)
         with self.assertRaises(EngineError):self.controls.verify_infrastructure_scores(dict(rules=[rule]))

@@ -38,8 +38,9 @@ class LoopbackDns:
                 cursor+=1;kind,category=struct.unpack('!HH',wire[cursor:cursor+4]);cursor+=4
                 query='.'.join(labels).lower();matches=query.endswith('.'+self.zone) or query==self.zone
                 if matches:self.queries+=1
-                positive=matches and self.answer is not None and kind==1 and category==1
-                response=wire[:2]+struct.pack('!HHHHH',0x8180 if positive else 0x8183,1,int(positive),0,0)+wire[12:cursor]
+                error={'SERVFAIL':2,'REFUSED':5,'FORMERR':1,'NOTIMP':4}.get(self.answer) if matches else None
+                positive=matches and self.answer is not None and error is None and kind==1 and category==1
+                response=wire[:2]+struct.pack('!HHHHH',0x8180|error if error is not None else 0x8180 if positive else 0x8183,1,int(positive),0,0)+wire[12:cursor]
                 if positive:response+=b'\xc0\x0c'+struct.pack('!HHIH',1,1,30,4)+socket.inet_aton(self.answer)
                 self.socket.sendto(response,peer)
             except (ValueError,IndexError,struct.error,OSError) as error:self.errors.append(type(error).__name__)
@@ -64,6 +65,14 @@ class DnsHealthTests(unittest.TestCase):
         contents=self.health.path.read_text();self.assertNotIn('recipient',contents)
         self.assertEqual('blocked',self.health.read()[valid[0]['zone']]['state'])
         with self.assertRaises(ValueError):self.health.observe(dict(revision='invalid',dns_observations=valid))
+
+    def test_resolver_failures_are_retained_without_claiming_a_block_or_success(self):
+        zone='multi.uribl.com'
+        self.health.observe(dict(revision='b'*64,dns_observations=[dict(zone=zone,state='failed')]))
+        current=next(row for row in self.health.status(DEFAULTS,False) if row['zone']==zone)
+        self.assertEqual('failed',current['state']);self.assertEqual('b'*64,current['observation']['revision'])
+        self.health.observe(dict(revision='c'*64,dns_observations=[dict(zone=zone,state='response-observed')]))
+        self.assertEqual('response-observed',self.health.read()[zone]['state'])
 
     def test_absence_never_implies_availability_or_erases_an_observed_block(self):
         rows=self.health.status(DEFAULTS,None)
@@ -154,7 +163,7 @@ $status->finish();$message->finish();$sa->finish();
             self.assertEqual(0,detail['score']);self.assertEqual([],detail['rules'])
 
     @unittest.skipUnless(Path('/usr/bin/spamassassin').is_file(),'Real Ubuntu SpamAssassin and isolated DNS')
-    def test_actual_dns_blocked_reply_survives_zero_score_while_nxdomain_is_unknown(self):
+    def test_actual_dns_blocked_and_failure_replies_survive_zero_score_while_nxdomain_is_unknown(self):
         reporter=Path(__file__).resolve().parents[1]/'tools/spamassassin-report.pm'
         empty=self.root/'empty';empty.mkdir()
         script=r'''
@@ -169,7 +178,8 @@ my $status=$sa->check($message);print $status->get_report();
 $status->finish();$message->finish();$sa->finish();
 '''
         zone='sa-trusted.bondedsender.org'
-        for answer,wanted in (('127.255.255.255','blocked'),('127.0.0.2','response-observed'),(None,None)):
+        for answer,wanted in (('127.255.255.255','blocked'),('127.0.0.2','response-observed'),(None,None),
+                              ('SERVFAIL','failed'),('REFUSED','failed'),('FORMERR','failed'),('NOTIMP','failed')):
             with self.subTest(answer=answer),LoopbackDns(zone,answer) as dns:
                 config=self.root/'dns.cf'
                 config.write_text('\n'.join([
@@ -191,3 +201,39 @@ $status->finish();$message->finish();$sa->finish();
                 self.assertAlmostEqual(2.396 if wanted=='response-observed' else 2.395,detail['score'])
                 self.assertNotIn('RCVD_IN_VALIDITY_CERTIFIED_BLOCKED',{row['name'] for row in detail['rules']})
                 self.assertNotIn('8.8.8.8',result.stdout.decode())
+
+    @unittest.skipUnless(Path('/usr/bin/spamassassin').is_file(),'Real Ubuntu DNS packet parser')
+    def test_optional_lookup_cache_is_bounded_readonly_and_does_not_invent_timeouts(self):
+        reporter=Path(__file__).resolve().parents[1]/'tools/spamassassin-report.pm'
+        script=r'''
+use strict;use warnings;use JSON::PP;use Net::DNS;
+require shift;
+{package Fixture;sub get_tag {return $_[0]->{raw}//'';}}
+my $zone='multi.uribl.com';my $packet=Net::DNS::Packet->new('secret-key-and-recipient.'.$zone,'A');
+$packet->header->rcode('SERVFAIL');
+my $info={id=>'started',pkt=>$packet};my $key='A/secret-key-and-recipient.'.$zone;
+my $cache={$key=>$info};my $async=bless {all_lookups=>$cache},'Mail::SpamAssassin::AsyncLoop';
+my $pms=bless {async=>$async},'Fixture';my @results;
+push @results,ClamShield::Report::dns_observations($pms);
+die 'Observation mutated the cache' unless $cache->{$key}==$info && $info->{pkt}==$packet;
+$pms->{raw}='<dns:secret-key-and-recipient.multi.uribl.com> [127.0.0.2]';
+push @results,ClamShield::Report::dns_observations($pms);
+$pms->{raw}='<dns:secret-key-and-recipient.multi.uribl.com> [127.0.0.1]';
+push @results,ClamShield::Report::dns_observations($pms);
+$pms->{raw}='';
+for my $bad ({id=>'started'}, {id=>'started',pkt=>$packet,blocked=>'dns_query_restriction'},
+ {pkt=>$packet}, {id=>'started',pkt=>{}}, []) {
+ $cache->{$key}=$bad;push @results,ClamShield::Report::dns_observations($pms);
+}
+$async->{all_lookups}={map {('A/private'.$_=>{})} 1..10001};
+push @results,ClamShield::Report::dns_observations($pms);
+$pms->{async}={all_lookups=>{$key=>$info}};push @results,ClamShield::Report::dns_observations($pms);
+$pms->{async}=bless {all_lookups=>[]},'Mail::SpamAssassin::AsyncLoop';
+push @results,ClamShield::Report::dns_observations($pms);
+print JSON::PP->new->canonical->encode(\@results);
+'''
+        result=subprocess.run(['/usr/bin/perl','-e',script,str(reporter)],capture_output=True,timeout=5)
+        self.assertEqual(0,result.returncode,result.stderr.decode(errors='replace'))
+        rows=json.loads(result.stdout)
+        self.assertEqual([[dict(zone='multi.uribl.com',state=state)] for state in ('failed','failed','blocked')],rows[:3])
+        self.assertTrue(all(row==[] for row in rows[3:]));self.assertNotIn('secret',result.stdout.decode())

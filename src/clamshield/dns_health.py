@@ -22,7 +22,7 @@ PROVIDERS={
     'zen.spamhaus.org':('Spamhaus ZEN','both','https://www.spamhaus.org/returnc/pub/'),
     'dbl.spamhaus.org':('Spamhaus DBL','uribl','https://www.spamhaus.org/returnc/pub/'),
 }
-STATES={'blocked','response-observed'}
+STATES={'blocked','failed','response-observed'}
 
 
 def validate(observations):
