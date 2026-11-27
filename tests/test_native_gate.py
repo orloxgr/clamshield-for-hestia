@@ -67,6 +67,9 @@ class NativeGateTests(unittest.TestCase):
     def test_proven_supplemental_only_is_left_for_later_policy_but_unknown_stays_actionable(self):
         self.assertEqual([],baseline(['Spam.Selected.UNOFFICIAL'],origin))
         self.assertEqual(['Unknown.UNOFFICIAL'],baseline(['Unknown.UNOFFICIAL'],origin))
+        native=lambda _name:dict(provider='native',source_id='prior-native.ndb',source_version='fixture',category='malware',
+                                 attribution='exact-database-name')
+        self.assertEqual(['Native.Existing.UNOFFICIAL'],baseline(['Native.Existing.UNOFFICIAL'],native))
         self.client.scan_snapshot.return_value=['Spam.Selected.UNOFFICIAL']
         self.assertTrue(self.exchange(b'zSCAN '+os.fsencode(self.path)+b'\0').endswith(b': OK\0'))
 

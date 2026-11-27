@@ -33,7 +33,9 @@ class AttributedClamAV:
     def scan(self, path):
         detections = []
         for hit in self.engine.scan(path):
-            origin = validate_origin(self.resolver(hit['signature']))
+            origin = self.resolver(hit['signature'])
+            if origin is None:continue
+            origin=validate_origin(origin)
             detection=dict(hit, **origin, signature_generation=self.generation,
                            signature_content_sha256=self.content)
             kind=advisory_kind(origin)
@@ -63,6 +65,8 @@ def pinned(settings, engine, job_generation):
             manifest = manager.manifest()
             if not manifest or expected != manifest['generation']:
                 raise EngineError('Website signature generation changed after job pinning')
+            if profiles.shared(manifest) and getattr(engine,'all_matches',False) is not True:
+                raise EngineError('Shared native databases require complete all-match scan results')
             with SignatureCatalog(current.resolve(strict=True), manifest) as catalog:
                 with tempfile.NamedTemporaryFile(dir=settings.snapshots) as sample:
                     canary = profiles.canary(manifest, 'website')
@@ -73,7 +77,8 @@ def pinned(settings, engine, job_generation):
                 from .website_coverage import verify
                 verify(engine,settings)
                 entered = True
-                resolver = lambda signature: catalog.resolve(signature, sources=profiles.sources(manifest, 'website'))
+                lookup=catalog.selected if profiles.shared(manifest) else catalog.resolve
+                resolver = lambda signature: lookup(signature, sources=profiles.sources(manifest, 'website'))
                 yield AttributedClamAV(engine, resolver, manifest['generation'], manifest['content_sha256'])
                 return
         if expected != 'ubuntu-native':

@@ -217,6 +217,7 @@ def readable_snapshot(fd, directory, group):
 
 
 class MailClamAV:
+    all_matches=True
     def __init__(self, socket_path, directory, *, expected_uid, group, timeout=45):
         self.socket_path, self.directory = str(socket_path), Path(directory)
         self.expected_uid, self.group, self.timeout = expected_uid, group, timeout
@@ -328,6 +329,7 @@ class MailScanner:
         try:
             for signature in self.clamav.scan(fd, deadline=deadline):
                 origin = self.resolve_signature(signature)
+                if origin is None:continue
                 validate_origin(origin)
                 result['detections'].append({'engine': 'clamav', 'signature': signature, 'category': 'malware',
                                              'provider': 'unclassified', **origin})

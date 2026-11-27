@@ -71,7 +71,9 @@ def baseline(names,resolver):
         if not isinstance(name,str) or not re.fullmatch(r'[^\x00-\x1f\x7f]{1,512}',name):
             raise EngineError('Invalid native antivirus signature')
         origin=validate_origin(resolver(name))
-        if name.endswith('.UNOFFICIAL') and origin.get('attribution') in ('exact-database-name','ambiguous-name'):
+        origins=origin.get('origins') or [origin]
+        if (name.endswith('.UNOFFICIAL') and origin.get('attribution') in ('exact-database-name','ambiguous-name') and
+                all(item.get('provider') in ('local','securiteinfo','sanesecurity') for item in origins)):
             continue
         retained.append(name)
     return retained

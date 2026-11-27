@@ -171,7 +171,7 @@ class Signatures:
             shutil.rmtree(target); raise
 
     def validate_generation(self, stage, manifest):
-        if 'profiles' not in manifest:
+        if 'profiles' not in manifest or profiles.shared(manifest):
             return self.validate(stage, manifest)
         for profile in profiles.PROFILES:
             self.validate(profiles.directory(stage, manifest, profile), dict(manifest, canary=profiles.canary(manifest, profile)))

@@ -64,10 +64,13 @@ class GenerationMailScanner:
                     manifest = manager.manifest()
                     if not manifest:
                         raise EngineError('Invalid current signature generation')
+                    if profiles.shared(manifest) and getattr(self.clamav,'all_matches',False) is not True:
+                        raise EngineError('Shared native mail databases require complete all-match scan results')
                     with SignatureCatalog(current.resolve(strict=True), manifest) as catalog:
                         self._canary(manifest, deadline)
+                        lookup=catalog.selected if profiles.shared(manifest) else catalog.resolve
                         result = MailScanner(self.clamav, spamassassin, yara=self.yara,
-                            resolve_signature=lambda signature: catalog.resolve(signature, sources=profiles.sources(manifest, 'mail')),
+                            resolve_signature=lambda signature: lookup(signature, sources=profiles.sources(manifest, 'mail')),
                             timeout=max(.001, deadline-time.monotonic())).scan(fd)
                         result['signature_generation'] = manifest['generation']
                         result['signature_content_sha256'] = manifest['content_sha256']

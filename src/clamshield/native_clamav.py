@@ -53,6 +53,7 @@ def configuration(path=CONFIG):
 class NativeClamAV(ClamAV):
     """One bounded request per captured file; the distro daemon stays resident."""
     name='clamav'
+    all_matches=True
 
     def __init__(self,endpoint,directory,*,expected_uid,group,timeout=45,maximum=50*1024**2,admission=None,purpose='website'):
         self.socket_path=str(endpoint);self.directory=Path(directory)
@@ -145,6 +146,7 @@ class NativeClamAV(ClamAV):
 
 class NativeMailClamAV:
     """Mail's sealed-descriptor interface on the same native engine client."""
+    all_matches=True
     def __init__(self,client):
         self.client=client
 

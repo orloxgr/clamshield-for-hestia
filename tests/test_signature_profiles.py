@@ -1,5 +1,7 @@
 import hashlib
 import json
+import re
+import shutil
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,6 +15,8 @@ from clamshield.settings import Settings
 from clamshield.signature_catalog import SignatureCatalog
 from clamshield.signatures import Signatures
 from clamshield import signature_profiles as profiles
+from clamshield.website_generation import AttributedClamAV
+from clamshield.mail_scanners import MailScanner
 
 
 @unittest.skipUnless(Path('/usr/bin/clamscan').is_file() and Path('/usr/bin/sigtool').is_file(), 'Ubuntu ClamAV')
@@ -60,6 +64,52 @@ class SignatureProfiles(unittest.TestCase):
         with SignatureCatalog(self.stage,self.manifest) as catalog:
             self.assertEqual('spam',catalog.resolve('Mail.Spam.UNOFFICIAL',sources=profiles.sources(self.manifest,'mail'))['category'])
             self.assertEqual('unclassified',catalog.resolve('Mail.Spam.UNOFFICIAL',sources=profiles.sources(self.manifest,'website'))['provider'])
+
+    def test_shared_generation_loads_one_union_and_applies_website_and_mail_selections(self):
+        stage=self.manager.base/'generation-native-shared';stage.mkdir(mode=0o755)
+        for row in self.manifest['files']:shutil.copyfile(self.stage/row['name'],stage/row['name'])
+        manifest={key:self.manifest[key] for key in ('files','profiles','providers')}
+        manifest.update(generation=stage.name,engine_mode='native-shared')
+        self.manager.complete_stage(stage,manifest)
+        self.manager.verify_data(stage,manifest)
+        self.assertFalse((stage/'website').exists());self.assertFalse((stage/'mail').exists())
+        self.assertEqual(profiles.directory(stage,manifest,'website'),profiles.directory(stage,manifest,'mail'))
+        self.assertEqual(profiles.canary(manifest,'website'),profiles.canary(manifest,'mail'))
+        sample=self.base/'shared-payload';sample.write_bytes(b'INERT_SPAM_FIXTURE INERT_MALWARE_FIXTURE')
+        result=subprocess.run(['/usr/bin/clamscan','--allmatch','--no-summary','--database='+str(stage),str(sample)],
+                              capture_output=True,text=True,check=False)
+        self.assertEqual(1,result.returncode,result.stderr)
+        names=re.findall(r': (.+) FOUND',result.stdout)
+        self.assertEqual({'Mail.Spam.UNOFFICIAL','Shared.Malware.UNOFFICIAL'},set(names))
+        names.sort(key=lambda name:0 if name.startswith('Mail.') else 1)
+        with SignatureCatalog(stage,manifest) as catalog:
+            website=AttributedClamAV(Mock(scan=Mock(return_value=[dict(engine='clamav',signature=name) for name in names])),
+                lambda name:catalog.selected(name,sources=profiles.sources(manifest,'website')),stage.name,manifest['content_sha256'])
+            hits=website.scan(sample)
+            self.assertEqual(['Shared.Malware.UNOFFICIAL'],[hit['signature'] for hit in hits])
+            mail=MailScanner(Mock(scan=Mock(return_value=names)),
+                Mock(scan=Mock(return_value=dict(score=0,threshold=5,symbols=[]))),
+                resolve_signature=lambda name:catalog.selected(name,sources=profiles.sources(manifest,'mail')))
+            import os,fcntl
+            from clamshield.mail_bridge import SEALS
+            fd=os.memfd_create('shared-mail-test',os.MFD_ALLOW_SEALING)
+            try:
+                os.write(fd,sample.read_bytes());fcntl.fcntl(fd,fcntl.F_ADD_SEALS,SEALS)
+                report=mail.scan(fd)
+                self.assertTrue(report['complete']);self.assertEqual(2,len(report['detections']))
+                self.assertEqual(['spam','malware'],[hit['category'] for hit in report['detections']])
+            finally:os.close(fd)
+        extra=stage/'unexpected.ign2';extra.write_text('Shared.Malware\n')
+        with self.assertRaisesRegex(EngineError,'unexpected or missing'):
+            self.manager.verify_data(stage,manifest)
+
+    def test_shared_engine_rejects_incompatible_global_lists_instead_of_silently_suppressing_matches(self):
+        manifest=json.loads(json.dumps(self.manifest));manifest['engine_mode']='native-shared'
+        manifest['files'].append(dict(provider='local',name='local--global.ign2',sha256='a'*64,size=1))
+        manifest['profiles']['mail'].append('local--global.ign2')
+        manifest['profiles']['mail'].sort()
+        with self.assertRaisesRegex(EngineError,'engine-wide databases'):
+            profiles.validate_selection(manifest)
 
     def test_selection_only_change_changes_generation_identity_and_readiness(self):
         before=profiles.identity(self.manifest,1)

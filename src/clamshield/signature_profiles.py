@@ -11,15 +11,20 @@ from .provider_fetch import regular_copy
 PROFILES = ('website', 'mail')
 
 
+def shared(manifest):return manifest.get('engine_mode')=='native-shared'
+
+
 def identity(manifest, catalog_policy):
     value = {'files': manifest['files'], 'catalog_policy': catalog_policy}
     if 'profiles' in manifest:
         value['profiles'] = manifest['profiles']
+    if 'engine_mode' in manifest:value['engine_mode']=manifest['engine_mode']
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
 
 
 def canary(manifest, profile):
-    if 'profiles' not in manifest:
+    if profile not in PROFILES:raise EngineError('Unknown signature profile')
+    if 'profiles' not in manifest or shared(manifest):
         return manifest['canary']
     if profile not in PROFILES:
         raise EngineError('Unknown signature profile')
@@ -34,14 +39,18 @@ def canary_bytes(manifest, profile):
 
 
 def directory(stage, manifest, profile):
-    return Path(stage) / profile if 'profiles' in manifest else Path(stage)
+    if profile not in PROFILES:raise EngineError('Unknown signature profile')
+    return Path(stage) / profile if 'profiles' in manifest and not shared(manifest) else Path(stage)
 
 
 def sources(manifest, profile):
+    if profile not in PROFILES:raise EngineError('Unknown signature profile')
     return manifest.get('profiles', {}).get(profile)
 
 
 def validate_selection(manifest):
+    if manifest.get('engine_mode') not in (None,'native-shared'):
+        raise EngineError('Unknown signature engine mode')
     if 'profiles' not in manifest:
         return
     profiles = manifest['profiles']
@@ -55,10 +64,18 @@ def validate_selection(manifest):
             raise EngineError('Invalid signature profile selection')
     if set().union(*map(set, profiles.values())) != set(files):
         raise EngineError('Signature profile union differs from staged data')
+    if shared(manifest):
+        from .signature_catalog import SUPPORT
+        engine_wide={row['name'] for row in manifest['files'] if Path(row['name']).suffix in SUPPORT}
+        for purpose,names in profiles.items():
+            missing=engine_wide-set(names)
+            if missing:
+                raise EngineError('Native engine-wide databases must share one selection for websites and email: '+', '.join(sorted(missing)))
 
 
 def materialize(stage, manifest):
     validate_selection(manifest)
+    if shared(manifest):return
     for profile in manifest.get('profiles', {}):
         folder = directory(stage, manifest, profile); folder.mkdir(mode=0o755); folder.chmod(0o755)
         for name in manifest['profiles'][profile]:
@@ -72,6 +89,20 @@ def materialize(stage, manifest):
 def verify(stage, manifest):
     validate_selection(manifest)
     files = {row['name']: row for row in manifest['files']}
+    if shared(manifest):
+        from .signature_catalog import FILENAME
+        expected=set(files)|{'clamshield-generation.hdb','manifest.json',FILENAME}
+        expected|={name+'.sig' for name,row in files.items() if row['provider']=='sanesecurity'}
+        if {path.name for path in Path(stage).iterdir()}!=expected:
+            raise EngineError('Shared native database generation contains unexpected or missing files')
+        for name in expected:
+            info=(Path(stage)/name).lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid!=os.geteuid() or info.st_nlink!=1 or info.st_mode&0o022:
+                raise EngineError('Untrusted shared native database generation entry')
+        canary=Path(stage)/'clamshield-generation.hdb'
+        if canary.stat().st_size>4096 or canary.read_bytes()!=canary_bytes(manifest,'website'):
+            raise EngineError('Shared native database canary changed')
+        return
     for profile, names in manifest.get('profiles', {}).items():
         folder = directory(stage, manifest, profile); info = folder.lstat()
         if not stat.S_ISDIR(info.st_mode) or info.st_uid != os.geteuid() or info.st_mode & 0o022:
