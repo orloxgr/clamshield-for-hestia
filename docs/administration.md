@@ -347,9 +347,11 @@ Enabled. No manual adapter preparation or refresh is needed for normal activatio
 Unconfigured domains, including future domains, inherit enabled protection.
 Explicit handling overrides, sender lists and exceptions remain intact.
 Server activation takes precedence over old domain/mailbox activation toggles;
-customers cannot disable the server protection. Native Hestia antivirus/antispam/
-rejection flags retain their precedence. The toggle becomes **Disable mail
-protection** only with a verified active connection and enabled server defaults.
+customers cannot disable the server protection. Native baseline antivirus/spam
+rejection is retained for unmanaged recipients; managed verdicts follow their
+selected policy through the owned integrations described below. The toggle
+becomes **Disable mail protection** with a verified active connection and enabled
+server defaults; activation also verifies native rejection delegation.
 Disabling drains/detaches the connection and retains policies and quarantined
 email. Tenant users retain their delegated account controls; the global toggle
 requires native administrator authority.
