@@ -526,6 +526,12 @@ Shared packages, foreign extensions and protected private data remain.
 Configuration, credentials, history, signatures/rules, custody and release code
 are retained. There is no automatic purge option.
 
+Native ClamAV restoration is checked before its service is interrupted. A
+configuration conflict leaves the running scanner in place. If removal fails
+after stopping it, the controller attempts to resume the native scanner and,
+while still needed, its owned socket gateway. The recovery journal and later
+administrator edits remain available for review.
+
 Successful removal prints every remaining ClamShield directory, its contents
 and a separate `sudo rm -rf -- ...` command for manual deletion. The list includes
 service settings, the state directory (policies, credentials, history, website
