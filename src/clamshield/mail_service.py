@@ -166,10 +166,19 @@ class MailBroker:
         return {'items':items,'sha256':sha256,'plan':transaction_plan(decisions)}
 
     def handle(self,connection,*,expected_uid,expected_binary='/usr/sbin/exim4',request=None):
+        from .store import database_deadline
+        started=time.monotonic()
+        # The native adapter waits 30 seconds. Leave room for live owner
+        # verification and a fallback reply after any failed database operation.
+        with database_deadline(started+22):
+            return self._handle(connection,expected_uid=expected_uid,expected_binary=expected_binary,
+                                request=request,started=started)
+
+    def _handle(self,connection,*,expected_uid,expected_binary,request,started):
         replied=False;event=uuid.uuid4().hex;phase='receive';self.last_error=None;items=None
         try:
             if request is None:request=receive(connection,expected_uid=expected_uid,expected_binary=expected_binary,timeout=3)
-            self.hestia.deadline=time.monotonic()+25
+            self.hestia.deadline=started+25
             phase='reinjection';reinjected=self.delivery.authorize_reinjection(request)
             if reinjected:
                 respond(connection,Decision.ACCEPT,reinjected['attempt']);return 'reinjected'
@@ -208,6 +217,9 @@ class MailBroker:
                     # These decisions came from the sealed snapshot/current policies,
                     # never browser fields or sender-supplied status headers.
                     try:
+                        # Only the bounded fallback identity check may use this
+                        # reserve; it must still finish before the native timeout.
+                        self.hestia.deadline=started+27
                         tags=[];owners={}
                         if len(items)!=len(request.recipients):raise ClamShieldError('Changed native envelope')
                         for item in items:
@@ -224,14 +236,17 @@ class MailBroker:
                         else:tag_names={request.recipients[i].lower():name for i,code in enumerate(tags)
                                         for name,value in FALLBACK_TAGS.items() if code==value}
                     except (ClamShieldError,OSError,ValueError,KeyError,TypeError):tags=None;tag_names={}
-                if request is not None:
-                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted',native_fallback=not denied,
-                                             **({'fallback_tags':tag_names} if tags is not None else {}))
-                    except Exception:pass
                 try:
                     if tags is not None:respond(connection,Decision.TAGGED_FALLBACK,event,tags=tags)
                     else:respond(connection,Decision.DEFER if denied else Decision.NATIVE_FALLBACK,event)
                 except OSError:pass
+                # A diagnostic write must never hold the native reply behind a
+                # second database lock wait. It shares the exhausted request
+                # budget and cannot claim that a subject mark was observed.
+                if request is not None:
+                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted',native_fallback=not denied,
+                                             **({'fallback_tags':tag_names} if tags is not None else {}))
+                    except Exception:pass
             return 'error'
         finally:
             if request is not None:request.close()

@@ -330,6 +330,19 @@ class MailBrokerTests(unittest.TestCase):
                     self.assertFalse(detail['scan_complete']);self.assertEqual('deliver',detail['action'])
                     self.assertEqual('malware' if context==self.alice else None,detail.get('native_fallback_tag_requested'))
 
+    def test_known_tag_reply_precedes_any_second_failed_outcome_write(self):
+        import sqlite3
+        from clamshield.mail_service import respond as real_respond
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.report['detections']=[dict(engine='clamav',signature='Known.Malware',category='malware')]
+        broker=self.broker();events=[]
+        def reply(*args,**kwargs):events.append('reply');return real_respond(*args,**kwargs)
+        def outcome(*args,**kwargs):events.append('outcome');raise sqlite3.OperationalError('database is locked')
+        with patch.object(broker.policies,'record',side_effect=sqlite3.OperationalError('database is locked')),patch.object(broker.policies,'outcome',side_effect=outcome),patch('clamshield.mail_service.respond',side_effect=reply):
+            self.assertEqual((6,'error'),self.exchange(broker,tags_supported=True))
+        self.assertEqual(['reply','outcome'],events)
+        self.assertEqual((2).to_bytes(4,'big')+bytes([1,0]),self.last_response[44:])
+
     def test_fallback_does_not_guess_marks_for_older_adapter_or_unknown_verdict(self):
         self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
         for capability,hits in ((False,[dict(engine='clamav',signature='Known.Malware',category='malware')]),(True,[])):

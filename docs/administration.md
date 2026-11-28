@@ -836,3 +836,8 @@ state through Exim before removing the corresponding owned integration. Pending
 subject marks block removal until their native delivery finishes. An unreadable
 queue also retains the integration for review. This check does not run, resend
 or delete queued messages; unrelated native queued messages do not block removal.
+
+Mail requests bound SQLite lock waits to their request budget, reserving time
+for live owner verification and the native fallback reply. A failed diagnostic
+write cannot hold that reply behind a second lock wait. The database still uses
+FULL synchronous WAL commits; other workers retain their ordinary lock timeout.

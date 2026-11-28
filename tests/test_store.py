@@ -2,11 +2,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 import tempfile
 import sqlite3
+import time
 import unittest
 from unittest.mock import patch
 
 from clamshield.errors import AccessDenied, Conflict
-from clamshield.store import Store,SCHEMA
+from clamshield.store import Store,SCHEMA,database_deadline
 
 
 class ScopedStore(unittest.TestCase):
@@ -23,6 +24,37 @@ class ScopedStore(unittest.TestCase):
             with self.store.connection(immediate) as db:
                 self.assertEqual('wal', db.execute('PRAGMA journal_mode').fetchone()[0])
                 self.assertEqual(2, db.execute('PRAGMA synchronous').fetchone()[0])
+
+    def test_request_deadline_bounds_real_sqlite_write_contention_and_resets(self):
+        with self.store.connection(True):
+            started=time.monotonic()
+            with database_deadline(started+.08),self.assertRaises(sqlite3.OperationalError):
+                with self.store.connection(True):self.fail('Concurrent write lock unexpectedly acquired')
+            self.assertLess(time.monotonic()-started,1)
+        with self.store.connection() as db:
+            self.assertEqual(20000,db.execute('PRAGMA busy_timeout').fetchone()[0])
+            self.assertEqual(2,db.execute('PRAGMA synchronous').fetchone()[0])
+
+    def test_expired_request_does_not_open_database_and_nested_budget_cannot_extend(self):
+        with database_deadline(time.monotonic()-1),patch('clamshield.store.sqlite3.connect') as connect:
+            with self.assertRaisesRegex(sqlite3.OperationalError,'time budget'):
+                with self.store.connection():pass
+            connect.assert_not_called()
+        with database_deadline(time.monotonic()+2):
+            with database_deadline(time.monotonic()+20),self.store.connection() as db:
+                self.assertLessEqual(db.execute('PRAGMA busy_timeout').fetchone()[0],2000)
+        with self.store.connection() as db:self.assertEqual(20000,db.execute('PRAGMA busy_timeout').fetchone()[0])
+
+    def test_request_deadline_does_not_leak_to_other_workers_or_after_error(self):
+        def timeout():
+            with self.store.connection() as db:return db.execute('PRAGMA busy_timeout').fetchone()[0]
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            self.assertEqual(20000,pool.submit(timeout).result())
+            with self.assertRaises(RuntimeError):
+                with database_deadline(time.monotonic()-1):
+                    self.assertEqual(20000,pool.submit(timeout).result())
+                    raise RuntimeError('request failed')
+        self.assertEqual(20000,timeout())
 
     def test_account_and_recreated_account_cannot_read_or_cancel_old_job(self):
         job = self.store.enqueue(self.alice, self.site)

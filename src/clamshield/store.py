@@ -1,5 +1,6 @@
 """Durable scoped jobs, findings and retention-controlled audit records."""
 from contextlib import contextmanager
+from contextvars import ContextVar
 import fcntl
 import json
 import os
@@ -10,6 +11,19 @@ import time
 import uuid
 
 from .errors import AccessDenied, Conflict
+
+_DATABASE_DEADLINE = ContextVar('clamshield_database_deadline', default=None)
+
+
+@contextmanager
+def database_deadline(deadline):
+    """Bound lock waits in this request only; nested work cannot extend it."""
+    previous = _DATABASE_DEADLINE.get()
+    token = _DATABASE_DEADLINE.set(min(previous, deadline) if previous is not None else deadline)
+    try:
+        yield
+    finally:
+        _DATABASE_DEADLINE.reset(token)
 
 SCHEMA = '''
 PRAGMA foreign_keys=ON;
@@ -283,14 +297,20 @@ class Store:
 
     @contextmanager
     def connection(self, immediate=False):
-        db = sqlite3.connect(self.path, timeout=20)
-        db.row_factory = sqlite3.Row
-        db.execute('PRAGMA foreign_keys=ON')
-        db.execute('PRAGMA busy_timeout=20000')
-        # Custody/repair state must reach durable WAL before accepting mail or
-        # publishing website mutations; NORMAL can lose recent commits on power loss.
-        db.execute('PRAGMA synchronous=FULL')
+        timeout = 20
+        deadline = _DATABASE_DEADLINE.get()
+        if deadline is not None:
+            timeout = min(timeout, deadline - time.monotonic())
+            if timeout <= 0:
+                raise sqlite3.OperationalError('Database operation time budget is exhausted')
+        db = sqlite3.connect(self.path, timeout=timeout)
         try:
+            db.row_factory = sqlite3.Row
+            db.execute('PRAGMA foreign_keys=ON')
+            db.execute('PRAGMA busy_timeout=' + str(max(1, int(timeout * 1000))))
+            # Custody/repair state must reach durable WAL before accepting mail or
+            # publishing website mutations; NORMAL can lose recent commits on power loss.
+            db.execute('PRAGMA synchronous=FULL')
             if immediate:
                 db.execute('BEGIN IMMEDIATE')
             yield db
