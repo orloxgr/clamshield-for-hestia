@@ -20,7 +20,7 @@
     path.value='';controls();
   }
   async function api(action,account,values={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:form.dataset.token,owner:account,action,...values})});
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:form.dataset.token,owner:account,action,...values})});
     return window.ClamShieldApiResponse.read(response,'Scan request failed');
   }
   owner.addEventListener('change',async()=>{

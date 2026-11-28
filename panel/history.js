@@ -8,9 +8,9 @@
   const permission = document.getElementById('cs-history-permission');
   let current = null, checked = null, serial = 0, loaded = false;
   async function api(action, values = {}) {
-    const response = await fetch(location.pathname, {method:'POST',credentials:'same-origin',
+    const response = await window.ClamShieldApiResponse.fetch(location.pathname, {method:'POST',credentials:'same-origin',
       body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...values})});
-    const result = await response.json();
+    const result = await window.ClamShieldApiResponse.read(response,"History operation failed");
     if (!response.ok || !result.ok) throw new Error(result.error || 'History operation failed');
     return result;
   }

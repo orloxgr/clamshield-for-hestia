@@ -3,10 +3,10 @@
   const root=document.getElementById('cs-yara-settings');if(!root)return;
   const status=document.getElementById('cs-yara-settings-status'),forms=[document.getElementById('cs-yara-scanning'),document.getElementById('cs-yara-hosting')];
   let pending=false,sending=false,reading=false,timer=null,closed=false;
-  const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!root.hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   function controls(){for(const form of forms)form.querySelector('button').disabled=pending||sending;}
-  async function api(action,policy){const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...(policy?{policy:JSON.stringify(policy)}:{})})});const value=await response.json();if(!response.ok||!value.ok)throw Error(value.error||'YARA settings are unavailable');return value;}
+  async function api(action,policy){const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...(policy?{policy:JSON.stringify(policy)}:{})})});const value=await window.ClamShieldApiResponse.read(response,"YARA settings are unavailable");if(!response.ok||!value.ok)throw Error(value.error||'YARA settings are unavailable');return value;}
   async function refresh(){
     stop();if(!visible()||reading||sending)return;reading=true;
     try{const value=await api('yara-settings-status');pending=value.pending;

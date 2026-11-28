@@ -16,8 +16,8 @@
  const option=(value,title)=>element('option',{value,textContent:title});
  const words=value=>String(value).replace(/[._-]/g,' ').replace(/^./,v=>v.toUpperCase());
  async function api(action,fields={}){
-  const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,scope:root.dataset.scope,action,...fields})});
-  const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Review request failed');return value;
+  const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,scope:root.dataset.scope,action,...fields})});
+  const value=await window.ClamShieldApiResponse.read(response,"Review request failed");if(!response.ok||!value.ok)throw new Error(value.error||'Review request failed');return value;
  }
  function addField(form,name,title,control){const label=element('label',{textContent:title+' '});control.name=name;control.className=control.tagName==='SELECT'?'form-select':'form-control';label.append(control);form.append(label);return control;}
  function selection(title){const select=element('select');select.append(option('',title));return select;}

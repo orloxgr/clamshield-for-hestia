@@ -5,7 +5,7 @@ const path = require('node:path');
 const {spawnSync} = require('node:child_process');
 const {JSDOM} = require('jsdom');
 const root = path.resolve(__dirname,'../..');
-const source = fs.readFileSync(path.join(root,'panel/history.js'),'utf8');
+const source = fs.readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'panel/history.js'),'utf8');
 async function until(predicate) {
   for(let n=0;n<100;n++){await new Promise(resolve=>setImmediate(resolve));if(predicate())return;}
   throw new Error('History UI did not settle');

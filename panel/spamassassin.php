@@ -43,7 +43,7 @@ $sa = $data['spamassassin']; ?>
  const form=document.getElementById('cs-spamassassin');if(!form)return;
  const token=<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  const owner=<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
- async function request(fields){const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner,...fields})});const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Operation failed');return result;}
+ async function request(fields){const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner,...fields})});const result=await window.ClamShieldApiResponse.read(response,"Operation failed");if(!response.ok||!result.ok)throw new Error(result.error||'Operation failed');return result;}
  for(const button of document.querySelectorAll('[data-dns-exclude]'))button.addEventListener('click',()=>{
   const field=form.elements.blocked_zones,zones=new Set(field.value.split(/\r?\n/).map(value=>value.trim()).filter(Boolean));
   zones.add(button.dataset.dnsExclude);field.value=Array.from(zones).join('\n');field.focus();

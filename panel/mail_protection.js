@@ -4,12 +4,12 @@
   const root=document.getElementById('cs-mail'),button=document.getElementById('cs-mail-protection-toggle');if(!button)return;
   const output=document.getElementById('cs-mail-protection-status');
   let enabled=false,connected=false,pending=true,loading=false,submitting=false,timer=null,closed=false,changed=false;
-  const visible=()=>!closed&&!document.querySelector('[data-page="mail"]').hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!document.querySelector('[data-page="mail"]').hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   function controls(){button.disabled=pending||submitting;button.textContent=pending||submitting?'Please wait…':(enabled?'Disable mail protection':'Enable mail protection');}
   async function api(action){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action})});
-    const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Mail protection is unavailable');return result;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action})});
+    const result=await window.ClamShieldApiResponse.read(response,"Mail protection is unavailable");if(!response.ok||!result.ok)throw new Error(result.error||'Mail protection is unavailable');return result;
   }
   function show(value){
     const state=value.protection,task=value.latest;enabled=state.enabled;connected=state.connected;pending=value.pending;

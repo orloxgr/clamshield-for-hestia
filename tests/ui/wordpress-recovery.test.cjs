@@ -14,6 +14,7 @@ function fixture(snapshots,options={}){
     const value=body.action==='scan-targets'?{sites:[{domain:'site.test',suspended:false}]}:body.action==='wordpress-recovery-list'?{plans:[{id:'plan-one',domain:'site.test',status:'ready',created:1}]}:body.action==='wordpress-recovery-status'?snapshots[Math.min(index++,snapshots.length-1)]:{jobs:['job'],plan_id:'plan-one'};
     return {ok:true,json:async()=>({ok:true,...value})};};
   if(!options.hidden)w.document.getElementById('cs-wp-recovery').hidden=false;
+  w.eval(require('node:fs').readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8'));
   for(const script of w.document.querySelectorAll('script:not([type="application/json"])'))w.eval(script.textContent);
   return {w,requests,timers,by:id=>w.document.getElementById('cs-wp-'+id),close:()=>w.close(),
     select:async()=>{await settle();const select=w.document.getElementById('cs-wp-plans');select.value='plan-one';select.dispatchEvent(new w.Event('change'));await settle();},

@@ -1,7 +1,25 @@
 /* Managed by clamshield; native authentication redirects are not API data. */
-window.ClamShieldApiResponse ||= {
-  async read(response,fallback){
-    const failure=(message,reload=false)=>Object.assign(new Error(message),{reloadPanel:reload});
+window.ClamShieldApiResponse ||= (()=>{
+  let blocked=null;
+  function failure(message,reload=false){
+    const error=Object.assign(new Error(message),{reloadPanel:reload});
+    if(reload){
+      blocked=error;
+      const notice=document.getElementById('cs-api-notice');
+      if(notice){
+        notice.querySelector('[data-api-message]').textContent=message;
+        notice.querySelector('button').onclick=()=>location.reload();notice.hidden=false;
+      }
+    }
+    return error;
+  }
+  return {
+  get unavailable(){return blocked!==null;},
+  async fetch(...args){
+    if(blocked)throw blocked;
+    return window.fetch(...args);
+  },
+  async read(response,fallback='ClamShield request failed'){
     let login=false;
     if(response.redirected&&response.url){
       const url=new URL(response.url,location.href);
@@ -24,4 +42,5 @@ window.ClamShieldApiResponse ||= {
     button.dataset.panelReload='true';button.addEventListener('click',()=>location.reload());
     status.append(document.createTextNode(' '),button);
   }
-};
+  };
+})();

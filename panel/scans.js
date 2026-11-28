@@ -8,11 +8,11 @@
   const clear=document.getElementById('cs-scans-clear'),confirmation=document.getElementById('cs-scans-clear-confirmation');
   if((root.dataset.viewScope==='server'||new URL(location.href).searchParams.get('scan_scope')==='server')&&form.querySelector('option[value="server"]'))form.elements.scope.value='server';
   let offset=0,nextOffset=null,version=0,inFlight=false,dirty=false,timer=null,failures=0,clearing=false,proofVersion=0;
-  const active=()=>!root.hidden&&document.visibilityState==='visible';
+  const active=()=>!root.hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState==='visible';
   function stop(){if(timer!==null)clearTimeout(timer);timer=null;}
   async function api(action,values={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...values})});
-    const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Scan operation failed');return result;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...values})});
+    const result=await window.ClamShieldApiResponse.read(response,"Scan operation failed");if(!response.ok||!result.ok)throw new Error(result.error||'Scan operation failed');return result;
   }
   function text(node,value){if(node.textContent!==String(value))node.textContent=String(value);}
   function makeRow(id){

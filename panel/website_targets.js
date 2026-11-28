@@ -22,7 +22,7 @@ window.ClamShieldWebsiteTargets ||= function(form,{allowed,admin,bulk,owner:acto
     status.textContent=account?'Loading websites…':(bulk?'All active websites across all accounts.':'Choose an account, then a website to analyze.');
     if(!account)return;
     try{
-      const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner:account,action:'scan-targets'})});
+      const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token,owner:account,action:'scan-targets'})});
       const value=await window.ClamShieldApiResponse.read(response,'Could not load websites');if(version!==serial)return;
       populate(value.sites);status.textContent=sites.some(site=>!site.suspended)?'':'No active websites in this account.';
     }catch(error){if(version===serial){failed=true;window.ClamShieldApiResponse.showError(status,error);}}

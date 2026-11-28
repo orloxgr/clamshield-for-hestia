@@ -28,8 +28,8 @@
     document.getElementById('cs-notification-empty').hidden=shown!==0;
   }
   async function api(action,fields={},owner=root.dataset.owner){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner,action,...fields})});
-    const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Notification request failed');return result;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner,action,...fields})});
+    const result=await window.ClamShieldApiResponse.read(response,"Notification request failed");if(!response.ok||!result.ok)throw new Error(result.error||'Notification request failed');return result;
   }
   function show(value){
     preferences=value.settings;categories.replaceChildren();hestiaCategories.replaceChildren();

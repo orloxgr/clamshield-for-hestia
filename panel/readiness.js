@@ -9,8 +9,8 @@
     message.textContent='Checking website engines and active scanning data…';
     document.querySelectorAll('[data-readiness-action]').forEach(link=>link.hidden=true);
     try{
-      const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:engineButton.dataset.token,owner:engineButton.dataset.owner,action:'website-readiness-check'})});
-      const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Readiness check failed');
+      const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:engineButton.dataset.token,owner:engineButton.dataset.owner,action:'website-readiness-check'})});
+      const value=await window.ClamShieldApiResponse.read(response,"Readiness check failed");if(!response.ok||!value.ok)throw new Error(value.error||'Readiness check failed');
       const coverage=value.coverage;
       message.textContent=value.busy?'Readiness verification waits for an active scan or update.':coverage.message;
       notice.className='notice alert '+(coverage.state==='healthy'?'alert-success':value.busy||coverage.state==='checking'?'alert-info':'alert-warning');

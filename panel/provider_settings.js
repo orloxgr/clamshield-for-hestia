@@ -32,9 +32,9 @@
       for(const [control] of controls)control.disabled=true;
       button.textContent='Saving…';feedback('Saving '+label+'…');
       try{
-        const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',signal:controller.signal,
+        const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',signal:controller.signal,
           body:new URLSearchParams({token,owner,action:'providers-save',providers:JSON.stringify(providers)})});
-        const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Operation failed');
+        const result=await window.ClamShieldApiResponse.read(response,"Operation failed");if(!response.ok||!result.ok)throw new Error(result.error||'Operation failed');
         confirmed=result;
         feedback(onSuccess(form,result));
       }catch(error){

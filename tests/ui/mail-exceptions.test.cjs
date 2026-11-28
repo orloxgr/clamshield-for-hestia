@@ -11,7 +11,7 @@ const php = spawnSync(process.env.CLAMSHIELD_PHP || 'php', ['-r',
   "$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",
   path.join(root, 'panel/mail.php')], {encoding: 'utf8'});
 assert.equal(php.status, 0, php.stderr);
-const source = fs.readFileSync(path.join(root, 'panel/mail.js'), 'utf8');
+const source = fs.readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8')+'\n'+fs.readFileSync(path.join(root, 'panel/mail.js'), 'utf8');
 const entry = {id: 'fixture-entry', engine: 'clamav', signature: '<img src=x onerror=alert(1)>',
   sha256: 'a'.repeat(64), expires: 2000000000, reason: '<script>untrusted reason</script>'};
 const permissions = {manage_policy: true, manage_exceptions: true, release: true, delete: true};

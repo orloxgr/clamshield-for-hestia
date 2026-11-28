@@ -7,7 +7,7 @@
   const scheduleForm=document.getElementById('cs-yara-schedule'),scheduleStatus=document.getElementById('cs-yara-schedule-status');
   let schedule=JSON.parse(document.getElementById('cs-yara-schedule-data').textContent),saving=false;
   let configured=form.dataset.configured==='true',pending=button.disabled,submitting=false,inFlight=false,timer=null,closed=false;
-  const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!root.hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const utc=value=>new Date(value*1000).toISOString().slice(0,19).replace('T',' ')+' UTC';
   function controls(){
@@ -23,8 +23,8 @@
     else if(schedule.next_allowed>Date.now()/1000)timer=setTimeout(()=>{timer=null;controls();refresh();},Math.min(2147483647,Math.max(1000,schedule.next_allowed*1000-Date.now()+100)));
   }
   async function request(action,values={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:form.dataset.token,owner:form.dataset.owner,action,...values})});
-    const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Rule service is unavailable');return result;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:form.dataset.token,owner:form.dataset.owner,action,...values})});
+    const result=await window.ClamShieldApiResponse.read(response,"Rule service is unavailable");if(!response.ok||!result.ok)throw new Error(result.error||'Rule service is unavailable');return result;
   }
   function show(value){
     if(value.schedule)schedule=value.schedule;

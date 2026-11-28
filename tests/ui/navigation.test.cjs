@@ -849,6 +849,44 @@ test('a successful empty website list stays distinct from failed discovery',asyn
     assert.equal(form.elements.domain.options[0].text,'No active websites');
     assert.equal(f.document.getElementById('cs-scan-target-status').textContent,'No active websites in this account.');
     assert.equal(f.document.querySelector('[data-panel-reload]'),null);assert.equal(f.document.getElementById('cs-scan-start').disabled,true);
+    const notice=f.document.getElementById('cs-api-notice');assert.equal(notice.hidden,true);assert.equal(f.w.getComputedStyle(notice).display,'none');
+  }finally{await f.close();}
+});
+
+for(const hash of ['#scan/wordpress-recovery','#review/history','#review/email-review','#review/notices','#settings/mail-settings','#settings/yara-settings','#settings/retention','#email'])
+test('session redirects show the shared reload notice and stop requests in '+hash,async()=>{
+  const f=fixture({hash,parser:true,api:async()=>({ok:true,status:200,redirected:true,url:'https://panel.test/login/',json:async()=>{throw new SyntaxError('Unexpected token private login markup');}})});
+  try{
+    await settle();const notice=f.document.getElementById('cs-api-notice');
+    assert.equal(notice.hidden,false);assert.match(notice.textContent,/Hestia session has expired/);assert.equal(notice.querySelector('button').textContent,'Reload panel');
+    assert.doesNotMatch(f.document.body.textContent,/Unexpected token private|not valid JSON/);
+    const before=f.requests.length;assert.ok(before>0);
+    f.w.document.dispatchEvent(new f.w.CustomEvent('clamshield-tab-change'));await settle();
+    for(const [id,entry] of [...f.timers]){f.timers.delete(id);await entry.callback();}
+    await settle();assert.equal(f.requests.length,before);assert.deepEqual(f.errors,[]);
+    assert.equal(f.requests.some(r=>/-(save|apply|analyze|enable|disable)$/.test(r.action)),false);
+  }finally{await f.close();}
+});
+
+test('an expired provider save keeps its draft and cannot be resubmitted across tabs',async()=>{
+  const f=fixture({hash:'#settings/provider-settings',api:async()=>({ok:true,status:200,redirected:true,url:'https://panel.test/login/',json:async()=>{throw new Error('unused HTML');}})});
+  try{
+    const form=f.document.getElementById('cs-providers');form.elements.si_key.value='unsaved-private-fixture';
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(form.elements.si_key.value,'unsaved-private-fixture');assert.match(f.document.getElementById('cs-provider-save-status').textContent,/session has expired/);
+    const notice=f.document.getElementById('cs-api-notice');assert.equal(notice.hidden,false);assert.doesNotMatch(notice.textContent,/unsaved-private-fixture/);
+    const before=f.requests.length;form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    f.click('[data-subnav=settings] [data-tab=mail-settings]');await settle();assert.equal(f.requests.length,before);
+  }finally{await f.close();}
+});
+
+test('a non-JSON settings response shows one reload notice without leaking HTML or retrying writes',async()=>{
+  const f=fixture({hash:'#settings/spamassassin',api:async()=>({ok:false,status:502,headers:{get:()=> 'text/html'},json:async()=>{throw new Error('<script>private HTML</script>');}})});
+  try{
+    f.document.getElementById('cs-sa-catalog').click();await settle();
+    const notice=f.document.getElementById('cs-api-notice');assert.equal(notice.hidden,false);assert.match(notice.textContent,/unexpected response/);
+    assert.doesNotMatch(notice.textContent,/private HTML|script/);const before=f.requests.length;
+    f.document.getElementById('cs-sa-catalog').click();await settle();assert.equal(f.requests.length,before);
   }finally{await f.close();}
 });
 

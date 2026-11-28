@@ -23,13 +23,13 @@
     }else paragraph('No signature memory measurement recorded.');
     start.disabled=busy||!current.available;start.textContent=busy?'Measuring…':'Measure active signature memory';
   }
-  function schedule(){clearTimeout(timer);timer=null;if(busy&&!section.hidden)timer=setTimeout(check,2000);}
+  function schedule(){clearTimeout(timer);timer=null;if(busy&&!section.hidden&&!window.ClamShieldApiResponse.unavailable)timer=setTimeout(check,2000);}
   async function request(action){
     const controller=new AbortController(),timeout=setTimeout(()=>controller.abort(),20000);
     try{
-      const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',signal:controller.signal,
+      const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',signal:controller.signal,
         body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action})});
-      const result=await response.json();if(!response.ok||!result.ok)throw new Error(result.error||'Memory measurement request failed');return result;
+      const result=await window.ClamShieldApiResponse.read(response,"Memory measurement request failed");if(!response.ok||!result.ok)throw new Error(result.error||'Memory measurement request failed');return result;
     }finally{clearTimeout(timeout);}
   }
   async function check(){

@@ -1,7 +1,7 @@
 const {test}=require('node:test'),assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {JSDOM}=require('jsdom');
-const source=fs.readFileSync(path.resolve(__dirname,'../../panel/mail_protection.js'),'utf8');
+const source=fs.readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8')+'\n'+fs.readFileSync(path.resolve(__dirname,'../../panel/mail_protection.js'),'utf8');
 const settle=()=>new Promise(resolve=>setImmediate(resolve));
 const off={enabled:false,connected:false,defaults_enabled:false,phase:'unconfigured'};
 function fixture(snapshots,options={}){

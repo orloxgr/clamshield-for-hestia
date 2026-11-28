@@ -7,7 +7,7 @@
   const permissions={manage_policy:'Edit domain and mailbox policies',manage_exceptions:'Manage exact-content exceptions',release:'Release quarantined email',delete:'Delete quarantined email'};
   const prefix=root.dataset.scope==='server'?'mail-server-':'mail-account-';
   let current=null,loaded=false,busy=false;
-  async function api(action,fields={}){const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...fields})});const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Server mail settings could not be loaded');return value;}
+  async function api(action,fields={}){const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:root.dataset.owner,action,...fields})});const value=await window.ClamShieldApiResponse.read(response,"Server mail settings could not be loaded");if(!response.ok||!value.ok)throw new Error(value.error||'Server mail settings could not be loaded');return value;}
   function render(value){
     current=value;by('fields').replaceChildren();by('permissions').replaceChildren();
     const account=root.dataset.scope==='account',groups={};

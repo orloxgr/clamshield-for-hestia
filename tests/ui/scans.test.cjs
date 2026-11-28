@@ -3,7 +3,7 @@ const assert=require('node:assert/strict');
 const fs=require('node:fs'),path=require('node:path');
 const {spawnSync}=require('node:child_process');
 const {JSDOM}=require('jsdom');
-const root=path.resolve(__dirname,'../..'),source=fs.readFileSync(path.join(root,'panel/scans.js'),'utf8');
+const root=path.resolve(__dirname,'../..'),source=fs.readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'panel/scans.js'),'utf8');
 async function until(predicate){for(let n=0;n<100;n++){await new Promise(resolve=>setImmediate(resolve));if(predicate())return;}throw new Error('Scan UI did not settle');}
 async function fixture(options={}){
   const php=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',"$data=['context'=>['owner'=>'alice','admin'=>"+(options.admin?'true':'false')+"]];$data['jobs']=json_decode($argv[2],true);$_SESSION=['token'=>'fixture-token'];$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.join(root,'panel/scans.php'),JSON.stringify(options.initialJobs||[])],{encoding:'utf8'});

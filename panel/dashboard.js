@@ -5,12 +5,12 @@
   if(!button)return;
   const version=document.getElementById('cs-dashboard-clamav-version'),output=document.getElementById('cs-dashboard-clamav-status');
   let pending=button.dataset.pending==='true',available=button.hidden,loading=false,submitting=false,timer=null,closed=false,phase='queued';
-  const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!root.hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   function controls(){button.hidden=available&&!pending;button.disabled=pending||submitting||loading;button.textContent=submitting?'Queuing…':pending?({'queued':'Queued…','waiting-scan':'Waiting for scan…',starting:'Starting…',stopping:'Stopping…',verifying:'Checking…'}[phase]||'Working…'):'Enable';}
   async function api(action){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:button.dataset.token,owner:button.dataset.owner,action})});
-    const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Website ClamAV is unavailable');return value;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:button.dataset.token,owner:button.dataset.owner,action})});
+    const value=await window.ClamShieldApiResponse.read(response,"Website ClamAV is unavailable");if(!response.ok||!value.ok)throw new Error(value.error||'Website ClamAV is unavailable');return value;
   }
   async function refresh(){
     if(loading||submitting||!visible())return;stop();loading=true;controls();

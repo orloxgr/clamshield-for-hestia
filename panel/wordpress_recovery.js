@@ -5,12 +5,12 @@
   const by=id=>document.getElementById('cs-wp-'+id),form=by('analyze'),output=by('status'),plans=by('plans');
   const owners=new Map();
   let plan=null,selected=new Set(),recommended=[],edits={},sources={},rows=new Map(),next=null,dirty=false,busy=false,loading=false,timer=null,closed=false,loaded=false,initialized=null,epoch=0,refreshWanted=false,workId=null,offset=0,previous=[],selectable=[],versionDirty=false;
-  const visible=()=>!closed&&!root.hidden&&document.visibilityState!=='hidden';
+  const visible=()=>!closed&&!root.hidden&&!window.ClamShieldApiResponse.unavailable&&document.visibilityState!=='hidden';
   const stop=()=>{if(timer!==null)clearTimeout(timer);timer=null;};
   const text=(tag,value)=>{const node=document.createElement(tag);node.textContent=value;return node;};
   async function api(action,fields={}){
-    const response=await fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:owners.get(fields.plan_id||plan?.id)||root.dataset.owner,action,...fields})});
-    const value=await response.json();if(!response.ok||!value.ok)throw new Error(value.error||'Recovery request failed');return value;
+    const response=await window.ClamShieldApiResponse.fetch(location.pathname,{method:'POST',credentials:'same-origin',body:new URLSearchParams({token:root.dataset.token,owner:owners.get(fields.plan_id||plan?.id)||root.dataset.owner,action,...fields})});
+    const value=await window.ClamShieldApiResponse.read(response,"Recovery request failed");if(!response.ok||!value.ok)throw new Error(value.error||'Recovery request failed');return value;
   }
   function controls(){
     const pending=busy||['analyzing','preparing','applying','undoing'].includes(plan?.status);

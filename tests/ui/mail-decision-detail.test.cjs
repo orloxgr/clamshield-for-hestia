@@ -1,7 +1,7 @@
 'use strict';
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path');
 const {spawnSync}=require('node:child_process');const {test}=require('node:test');const {JSDOM}=require('jsdom');
-const root=path.resolve(__dirname,'../..'),source=fs.readFileSync(path.join(root,'panel/mail.js'),'utf8');
+const root=path.resolve(__dirname,'../..'),source=fs.readFileSync(path.resolve(__dirname,'../../panel/api_response.js'),'utf8')+'\n'+fs.readFileSync(path.join(root,'panel/mail.js'),'utf8');
 const php=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',
   "$data=['context'=>['admin'=>true],'email-messages'=>[['owner'=>'alice','recipient'=>'inbox@alice.test','created'=>1,'sender'=>'sender@remote.test','classification'=>'incomplete','action'=>'deliver','status'=>'not_retained','decision_id'=>str_repeat('a',32)]]];"+
   "$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.join(root,'panel/review_rows/email-messages.php')],{encoding:'utf8'});
