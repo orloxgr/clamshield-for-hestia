@@ -94,7 +94,7 @@ def main(argv=None):
     parser.add_argument('--json', action='store_true',
                         help='Write the final result as JSON to stdout; progress and diagnostics stay on stderr')
     parser.add_argument('--share-existing-databases', action='store_true',
-                        help='Explicitly share already-selected engine-wide databases between websites and email; retain other choices')
+                        help=argparse.SUPPRESS)  # Accepted for commands issued by earlier installers.
     args = parser.parse_args(argv)
     return progress.execute(lambda: perform(args), version=__version__, json_output=args.json)
 
@@ -116,19 +116,17 @@ def perform(args):
     from clamshield.providers import Providers,require_shared_selection
     lifecycle=Installation(Settings())
     providers=Providers(lifecycle.settings)
-    share=getattr(args,'share_existing_databases',False)
     progress.stage('Checking shared database selections')
-    if not share:require_shared_selection(providers.read())
+    providers.read()  # Validate saved data before pausing any background work.
     progress.stage('Acquiring installation priority')
     with lifecycle.update(SOURCE,report=progress.stage):
         progress.stage('Installation locks acquired')
-        if share:
-            changed=providers.share_existing_databases()
-            if changed:
-                progress.stage('Explicit shared database selection saved: '+', '.join(
-                    name+'/'+item for name,items in changed.items() for item in items))
-        # Recheck inside the exclusive gate, including an administrator save
-        # completed between the read-only preflight and acquisition.
+        changed=providers.share_existing_databases()
+        if changed:
+            progress.stage('Shared existing server-wide database selections: '+', '.join(
+                name+'/'+item for name,items in changed.items() for item in items))
+        # Use the latest settings under the exclusive gate. Only already-selected
+        # engine-wide databases are shared; purpose-specific choices stay intact.
         require_shared_selection(providers.read())
         return install(args,lifecycle)
 

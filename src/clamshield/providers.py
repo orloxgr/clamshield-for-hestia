@@ -59,9 +59,9 @@ def require_shared_selection(config):
     names=[name+'/'+item for name,items in conflicts.items() for item in items]
     if names:
         raise ClamShieldError('Existing server-wide database selections differ between websites and email: '+
-            ', '.join(names)+'. Save a common Server-wide selection in Settings / Signature providers, or rerun '+
-            'the root installer with --share-existing-databases to enable these already-selected special databases '+
-            'for both websites and email. Other database choices and credentials are retained.')
+            ', '.join(names)+'. Rerun the root installer to share these already-selected special databases '+
+            'between websites and email, or save a common Server-wide selection in Settings / Signature providers. '+
+            'Other database choices and credentials are retained.')
     return config
 
 
@@ -112,7 +112,7 @@ class Providers:
             return value
 
     def share_existing_databases(self):
-        """Explicit root-installer choice; never applied by an ordinary update."""
+        """Installer normalization of existing engine-wide choices, not defaults."""
         self.settings.prepare()
         with (self.settings.state/'providers-config.lock').open('a+b') as lock:
             fcntl.flock(lock,fcntl.LOCK_EX)

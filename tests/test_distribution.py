@@ -23,10 +23,9 @@ def load(name, file):
 
 
 class DistributionTests(unittest.TestCase):
-    def test_installer_checks_legacy_conflict_before_pausing_and_requires_explicit_sharing(self):
+    def test_plain_installer_automatically_shares_legacy_special_choices_under_update_gate(self):
         from clamshield.providers import Providers
         from clamshield.settings import Settings
-        from clamshield.errors import ClamShieldError
         installer=load('shared_selection_installer','tools/install.py')
         with tempfile.TemporaryDirectory() as temp:
             settings=Settings(state=Path(temp)/'state');providers=Providers(settings)
@@ -39,17 +38,24 @@ class DistributionTests(unittest.TestCase):
                  patch.object(installer,'install',return_value={'installed':True}) as install, \
                  patch.object(installer.os,'geteuid',return_value=0),patch.dict(os.environ,{'SUDO_USER':'root'}):
                 lifecycle.return_value.settings=settings
-                with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases'):
-                    installer.perform(SimpleNamespace(share_existing_databases=False))
-                lifecycle.return_value.update.assert_not_called();install.assert_not_called()
-                self.assertFalse((settings.state/'install-pending.json').exists())
-                self.assertEqual(before,providers.path.read_bytes())
-                self.assertEqual({'installed':True},installer.perform(SimpleNamespace(share_existing_databases=True)))
+                @contextlib.contextmanager
+                def update(*args,**kwargs):
+                    self.assertEqual(before,providers.path.read_bytes())
+                    yield
+                lifecycle.return_value.update.side_effect=update
+                self.assertEqual({'installed':True},installer.perform(SimpleNamespace()))
                 lifecycle.return_value.update.assert_called_once();install.assert_called_once()
                 after=providers.read()['securiteinfo']
                 for purpose in ('website','mail'):
                     self.assertTrue({'securiteinfo.pdb','securiteinfo.wdb'}<=set(after[purpose+'_databases']))
                 self.assertEqual('a'*128,after['key'])
+
+    def test_plain_installer_and_legacy_flag_use_the_same_automatic_sharing_path(self):
+        installer=load('shared_selection_cli','tools/install.py')
+        with patch.object(installer,'perform',return_value={}) as perform, \
+             patch.object(installer.progress,'execute',side_effect=lambda operation,**kw:operation()):
+            installer.main([]);self.assertFalse(perform.call_args.args[0].share_existing_databases)
+            installer.main(['--share-existing-databases']);self.assertTrue(perform.call_args.args[0].share_existing_databases)
 
     def test_installer_rejects_incomplete_checkout_and_accepts_runtime_helper(self):
         installer = load('distribution_installer', 'tools/install.py')

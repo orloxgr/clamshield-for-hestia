@@ -212,8 +212,8 @@ class NativeIntegration:
             if saved and saved['phase']=='active':
                 return saved
             # Reject an incompatible saved selection before a transition journal
-            # or any service stop. The installer exposes an explicit opt-in;
-            # activating the union silently would change existing scan policies.
+            # or any service stop. The root installer normalizes existing
+            # special selections; ordinary data activation does not change them.
             providers=require_shared_selection(Providers(self.settings).read())
             unit=self.unit_directory/GATE
             NativeConfiguration.trusted(unit,16384)

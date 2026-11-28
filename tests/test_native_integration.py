@@ -83,7 +83,7 @@ class NativeIntegrationTests(unittest.TestCase):
         value['securiteinfo'].update(enabled=True,plan='professional',key='a'*128)
         value['securiteinfo']['mail_databases']+=['securiteinfo.pdb','securiteinfo.wdb']
         providers.path.write_text(json.dumps(value));before=providers.path.read_bytes()
-        with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases'):self.manager.connect()
+        with self.assertRaisesRegex(ClamShieldError,'Rerun the root installer'):self.manager.connect()
         self.assertEqual([],self.operations);self.assertFalse(self.manager.journal.exists())
         self.assertFalse(self.manager.record.exists());self.signatures.stage.assert_not_called()
         self.assertEqual(self.original,self.config.read_text());self.assertEqual(before,providers.path.read_bytes())

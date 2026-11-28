@@ -18,12 +18,12 @@ quarantine and adapter caches. It publishes owned extension files and an
 immutable application release without changing existing Hestia vendor files.
 
 Before pausing services, the installer checks enabled providers for incompatible
-website/email selections of engine-wide databases. An ordinary update does not
-change those choices. Save a common **Server-wide** choice in provider settings,
-or run the installer with `--share-existing-databases` to explicitly retain the
-union of already-selected special databases for both uses. Other profile choices,
-keys and schedules are preserved; recommended defaults are not reapplied. This
-also resumes an older installer interrupted by the same selection conflict.
+saved settings. Under its installation gate it automatically shares the union
+of already-selected special databases for both uses and reports each change.
+Other profile choices, keys, schedules and disabled providers are preserved;
+recommended defaults are not reapplied. No extra command-line option is needed.
+The ordinary installer also resumes an older installation interrupted by this
+selection conflict. Later changes use the **Server-wide** provider settings.
 
 The verified platform is Ubuntu26.04 with Hestia1.10.x and APT ClamAV/YARA.
 Email activation requires the existing native Exim/SpamAssassin stack. The

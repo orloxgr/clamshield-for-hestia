@@ -40,13 +40,13 @@ class ProviderConfiguration(unittest.TestCase):
 
     def test_shared_preflight_explains_actual_legacy_pdb_wdb_conflict_without_saving(self):
         value=self.legacy_shared_conflict();before=self.providers.path.read_bytes()
-        with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases') as error:
+        with self.assertRaisesRegex(ClamShieldError,'Rerun the root installer') as error:
             require_shared_selection(value)
         self.assertIn('securiteinfo.pdb',str(error.exception));self.assertIn('securiteinfo.wdb',str(error.exception))
         self.assertNotIn('a'*128,str(error.exception))
         self.assertEqual(before,self.providers.path.read_bytes())
 
-    def test_explicit_sharing_only_adds_existing_special_choices_and_preserves_other_policies(self):
+    def test_installer_sharing_only_adds_existing_special_choices_and_preserves_other_policies(self):
         before=self.legacy_shared_conflict()
         changed=self.providers.share_existing_databases();after=self.providers.read()
         self.assertEqual({'securiteinfo':['securiteinfo.pdb','securiteinfo.wdb']},changed)
@@ -58,7 +58,7 @@ class ProviderConfiguration(unittest.TestCase):
         self.assertEqual(saved,self.providers.path.read_bytes())
         self.assertEqual(0o600,self.providers.path.stat().st_mode&0o777)
 
-    def test_disabled_provider_conflict_is_not_activated_or_changed_by_installer_option(self):
+    def test_disabled_provider_conflict_is_not_activated_or_changed_by_installer(self):
         value=self.legacy_shared_conflict();value['securiteinfo']['enabled']=False
         self.providers.path.write_text(json.dumps(value));before=self.providers.path.read_bytes()
         require_shared_selection(self.providers.read())

@@ -197,19 +197,13 @@ can be resumed with the same installer. ClamShield publishes an owned immutable
 release and maintains its own recovery state; it does not reapply vendor patches.
 
 When upgrading from separate scanners, existing engine-wide databases may have
-different website/email selections. The installer checks this before pausing
-services. Choose their common **Server-wide** selection under **Settings →
-Signature providers**, or explicitly keep every currently selected special
-database enabled for both purposes:
-
-```sh
-sudo python3 /usr/local/src/clamshield-for-hestia/tools/install.py --share-existing-databases
-```
-
-This option only shares conflicting special databases of enabled providers;
-other website/email selections, provider keys and schedules are retained. It
-does not apply recommended defaults. The same command resumes an installation
-that previously stopped on this selection conflict.
+different website/email selections. The normal installer automatically shares
+already-selected special databases of enabled providers between both purposes,
+and lists the changes in its progress output. Other website/email selections,
+provider keys and schedules are retained; recommended defaults are not reapplied.
+No extra option is needed. The same normal command resumes an installation that
+previously stopped on this selection conflict. You can subsequently change the
+common **Server-wide** selection under **Settings → Signature providers**.
 
 The additive integration was verified through native Hestia1.10.7→1.10.8 upgrades
 in web/cache and active-mail configurations, including Varnish/Dragonfly coexistence.
