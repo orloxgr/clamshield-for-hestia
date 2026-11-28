@@ -18,6 +18,10 @@ from .errors import AccessDenied, EngineError
 from .mail_bridge import SEALS
 from .signature_catalog import validate_origin
 
+SCAN_ERROR=b'stream: ClamShield native antivirus check failed ERROR'
+UNAVAILABLE_ERROR=b'stream: Native antivirus unavailable ERROR\n'
+CAPACITY_ERROR=b'stream: Native antivirus capacity busy ERROR\n'
+
 
 def fingerprint(info):
     return (info.st_dev,info.st_ino,info.st_size,info.st_mtime_ns,info.st_ctime_ns)
@@ -123,7 +127,7 @@ class NativeGate:
                 reply=os.fsencode(path)+b': '+(names[0].encode('utf-8')+b' FOUND' if names else b'OK')
         except Exception as exc:
             # Never translate protocol, capture, provenance or engine failure to OK.
-            reply=b'ClamShield native antivirus check failed ERROR'
+            reply=SCAN_ERROR
             status='error';error=type(exc).__name__
         try:
             connection.settimeout(max(.01,deadline-time.monotonic()))

@@ -16,7 +16,7 @@ from .atomic import write_json,sync_directory
 from .errors import EngineError,Conflict
 from .native_configuration import NativeConfiguration
 from .native_integration import NativeIntegration
-from .native_gate import NativeGate
+from .native_gate import NativeGate,UNAVAILABLE_ERROR,CAPACITY_ERROR
 from .signature_catalog import SignatureCatalog,engine_lock
 from .settings import Settings
 
@@ -111,7 +111,7 @@ def serve(settings=None):
                     gate=NativeGate(native,catalog.resolve,exim_uid=exim.pw_uid)
                     gate.handle(connection)
         except Exception:
-            try:connection.sendall(b'Native antivirus unavailable ERROR\n')
+            try:connection.sendall(UNAVAILABLE_ERROR)
             except OSError:pass
         finally:connection.close();capacity.release()
     owned=None
@@ -127,7 +127,7 @@ def serve(settings=None):
                 else:
                     with connection:
                         connection.settimeout(1)
-                        try:connection.sendall(b'Native antivirus capacity busy ERROR\n')
+                        try:connection.sendall(CAPACITY_ERROR)
                         except OSError:pass
     finally:
         listener.close()

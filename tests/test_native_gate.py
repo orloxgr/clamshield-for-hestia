@@ -65,6 +65,15 @@ class NativeGateTests(unittest.TestCase):
         reply=self.exchange(b'SCAN '+os.fsencode(self.path)+b'\n')
         self.assertEqual(os.fsencode(self.path)+b': Eicar-Test-Signature FOUND\n',reply)
 
+    def test_native_errors_are_valid_clamd_error_records_not_clean_or_malformed(self):
+        from clamshield.native_gate import SCAN_ERROR,UNAVAILABLE_ERROR,CAPACITY_ERROR
+        self.client.scan_snapshot.side_effect=EngineError('Private scanner details')
+        self.assertEqual(SCAN_ERROR+b'\n',self.exchange(b'SCAN '+os.fsencode(self.path)+b'\n'))
+        self.assertEqual(SCAN_ERROR+b'\0',self.exchange(b'zSCAN '+os.fsencode(self.path)+b'\0'))
+        for reply in (SCAN_ERROR,UNAVAILABLE_ERROR,CAPACITY_ERROR):
+            self.assertRegex(reply,rb'^stream: [^\r\n]+ ERROR\n?$')
+            self.assertNotIn(b'Private scanner details',reply);self.assertNotIn(b'OK',reply)
+
     def test_active_policy_hook_decides_official_malware_using_authenticated_envelope(self):
         self.gate.delegate=True
         self.assertEqual(os.fsencode(self.path)+b': OK\n',self.exchange(b'SCAN '+os.fsencode(self.path)+b'\n'))
