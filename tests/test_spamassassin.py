@@ -282,6 +282,47 @@ $status->finish(); $mail->finish(); $sa->finish();
         for name in INFRASTRUCTURE_RULES[:3]:
             self.assertNotIn(name + '=1', after['symbols'])
 
+    def test_real_report_fills_missing_descriptions_without_changing_contributions(self):
+        if not Path('/usr/bin/spamassassin').exists():
+            self.skipTest('Requires Ubuntu SpamAssassin')
+        fixture = self.controls.base / 'descriptions.cf'
+        fixture.write_text('loadplugin Mail::SpamAssassin::Plugin::Check\n'
+                           'loadplugin Mail::SpamAssassin::Plugin::URIDNSBL\n'
+                           'util_rb_tld com net org test invalid\n'
+                           'header TVD_SPACE_RATIO X-Lab-Description =~ /fixture/\n'
+                           'score TVD_SPACE_RATIO 0.25\n'
+                           'header LAB_UNDESCRIBED X-Lab-Description =~ /fixture/\n'
+                           'score LAB_UNDESCRIBED 0.75\n'
+                           'header LAB_DESCRIBED X-Lab-Description =~ /fixture/\n'
+                           'score LAB_DESCRIBED -0.125\n'
+                           'describe LAB_DESCRIBED Upstream description retained\n')
+        empty = self.controls.base / 'description-empty'; empty.mkdir()
+        script = r'''
+use strict; use warnings; use Mail::SpamAssassin;
+my ($rules, $site, $config) = @ARGV;
+my $sa = Mail::SpamAssassin->new({rules_filename=>$rules, site_rules_filename=>$site,
+  userprefs_filename=>'/dev/null', dont_copy_prefs=>1, local_tests_only=>1,
+  post_config_text=>"include $config\n"});
+die "Invalid fixture configuration" if $sa->lint_rules();
+my $mail = $sa->parse("From: sender\@example.test\nTo: inbox\@example.test\n" .
+  "Subject: Description fixture\nX-Lab-Description: fixture\n\nHarmless content.\n");
+my $status = $sa->check($mail); print $status->get_report();
+$status->finish(); $mail->finish(); $sa->finish();
+'''
+        result = subprocess.run(['/usr/bin/perl', '-e', script, str(fixture), str(empty), str(self.controls.active)],
+                                capture_output=True, timeout=25)
+        self.assertEqual(0, result.returncode, result.stderr.decode(errors='replace'))
+        from clamshield.spam_report import parse
+        report = parse(result.stdout)
+        self.assertEqual(.875, report['score'])
+        rules = {r['name']: r for r in report['rules']}
+        self.assertEqual({'TVD_SPACE_RATIO': .25, 'LAB_UNDESCRIBED': .75, 'LAB_DESCRIBED': -.125},
+                         {name: rule['score'] for name, rule in rules.items()})
+        self.assertIn('ClamShield explanation:', rules['TVD_SPACE_RATIO']['description'])
+        self.assertIn('very few spaces', rules['TVD_SPACE_RATIO']['description'])
+        self.assertEqual('SpamAssassin did not provide a description for this rule', rules['LAB_UNDESCRIBED']['description'])
+        self.assertEqual('Upstream description retained', rules['LAB_DESCRIBED']['description'])
+
     def test_real_spamd_report_carries_actual_scores_and_configuration_canary(self):
         if os.geteuid() != 0 or not Path('/usr/sbin/spamd').exists():
             self.skipTest('Requires Ubuntu spamd and isolated account')

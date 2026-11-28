@@ -112,7 +112,8 @@
       (native.threshold?.required_score!=null?' / '+native.threshold.required_score:'')+'\n':'')+dnsLabel+mimeLabel+policyLabel;
     const sa=detail.spamassassin;if(!sa)return earlier;
     return earlier+'SpamAssassin: '+sa.score+' / '+sa.required_score+'\nRules: '+
-      (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+rule.description).join('\n'):(sa.symbols||[]).join(', '))+
+      (sa.rules?sa.rules.map(rule=>rule.name+': '+(rule.score>0?'+':'')+rule.score+' · '+
+        (rule.description?.trim()?rule.description:'Description not recorded for this decision')).join('\n'):(sa.symbols||[]).join(', '))+
       '\nEngine / rules: '+(sa.engine_version||'unrecorded')+' / '+(sa.rules_version||'unrecorded')+
       '\nConfiguration: '+(sa.revision||'unrecorded')+'\n'+
       (sa.dns_observations?.length?'DNS checks (no spam points for access failures):\n'+

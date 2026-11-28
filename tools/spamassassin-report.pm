@@ -41,6 +41,13 @@ sub hit_rule {
   if (@$hits >= 1000) { $pms->{clamshield_report_overflow} = 1; return; }
   my $description = $pms->{conf}->get_description_for_rule($name) // '';
   $description =~ s/[\x00-\x1f\x7f]/ /g;
+  if ($description !~ /\S/) {
+    # Ubuntu SA 4.0.2 defines this rule without a describe directive.
+    # BodyEval::tvd_vertical_words checks the ratio of spaces to other text.
+    my %explanations = (TVD_SPACE_RATIO =>
+      'ClamShield explanation: message text has very few spaces relative to other characters');
+    $description = $explanations{$name} // 'SpamAssassin did not provide a description for this rule';
+  }
   push @$hits, {name=>$name, score=>0+$options->{score},
                 description=>substr($description, 0, 512)};
 }

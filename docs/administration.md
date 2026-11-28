@@ -841,3 +841,10 @@ Mail requests bound SQLite lock waits to their request budget, reserving time
 for live owner verification and the native fallback reply. A failed diagnostic
 write cannot hold that reply behind a second lock wait. The database still uses
 FULL synchronous WAL commits; other workers retain their ordinary lock timeout.
+
+Rule explanations preserve the description returned at scan time. When upstream
+supplies none, new reports retain an explicit missing-description label; the known
+Ubuntu `TVD_SPACE_RATIO` rule has a labeled ClamShield explanation of its text
+spacing check. This does not change its verdict or score. Older empty descriptions
+say "Description not recorded for this decision" rather than acquiring a new
+explanation after the fact.

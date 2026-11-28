@@ -16,7 +16,7 @@ function fixture(options={}){
     return {ok:true,json:async()=>({ok:true,decision:{action:'deliver',classification:'incomplete',detail:{scan_complete:false,spam_score:1.25,
       native_dnsbl:{zone:'zen.spamhaus.org',state:'failed',score_contribution:0},
       ...(options.fallbackTag?{native_fallback_tag_requested:options.fallbackTag}:{}),
-      spamassassin:{score:1.25,required_score:5,rules:[{name:'Historical.Rule',score:1.25,description:'<img src=x onerror=alert(1)>'}],engine_version:'4.0.2',rules_version:'historical'},
+      spamassassin:{score:1.25,required_score:5,rules:[{name:'Historical.Rule',score:1.25,description:options.blankDescription?'':'<img src=x onerror=alert(1)>'}],engine_version:'4.0.2',rules_version:'historical'},
       ...(options.historical?{}:{policy_thresholds:{spam_threshold:7,spam_high_threshold:12,signature_spam_score:2}})}}})};
   };
   w.eval(source);return {w,requests,button:w.document.querySelector('.cs-mail-decision-show'),output:w.document.querySelector('.cs-mail-decision-output'),close:()=>w.close()};
@@ -43,6 +43,13 @@ test('Global native row opens scoped historical explanation on demand and toggle
 });
 test('historical decision without applied thresholds does not substitute current defaults',async()=>{
   const f=fixture({historical:true});try{f.button.click();await until(()=>f.button.dataset.loaded==='true');assert.match(f.output.textContent,/Policy thresholds: not recorded/);assert.doesNotMatch(f.output.textContent,/Applied policy thresholds/);}finally{f.close();}
+});
+
+test('historical empty description stays explicit without reconstructing the old explanation',async()=>{
+  const f=fixture({blankDescription:true});try{
+    f.button.click();await until(()=>f.button.dataset.loaded==='true');
+    assert.match(f.output.textContent,/Historical.Rule: \+1.25 · Description not recorded for this decision/);
+  }finally{f.close();}
 });
 
 test('fallback subject marking is a requested native action, never a completed clean verdict',async()=>{
