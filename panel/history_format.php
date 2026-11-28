@@ -25,6 +25,7 @@ $cs_history_actions=[
     'mail.policy_saved'=>'Email policy saved','mail.policy_reset'=>'Email policy reset',
     'mail.release_queued'=>'Email release queued','mail.deleted'=>'Quarantined email deleted',
     'mail.native_fallback'=>'Native delivery fallback recorded',
+    'mail.body_purged'=>'ClamShield email copy removed',
     'history.retention_saved'=>'History retention saved','history.retention_reset'=>'History retention reset',
     'history.server_saved'=>'Server history retention saved','history.server_reset'=>'Server history retention reset',
     'history.permission_saved'=>'History permissions saved','history.pruned'=>'Account history cleaned up',
@@ -47,6 +48,11 @@ $cs_history_jobs=[];
 foreach($data['jobs'] as $job)$cs_history_jobs[($job['owner']??$data['context']['owner'])."\0".($job['identity']??'')."\0".$job['id']]=$job;
 $cs_history_summary=static function(array $event) use ($cs_history_jobs,$cs_history_action,$cs_history_labels,$cs_history_words,$cs_history_technical_key,$cs_history_clean,$cs_history_value): array {
     $detail=$event['detail'];$lines=[];$action=$event['action'];
+    if($action==='mail.body_purged')return [
+        ['source'=>"ClamShield's stored original message was removed after all recipients finished.",
+         'delivery'=>"ClamShield's stored delivery copy was removed after confirmed delivery."][$detail['kind']??'']??'A stored ClamShield email copy was removed.',
+        'Mailbox messages are unchanged.',
+    ];
     $job=$cs_history_jobs[($event['owner']??'')."\0".($event['identity']??'')."\0".($event['subject']??'')]??null;
     $domain=$detail['domain']??$job['domain']??null;
     if(is_string($domain)&&$domain!=='')$lines[]='Website: '.$domain;

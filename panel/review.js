@@ -11,7 +11,7 @@
   'email-stored':['cs-mail-server-quarantine','email-review','Action'],'email-decisions':['cs-mail-server-decisions','email-review','Classification']
  };
  const labels={'email-messages':['Clear list','Clear selected records','email list records','Quarantined messages, unresolved deliveries and internal recovery evidence are retained.'],findings:['Clear all findings','Clear selected findings','finding records','Website files and protection policies are unchanged.'],repairs:['Clear all repair records','Clear selected repair records','repair records','Running work and recovery items are retained. Undo evidence is kept internally.'],exceptions:['Remove all exceptions','Remove selected exceptions','exceptions','Removed exceptions stop suppressing detections on future scans.'],quarantine:['Delete quarantine files','Delete selected quarantine files','quarantine files','Permanently deletes verified private quarantine copies. Restore will no longer be available. Website files are unchanged.'],history:['Clear all history','Clear selected history','history events','Scan results, quarantine and recovery evidence are kept.'],notices:['Clear all notifications','Clear selected notifications','ClamShield notifications','Matching notifications in your HestiaCP account will also be removed shortly.'],activity:['Clear completed tasks','Clear selected tasks','completed maintenance records','Queued and running tasks are retained and continue normally.'],automatic:['Clear automatic action history','Clear selected action history','automatic action records','Running actions and recovery evidence are retained.'], 'email-stored':['Delete quarantined email','Delete selected quarantined email','quarantined recipient records','Permanently deletes accepted quarantined email for these recipients. Messages with uncertain acceptance or delivery are retained. Shared content is kept while another recipient needs it.'],'email-decisions':['Clear all email decisions','Clear selected email decisions','email decision records','Delivery and recovery evidence is kept internally.']};
- const states=new Map();
+ const states=new Map(),historyDetails=new WeakMap();let historyDetailId=0;
  const element=(tag,properties={})=>Object.assign(document.createElement(tag),properties);
  const option=(value,title)=>element('option',{value,textContent:title});
  const words=value=>String(value).replace(/[._-]/g,' ').replace(/^./,v=>v.toUpperCase());
@@ -140,6 +140,17 @@
   }
   controls(state);
  }
+ root.addEventListener('click',event=>{
+  const button=event.target.closest('.cs-history-details-toggle');if(!button)return;
+  const record=button.closest('tr');let detail=historyDetails.get(button);
+  if(!detail){
+   const output=button.nextElementSibling;if(!output?.classList.contains('cs-history-details-output'))return;
+   const row=element('tr',{hidden:true}),cell=element('td');row.dataset.reviewDetail='true';cell.colSpan=record.cells.length;
+   row.append(cell);cell.append(output);record.after(row);output.id='cs-history-detail-'+(++historyDetailId);
+   button.setAttribute('aria-controls',output.id);detail={row,output};historyDetails.set(button,detail);
+  }
+  const open=detail.row.hidden;detail.row.hidden=detail.output.hidden=!open;button.setAttribute('aria-expanded',String(open));
+ });
  document.addEventListener('clamshield-mail-rows',event=>{for(const state of states.values())if(state.native&&state.body===event.detail)selectRows(state);});
  document.addEventListener('submit',async event=>{
   const form=event.target;if(!form.matches('.cs-review-email-deliver'))return;event.preventDefault();

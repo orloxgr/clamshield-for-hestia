@@ -55,7 +55,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs #cs-scans-list td{white-space:pre-line}
 .cs #cs-scans-list td:nth-child(2){min-width:9em}
 .cs #cs-integrity-sites{table-layout:fixed}
-.cs #cs-history-events{table-layout:fixed}.cs #cs-history-events pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.cs .cs-history-summary{margin-bottom:12px}
+.cs #cs-history-events{table-layout:fixed}.cs #cs-history-events pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.cs .cs-history-details-toggle{display:inline-flex;align-items:center;gap:8px}.cs .cs-history-details-toggle[aria-expanded="true"] .cs-disclosure-icon{transform:rotate(90deg)}.cs .cs-history-summary{margin-bottom:12px}
 @media(max-width:750px){.cs .cs-dashboard-panels{grid-template-columns:1fr}.cs .cs-engine-info{grid-template-columns:1fr}.cs .cs-engine-info dd{margin-bottom:12px}}
 @media(max-width:450px){.cs .cs-activity-row{align-items:flex-start}.cs .cs-activity dd{flex-direction:column;align-items:flex-end;gap:4px}.cs .cs-activity dd a{min-width:0}}
 </style>

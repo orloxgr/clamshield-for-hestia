@@ -681,8 +681,8 @@ test('history shows readable operations, website scope and counters with referen
     assert.match(rows[0].querySelector('.cs-history-summary').textContent,/Website: site.testScope: Whole websiteFull replacement scan queued/);
     assert.match(rows[1].querySelector('.cs-history-summary').textContent,/Operation: Update antivirus signatures/);
     assert.equal(rows[2].children[2].textContent,'Scan incomplete');assert.match(rows[2].querySelector('.cs-history-summary').textContent,/Files checked: 1450Errors: 2/);
-    for(const row of rows){assert.equal(row.querySelector('details').open,false);assert.doesNotMatch(row.querySelector('.cs-history-summary').textContent,/[a-f0-9]{32}|\{"/);}
-    rows[0].querySelector('details').open=true;assert.match(rows[0].querySelector('pre').textContent,new RegExp('b'.repeat(32)));
+    for(const row of rows){assert.equal(row.querySelector('.cs-history-details-output').hidden,true);assert.doesNotMatch(row.querySelector('.cs-history-summary').textContent,/[a-f0-9]{32}|\{"/);}
+    rows[0].querySelector('.cs-history-details-toggle').click();assert.match(rows[0].nextElementSibling.querySelector('pre').textContent,new RegExp('b'.repeat(32)));
   }finally{await f.close();}
 });
 
@@ -904,12 +904,32 @@ test('former Activity bookmarks and saved selections open the Review Updates tab
 });
 
 test('paged History keeps column widths aligned after selection controls and a second load',async()=>{
-  const html='<tr><td>2026-11-28 05:41:47 UTC</td><td>Email protection</td><td>Mail body purged</td><td><div class="cs-history-summary">Kind: delivery</div><details><summary class="button cs-disclosure">Technical details</summary><pre>Reference: '+('a'.repeat(200))+'</pre></details></td></tr>';
+  const html='<tr><td>2026-11-28 05:41:47 UTC</td><td>Email protection</td><td>Mail body purged</td><td><div class="cs-history-summary">Kind: delivery</div><button type="button" class="button cs-history-details-toggle" aria-expanded="false">Technical details</button><pre class="cs-history-details-output" hidden>Reference: '+('a'.repeat(200))+'</pre></td></tr>';
   const f=fixture({hash:'#review/history',api:async body=>reviewResponse(body,{html,selection:[{id:'one',allowed:true}]})});
   try{await settle();const table=f.document.getElementById('cs-history-events');
     assert.equal(table.querySelectorAll('col').length,5);assert.equal(table.querySelectorAll('thead th').length,5);assert.equal(table.querySelector('tbody tr').children.length,5);
     assert.equal(table.querySelector('col').style.width,'44px');assert.equal(table.querySelector('tbody tr').lastElementChild.querySelector('.cs-history-summary').textContent,'Kind: delivery');
-    assert.equal(table.querySelector('details').open,false);f.click('#cs-history-lists-refresh');await settle();assert.equal(table.querySelectorAll('col').length,5);assert.equal(table.querySelector('tbody tr').children.length,5);assert.deepEqual(f.errors,[]);
+    assert.equal(table.querySelector('.cs-history-details-output').hidden,true);f.click('#cs-history-lists-refresh');await settle();assert.equal(table.querySelectorAll('col').length,5);assert.equal(table.querySelector('tbody tr').children.length,5);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('History technical details occupy a separate full-width row and keep paging selection aligned',async()=>{
+  let request=0;const records=[auditEvent('mail.body_purged',{kind:'delivery',sha256:'a'.repeat(64)}),auditEvent('mail.body_purged',{kind:'source'})];
+  const original=fixture({hash:'#history',change:v=>v.history=records});
+  const html=original.document.getElementById('cs-review-history-rows').innerHTML;await original.close();
+  const f=fixture({hash:'#review/history',api:async body=>{if(body.list==='history')request++;return reviewResponse(body,{html:body.list==='history'?html:'',selection:body.list==='history'?[{id:'one',allowed:true},{id:'two',allowed:true}]:[]});}});
+  try{await settle();const body=f.document.getElementById('cs-review-history-rows'),records=[...body.children];
+    assert.match(records[0].textContent,/ClamShield email copy removed/);assert.match(records[0].textContent,/after confirmed delivery.*Mailbox messages are unchanged/s);
+    assert.match(records[1].textContent,/stored original message.*all recipients finished/s);
+    const toggle=records[0].querySelector('.cs-history-details-toggle');assert.equal(toggle.getAttribute('aria-expanded'),'false');
+    toggle.click();const details=records[0].nextElementSibling;
+    assert.equal(details.dataset.reviewDetail,'true');assert.equal(details.hidden,false);assert.equal(details.cells[0].colSpan,5);assert.equal(details.cells[0].colSpan,records[0].cells.length);
+    assert.equal(details.querySelector('pre').hidden,false);assert.equal(records[0].querySelector('pre'),null);assert.match(details.textContent,/mail.body_purged/);
+    assert.equal(toggle.getAttribute('aria-controls'),details.querySelector('pre').id);assert.equal(toggle.getAttribute('aria-expanded'),'true');
+    toggle.click();assert.equal(details.hidden,true);toggle.click();assert.equal(body.querySelectorAll('[data-review-detail]').length,1);
+    f.click('[data-review-pager=history] [aria-label="Select this page"]');assert.equal(body.querySelectorAll('input:checked').length,2);assert.equal(details.querySelector('input'),null);
+    f.click('#cs-history-lists-refresh');await settle();assert.ok(request>=2);assert.equal(body.querySelector('[data-review-detail]'),null);
+    const next=body.querySelector('.cs-history-details-toggle');assert.equal(next.getAttribute('aria-expanded'),'false');next.click();assert.equal(body.querySelector('[data-review-detail] td').colSpan,5);assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 
