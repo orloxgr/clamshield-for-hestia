@@ -88,8 +88,8 @@ Updates | Settings
 
 Settings holds configuration; Updates holds data installation and update
 operations. Review brings together results, repairs, exceptions, quarantine,
-email activity, history and notifications. History includes events, update and
-configuration tasks, and automatic action history. Settings → Support Us contains
+email activity, history and notifications. History includes events and automatic
+action history; Review → Updates lists update and configuration tasks. Settings → Support Us contains
 donation links and short upstream acknowledgements; complete third-party notices
 remain with the installed source data.
 

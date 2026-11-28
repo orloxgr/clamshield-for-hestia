@@ -55,7 +55,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 .cs #cs-scans-list td{white-space:pre-line}
 .cs #cs-scans-list td:nth-child(2){min-width:9em}
 .cs #cs-integrity-sites{table-layout:fixed}
-.cs #cs-history-events{table-layout:fixed}.cs .cs-history-summary{margin-bottom:12px}
+.cs #cs-history-events{table-layout:fixed}.cs #cs-history-events pre{white-space:pre-wrap;overflow-wrap:anywhere;max-width:100%}.cs .cs-history-summary{margin-bottom:12px}
 @media(max-width:750px){.cs .cs-dashboard-panels{grid-template-columns:1fr}.cs .cs-engine-info{grid-template-columns:1fr}.cs .cs-engine-info dd{margin-bottom:12px}}
 @media(max-width:450px){.cs .cs-activity-row{align-items:flex-start}.cs .cs-activity dd{flex-direction:column;align-items:flex-end;gap:4px}.cs .cs-activity dd a{min-width:0}}
 </style>
@@ -80,7 +80,8 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
 </tbody></table></div></section>
 <section data-page="repairs" hidden><h2>Repairs</h2><p>Prepare a preview from a verified WordPress release, a backup, or targeted infection cleaning chosen in Findings. Review the source, hashes and differences before applying it. Repairs retain the original content or a record that the file was absent. Published files receive a ClamAV/YARA recheck. Undo restores the original content or absence; created folders and other files are retained.</p><button class="button" id="cs-refresh-repairs">Refresh results</button>
 <div id="cs-review-repairs-rows"><?php require __DIR__.'/review_rows/repairs.php'; ?></div></section>
-<section data-page="history" hidden><div class="row"><h2>History</h2><button class="button" type="button" id="cs-history-lists-refresh">Refresh history</button></div><h3>Events</h3><?php require __DIR__.'/history_events.php'; require __DIR__.'/activity.php'; ?></section>
+<section data-page="history" hidden><div class="row"><h2>History</h2><button class="button" type="button" id="cs-history-lists-refresh">Refresh history</button></div><h3>Events</h3><?php require __DIR__.'/history_events.php'; require __DIR__.'/automatic_history.php'; ?></section>
+<?php require __DIR__.'/activity.php'; ?>
 <?php require __DIR__.'/wordpress_recovery.php'; ?>
 <?php require __DIR__.'/rules.php'; ?>
 <?php if($data['context']['admin']): $providers=$data['providers']; ?>
@@ -121,7 +122,7 @@ $cs_label=static fn($row)=>($cs_global?($row['owner']??$data['context']['owner']
  const websiteActions={"initial-monitoring-resume":"schedule","scan":"scan","wordpress-scan":"scan","policy-save":"schedule","quarantine":"quarantine","restore":"restore","repair-preview":"repair","repair-backup-preview":"repair","repair-hestia-preview":"repair","cleanup-preview":"cleanup","repair-undo":"restore","exception-add":"exceptions","exception-remove":"exceptions","remediation-policy-save":"automatic","repair-apply":null};
  const ruleOverrides=<?=json_encode($data['context']['admin']?$data['rule_manager']['disabled']:[],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
  document.getElementById('cs-rules-refresh')?.addEventListener('click',()=>location.reload());
- document.getElementById('cs-history-lists-refresh').addEventListener('click',()=>{for(const kind of ['history','activity','automatic'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));});
+ document.getElementById('cs-history-lists-refresh').addEventListener('click',()=>{for(const kind of ['history','automatic'])document.dispatchEvent(new CustomEvent('clamshield-review-refresh',{detail:kind}));});
  function prepareReviewControls(scope=document){
  scope.querySelectorAll('[data-action]').forEach(control=>{const capability=control.dataset.capability||websiteActions[control.dataset.action];if(capability)control.dataset.capability=capability;});
  scope.querySelectorAll('[data-capability]').forEach(container=>{if(websitePermissions[container.dataset.capability]!==false)return;container.title=websitePermissionLabels[container.dataset.capability]+' is disabled by the administrator';const controls=container.matches('button,input,select,textarea')?[container]:container.querySelectorAll('button,input,select,textarea');controls.forEach(control=>{control.disabled=true;control.setAttribute('aria-disabled','true');control.title=container.title;});});

@@ -23,7 +23,7 @@
   }
   document.addEventListener('click',event=>{
     const link=event.target.closest('[data-main-tab],[data-tab]');if(!link||link.disabled)return;
-    event.preventDefault();const page=link.dataset.tab==='activity'?'history':link.dataset.tab==='wordpress'?'wordpress-recovery':link.dataset.tab;
+    event.preventDefault();const page=link.dataset.tab==='activity'?'update-history':link.dataset.tab==='wordpress'?'wordpress-recovery':link.dataset.tab;
     select(page?groupOf(page):link.dataset.mainTab,page);
     const target=document.getElementById(link.dataset.focusId||('cs-provider-'+link.dataset.focusProvider));
     if(target){for(let parent=target.parentElement;parent;parent=parent.parentElement)if(parent.tagName==='DETAILS')parent.open=true;target.scrollIntoView?.({block:'nearest'});target.focus();}
@@ -31,13 +31,13 @@
   function fromHash(){
     const [group,page]=location.hash.slice(1).split('/');
     if(group==='wordpress'||page==='wordpress'){select('scan','wordpress-recovery');return;}
-    if(group==='activity'||page==='activity'){select('review','history');return;}
+    if(group==='activity'||page==='activity'){select('review','update-history');return;}
     const legacy={results:'findings',exceptions:'exceptions',quarantine:'quarantine',history:'history'};
     if(Object.hasOwn(legacy,group)){select('review',map.review.includes(page)?page:legacy[group]);return;}
     if(page&&pages.has(page)&&groupOf(page)!==group){select(groupOf(page),page);return;}
     if(pages.has(group)){select(groupOf(group),group);return;}
     if(group){select(group,page,false);return;}
-    const saved=stored()==='activity'?'history':stored()==='wordpress'?'wordpress-recovery':stored();select(pages.has(saved)?groupOf(saved):'dashboard',saved,false);
+    const saved=stored()==='activity'?'update-history':stored()==='wordpress'?'wordpress-recovery':stored();select(pages.has(saved)?groupOf(saved):'dashboard',saved,false);
   }
   window.addEventListener('hashchange',fromHash);fromHash();
 })();

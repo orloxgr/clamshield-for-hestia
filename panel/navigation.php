@@ -4,12 +4,12 @@ $cs_navigation = [
     'email'=>['Email Shield', ['mail'=>'Email protection']],
     'scan'=>['On-Demand Actions', ['sites'=>'Websites', 'jobs'=>'Scan progress', 'wordpress-recovery'=>'WordPress']],
     'scheduled'=>['Scheduled Scanner', ['scheduled'=>'Schedules and monitoring']],
-    'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Repairs and cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'email-review'=>'Email', 'history'=>'History', 'notices'=>'Notifications']],
+    'review'=>['Review', ['findings'=>'Results', 'repairs'=>'Cleaning', 'exceptions'=>'Exceptions', 'quarantine'=>'Quarantine', 'email-review'=>'Email', 'history'=>'History', 'update-history'=>'Updates', 'notices'=>'Notifications']],
     'updates'=>['Updates', ['rules'=>'YARA rules', 'providers'=>'Signature providers']],
     'settings'=>['Settings', ['yara-settings'=>'YARA', 'provider-settings'=>'Signature providers', 'mail-settings'=>'Email', 'spamassassin'=>'SpamAssassin', 'automatic'=>'Automatic actions', 'notifications'=>'Notifications', 'retention'=>'History retention', 'resources'=>'Resources', 'permissions'=>'Website permissions', 'support'=>'Support Us']],
 ];
 if (!$data['context']['admin']) {
-    foreach (['updates'=>['providers'], 'settings'=>['yara-settings','provider-settings','spamassassin','resources','permissions']] as $group=>$pages) {
+    foreach (['review'=>['update-history'], 'updates'=>['providers'], 'settings'=>['yara-settings','provider-settings','spamassassin','resources','permissions']] as $group=>$pages) {
         foreach ($pages as $page) unset($cs_navigation[$group][1][$page]);
     }
 }

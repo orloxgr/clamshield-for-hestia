@@ -42,7 +42,7 @@
       text(row.children[1],job.status+(job.cancel_requested&&['queued','running'].includes(job.status)?' · cancellation requested':'')+
         (queue?'\n'+(queue.position?'Queue position: '+queue.position+' · ':'')+'Waiting: '+Math.floor(queue.wait_seconds/60)+'m '+queue.wait_seconds%60+'s\n'+queue.message:'')+(job.error?'\n'+job.error:''));
       if(queue?.action==='history'){
-        const link=document.createElement('a');link.href='#review/history';link.dataset.tab='history';link.textContent='View pending maintenance';row.children[1].append(document.createElement('br'),link);
+        const link=document.createElement('a');link.href='#review/update-history';link.dataset.tab='update-history';link.textContent='View pending updates';row.children[1].append(document.createElement('br'),link);
       }
       const c=job.counters;
       const base=new Set(['seen','scanned','skipped','errors','bytes','detections','history_expired','history_prune_pending']);

@@ -116,7 +116,7 @@ test('scripts initialize during normal document parsing and SpamAssassin control
 test('configuration, update operations and all-account email records stay in their own views',async()=>{
   const f=fixture({hash:'#updates/rules',change:v=>{v.context.view_scope='server';}});
   try{await settle();
-    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-messages','email-review'],['cs-sa-tasks','history'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
+    for(const [id,page] of [['cs-yara-scanning','yara-settings'],['cs-providers','provider-settings'],['cs-mail-server-form','mail-settings'],['cs-mail-messages','email-review'],['cs-sa-tasks','update-history'],['cs-notification-preferences','notifications'],['cs-notification-list','notices']])
       assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,page,id);
     for(const node of f.document.querySelectorAll('[data-page]'))assert.equal(node.hidden,node.dataset.page!=='rules');
     assert.equal(f.document.querySelector('[data-action=rules-build],[data-action=rules-activate]'),null);
@@ -493,7 +493,7 @@ test('Global Email uses one paged message list with account and decision filters
 });
 
 test('navigation controls in paged automatic actions still open their Review destination',async()=>{
-  const f=fixture({hash:'#review/activity',api:async body=>reviewResponse(body,{html:'<tr><td><button class="button" data-tab="repairs">Review repair</button></td></tr>'})});
+  const f=fixture({hash:'#review/history',api:async body=>reviewResponse(body,{html:'<tr><td><button class="button" data-tab="repairs">Review repair</button></td></tr>'})});
   try{await settle();f.click('#cs-review-automatic-rows [data-tab=repairs]');await settle();assert.deepEqual(f.visible(),['repairs']);assert.equal(f.w.location.hash,'#review/repairs');assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
@@ -854,7 +854,7 @@ test('Review groups existing review tools and remembers the selected child while
   const f=fixture();try{
     f.click('[data-main-tab=review]');assert.deepEqual(f.visible(),['findings']);
     const review=f.document.querySelector('[data-subnav=review]');
-    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Repairs and cleaning','Exceptions','Quarantine','Email','History','Notifications']);
+    assert.deepEqual([...review.children].map(link=>link.textContent),['Results','Cleaning','Exceptions','Quarantine','Email','History','Updates','Notifications']);
     for(const page of ['findings','repairs','exceptions','quarantine','history']){
       f.click('[data-subnav=review] [data-tab='+page+']');assert.deepEqual(f.visible(),[page]);
       assert.equal(f.document.querySelector('[data-main-tab=review]').getAttribute('aria-current'),'page');
@@ -879,23 +879,38 @@ test('Review retains old bookmarks and saved selections after consolidating the 
   const unknown=fixture({hash:'#__proto__'});try{assert.deepEqual(unknown.visible(),['dashboard']);}finally{await unknown.close();}
 });
 
-test('History contains events, maintenance and automatic actions with one refresh and no separate Activity tab',async()=>{
+test('Review Updates has its own task list and History retains only events and automatic actions',async()=>{
   const f=fixture({hash:'#review/history',api:async body=>reviewResponse(body)});
-  try{await settle();assert.equal(f.document.querySelector('[data-tab=activity],[data-page=activity]'),null);
-    for(const id of ['cs-review-history-rows','cs-review-activity-rows','cs-review-automatic-rows'])assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,'history');
-    for(const kind of ['history','activity','automatic'])assert.ok(f.requests.some(r=>r.action==='review-list'&&r.list===kind));
-    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-history-lists-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+3);
-    assert.equal(f.document.getElementById('cs-history-refresh').closest('[data-page]').dataset.page,'retention');
-    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard a[data-focus-id=cs-sa-tasks]');await settle();assert.deepEqual(f.visible(),['history']);assert.equal(f.w.location.hash,'#review/history');assert.equal(f.document.activeElement.id,'cs-sa-tasks');assert.deepEqual(f.errors,[]);
+  try{await settle();const nav=f.document.querySelector('[data-subnav=review]');
+    assert.equal(nav.querySelector('[data-tab=repairs]').textContent,'Cleaning');assert.equal(nav.querySelector('[data-tab=update-history]').textContent,'Updates');
+    for(const id of ['cs-review-history-rows','cs-review-automatic-rows'])assert.equal(f.document.getElementById(id).closest('[data-page]').dataset.page,'history');
+    assert.equal(f.document.getElementById('cs-review-activity-rows').closest('[data-page]').dataset.page,'update-history');
+    for(const kind of ['history','automatic'])assert.ok(f.requests.some(r=>r.action==='review-list'&&r.list===kind));
+    assert.equal(f.requests.some(r=>r.action==='review-list'&&r.list==='activity'),false);
+    const before=f.requests.filter(r=>r.action==='review-list').length;f.click('#cs-history-lists-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list').length,before+2);
+    f.click('[data-subnav=review] [data-tab=update-history]');await settle();assert.deepEqual(f.visible(),['update-history']);assert.equal(f.w.location.hash,'#review/update-history');
+    assert.ok(f.requests.some(r=>r.action==='review-list'&&r.list==='activity'));const count=f.requests.filter(r=>r.action==='review-list'&&r.list==='activity').length;
+    f.click('#cs-update-history-refresh');await settle();assert.equal(f.requests.filter(r=>r.action==='review-list'&&r.list==='activity').length,count+1);
+    assert.ok(f.document.querySelector('[data-page=update-history] [data-review-command=delete-all]'));assert.ok(f.document.querySelector('[data-page=update-history] [data-review-list=activity]'));
+    f.click('[data-main-tab=dashboard]');f.click('#cs-dashboard a[data-focus-id=cs-sa-tasks]');await settle();assert.deepEqual(f.visible(),['update-history']);assert.equal(f.document.activeElement.id,'cs-sa-tasks');assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 
-test('former Activity bookmarks and saved selections open History and maintenance links use its canonical route',async()=>{
+test('former Activity bookmarks and saved selections open the Review Updates tab',async()=>{
   for(const options of [{hash:'#activity'},{hash:'#review/activity'},{hash:'#settings/activity'},{saved:'activity'}]){
-    const f=fixture(options);try{await settle();assert.deepEqual(f.visible(),['history']);assert.equal(f.document.querySelector('[data-subnav=review] [data-tab=history]').getAttribute('aria-current'),'page');if(options.hash)assert.equal(f.w.location.hash,'#review/history');
-      assert.equal(f.document.querySelector('a[href="#review/activity"]'),null);
+    const f=fixture(options);try{await settle();assert.deepEqual(f.visible(),['update-history']);assert.equal(f.document.querySelector('[data-subnav=review] [data-tab=update-history]').getAttribute('aria-current'),'page');if(options.hash)assert.equal(f.w.location.hash,'#review/update-history');
     }finally{await f.close();}
   }
+});
+
+test('paged History keeps column widths aligned after selection controls and a second load',async()=>{
+  const html='<tr><td>2026-11-28 05:41:47 UTC</td><td>Email protection</td><td>Mail body purged</td><td><div class="cs-history-summary">Kind: delivery</div><details><summary class="button cs-disclosure">Technical details</summary><pre>Reference: '+('a'.repeat(200))+'</pre></details></td></tr>';
+  const f=fixture({hash:'#review/history',api:async body=>reviewResponse(body,{html,selection:[{id:'one',allowed:true}]})});
+  try{await settle();const table=f.document.getElementById('cs-history-events');
+    assert.equal(table.querySelectorAll('col').length,5);assert.equal(table.querySelectorAll('thead th').length,5);assert.equal(table.querySelector('tbody tr').children.length,5);
+    assert.equal(table.querySelector('col').style.width,'44px');assert.equal(table.querySelector('tbody tr').lastElementChild.querySelector('.cs-history-summary').textContent,'Kind: delivery');
+    assert.equal(table.querySelector('details').open,false);f.click('#cs-history-lists-refresh');await settle();assert.equal(table.querySelectorAll('col').length,5);assert.equal(table.querySelector('tbody tr').children.length,5);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
 });
 
 test('tenant History keeps account events and automatic action history without privileged maintenance queries',async()=>{
@@ -907,7 +922,7 @@ test('tenant History keeps account events and automatic action history without p
 test('tenant retains all seven sections without privileged forms or navigation targets',async()=>{
   const f=fixture({admin:false});try{
     assert.deepEqual([...f.document.querySelector('#cs-main-navigation').children].map(link=>link.textContent),labels);
-    for(const page of ['providers','resources','permissions','spamassassin'])assert.equal(f.document.querySelector('[data-page="'+page+'"],[data-tab="'+page+'"]'),null);
+    for(const page of ['providers','resources','permissions','spamassassin','update-history'])assert.equal(f.document.querySelector('[data-page="'+page+'"],[data-tab="'+page+'"]'),null);
     assert.equal(f.document.querySelector('#cs-forge-install'),null);
     assert.match(f.document.getElementById('cs-dashboard').textContent,/Managed by administrator/);
   }finally{await f.close();}

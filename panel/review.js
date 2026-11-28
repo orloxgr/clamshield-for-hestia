@@ -6,7 +6,7 @@
   findings:['cs-review-findings-rows','findings','Engine','Provider'],repairs:['cs-review-repairs-rows','repairs','Source'],
   exceptions:['cs-review-exceptions-rows','exceptions','Type','Engine'],quarantine:['cs-review-quarantine-rows','quarantine','Type'],
   history:['cs-review-history-rows','history','Event'],notices:['cs-notification-list','notices','Event'],
-  activity:['cs-review-activity-rows','history','Operation'],automatic:['cs-review-automatic-rows','history','Policy'],
+  activity:['cs-review-activity-rows','update-history','Operation'],automatic:['cs-review-automatic-rows','history','Policy'],
   'email-messages':['cs-mail-messages','email-review','Classification','Decision'],
   'email-stored':['cs-mail-server-quarantine','email-review','Action'],'email-decisions':['cs-mail-server-decisions','email-review','Classification']
  };
@@ -122,7 +122,7 @@
     finally{state.mutating=false;controls(state);if(state.queued)load(state);}
    });}
   }
-  if(native){previous.hidden=next.hidden=count.hidden=true;}if(body.tagName==='TBODY'){const header=element('th',{textContent:'Select'});header.className='cs-review-selection-heading';body.closest('table').querySelector('thead tr').prepend(header);}
+  if(native){previous.hidden=next.hidden=count.hidden=true;}if(body.tagName==='TBODY'){const header=element('th',{textContent:'Select'});header.className='cs-review-selection-heading';const table=body.closest('table');table.querySelector('thead tr').prepend(header);const columns=table.querySelector('colgroup');if(columns){const column=element('col');column.style.width='44px';columns.prepend(column);}}
   try{const saved=JSON.parse(sessionStorage.getItem(key(state))||'null');if(saved&&saved.fields){for(const [name,value] of Object.entries(saved.fields)){const input=form.elements.namedItem(name);if(!input||typeof value!=='string')continue;if(input.tagName==='SELECT'&&![...input.options].some(option=>option.value===value))input.append(option(value,words(value)));input.value=value;}if(Number.isSafeInteger(saved.offset)&&saved.offset>=0)state.offset=saved.offset;}}catch{}
   form.addEventListener('submit',event=>{event.preventDefault();load(state,true);});form.addEventListener('change',()=>load(state,true));
   reset.addEventListener('click',()=>{form.reset();size.value='50';load(state,true);});

@@ -55,10 +55,10 @@ test('queued scans show the actual blocker, global position and elapsed wait wit
   }finally{f.close();}
 });
 
-test('queue failures render as text and maintenance blockers link to the canonical History tab',async()=>{
+test('queue failures render as text and maintenance blockers link to the canonical Updates tab',async()=>{
   const f=await fixture({admin:true,jobStatus:'queued',queue:{code:'signature-activation',position:1,wait_seconds:6,message:'Waiting <img src=x> for signature activation.',action:'history'}});try{
     const cell=f.byId('list').querySelector('tr').children[1];assert.equal(cell.querySelector('img'),null);assert.match(cell.textContent,/Waiting <img src=x>/);
-    assert.equal(cell.querySelector('a').getAttribute('href'),'#review/history');assert.equal(cell.querySelector('a').dataset.tab,'history');
+    assert.equal(cell.querySelector('a').getAttribute('href'),'#review/update-history');assert.equal(cell.querySelector('a').dataset.tab,'update-history');
   }finally{f.close();}
 });
 

@@ -25,7 +25,7 @@ $resources=$data['resources']; $native_clamav=$resources['native_clamav']??null;
 <p><?=$native_clamav?'Disabling website ClamAV scanning leaves the native daemon running for email. YARA scanning remains available.':'Email services follow the protection controls in Email. Stopping website ClamAV leaves YARA scanning available and reports incomplete ClamAV coverage.'?></p>
 <?php endif ?>
 <button class="button" data-action="resources-recover">Recover resource or engine transition</button>
-<p><a href="#review/history" data-tab="history" data-focus-id="cs-sa-tasks">View maintenance history</a></p></section>
+<p><a href="#review/update-history" data-tab="update-history" data-focus-id="cs-sa-tasks">View update history</a></p></section>
 <script>
 (() => {'use strict';const form=document.getElementById('cs-resources');if(!form)return;
  const token=<?=json_encode($_SESSION['token']??'',JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>,owner=<?=json_encode($data['context']['owner'],JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?>;
