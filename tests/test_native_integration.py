@@ -8,7 +8,8 @@ import unittest
 from unittest.mock import Mock,patch
 
 from clamshield.atomic import write_json
-from clamshield.errors import EngineError
+from clamshield.errors import ClamShieldError,EngineError
+from clamshield.providers import Providers
 from clamshield.native_integration import NativeIntegration,GATE,UNIT,OLD_UNITS
 from clamshield.settings import Settings
 from clamshield.signatures import Signatures
@@ -76,6 +77,20 @@ class NativeIntegrationTests(unittest.TestCase):
         self.assertFalse(self.manager.journal.exists())
         self.manager.client=Mock()
         before=list(self.operations);self.manager.connect();self.assertEqual(before,self.operations)
+
+    def test_legacy_profile_conflict_does_not_stop_any_service_or_start_a_transition(self):
+        providers=Providers(self.settings);value=providers.initialize(existing=False)
+        value['securiteinfo'].update(enabled=True,plan='professional',key='a'*128)
+        value['securiteinfo']['mail_databases']+=['securiteinfo.pdb','securiteinfo.wdb']
+        providers.path.write_text(json.dumps(value));before=providers.path.read_bytes()
+        with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases'):self.manager.connect()
+        self.assertEqual([],self.operations);self.assertFalse(self.manager.journal.exists())
+        self.assertFalse(self.manager.record.exists());self.signatures.stage.assert_not_called()
+        self.assertEqual(self.original,self.config.read_text());self.assertEqual(before,providers.path.read_bytes())
+        self.assertEqual(self.previous,(self.signatures.base/'current').resolve())
+        self.assertTrue(self.active[UNIT]);self.assertTrue(self.active[OLD_UNITS[0]])
+        providers.share_existing_databases()
+        self.assertEqual('active',self.manager.connect()['phase'])
 
     def test_failed_frontend_restores_native_bytes_data_pointer_and_owned_service_states(self):
         self.manager.frontend_ready.side_effect=EngineError('not ready')

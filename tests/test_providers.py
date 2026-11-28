@@ -10,7 +10,7 @@ from unittest.mock import Mock, patch
 from clamshield.errors import ClamShieldError, EngineError
 from clamshield.provider_catalog import SANE_FINGERPRINT, SANE, recommended
 from clamshield.provider_fetch import Fetch, regular_copy
-from clamshield.providers import Providers, DEFAULTS, UPDATE_POLICIES
+from clamshield.providers import Providers, DEFAULTS, UPDATE_POLICIES, require_shared_selection
 from clamshield.settings import Settings
 from clamshield.signatures import Signatures
 
@@ -29,6 +29,41 @@ class ProviderConfiguration(unittest.TestCase):
         self.providers.save({'securiteinfo': {'key': ''}})
         self.assertEqual(secret, self.providers.read()['securiteinfo']['key'])
         self.assertEqual(0o600, self.providers.path.stat().st_mode & 0o777)
+
+    def legacy_shared_conflict(self):
+        value=self.providers.initialize(existing=False)
+        value['securiteinfo'].update(enabled=True,plan='professional',key='a'*128,
+            website_databases=['securiteinfo.ign2','javascript.ndb'],
+            mail_databases=['securiteinfo.ign2','securiteinfo.pdb','securiteinfo.wdb','spam_marketing.ndb'])
+        self.providers.path.write_text(json.dumps(value))
+        return self.providers.read()
+
+    def test_shared_preflight_explains_actual_legacy_pdb_wdb_conflict_without_saving(self):
+        value=self.legacy_shared_conflict();before=self.providers.path.read_bytes()
+        with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases') as error:
+            require_shared_selection(value)
+        self.assertIn('securiteinfo.pdb',str(error.exception));self.assertIn('securiteinfo.wdb',str(error.exception))
+        self.assertNotIn('a'*128,str(error.exception))
+        self.assertEqual(before,self.providers.path.read_bytes())
+
+    def test_explicit_sharing_only_adds_existing_special_choices_and_preserves_other_policies(self):
+        before=self.legacy_shared_conflict()
+        changed=self.providers.share_existing_databases();after=self.providers.read()
+        self.assertEqual({'securiteinfo':['securiteinfo.pdb','securiteinfo.wdb']},changed)
+        expected=json.loads(json.dumps(before))
+        expected['securiteinfo']['website_databases']=sorted(before['securiteinfo']['website_databases']+changed['securiteinfo'])
+        expected['securiteinfo']['mail_databases']=sorted(before['securiteinfo']['mail_databases'])
+        self.assertEqual(expected,after);require_shared_selection(after)
+        saved=self.providers.path.read_bytes();self.assertEqual({},self.providers.share_existing_databases())
+        self.assertEqual(saved,self.providers.path.read_bytes())
+        self.assertEqual(0o600,self.providers.path.stat().st_mode&0o777)
+
+    def test_disabled_provider_conflict_is_not_activated_or_changed_by_installer_option(self):
+        value=self.legacy_shared_conflict();value['securiteinfo']['enabled']=False
+        self.providers.path.write_text(json.dumps(value));before=self.providers.path.read_bytes()
+        require_shared_selection(self.providers.read())
+        self.assertEqual({},self.providers.share_existing_databases())
+        self.assertEqual(before,self.providers.path.read_bytes())
 
     def test_paid_databases_cannot_be_selected_with_basic_plan(self):
         with self.assertRaises(ClamShieldError):

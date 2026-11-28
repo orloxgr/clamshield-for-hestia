@@ -93,6 +93,8 @@ def main(argv=None):
                         help='Compatibility option; missing Ubuntu dependencies are installed automatically')
     parser.add_argument('--json', action='store_true',
                         help='Write the final result as JSON to stdout; progress and diagnostics stay on stderr')
+    parser.add_argument('--share-existing-databases', action='store_true',
+                        help='Explicitly share already-selected engine-wide databases between websites and email; retain other choices')
     args = parser.parse_args(argv)
     return progress.execute(lambda: perform(args), version=__version__, json_output=args.json)
 
@@ -111,10 +113,23 @@ def perform(args):
     sys.path.insert(0,str(SOURCE/'src'))
     from clamshield.installation import Installation
     from clamshield.settings import Settings
+    from clamshield.providers import Providers,require_shared_selection
     lifecycle=Installation(Settings())
+    providers=Providers(lifecycle.settings)
+    share=getattr(args,'share_existing_databases',False)
+    progress.stage('Checking shared database selections')
+    if not share:require_shared_selection(providers.read())
     progress.stage('Acquiring installation priority')
     with lifecycle.update(SOURCE,report=progress.stage):
         progress.stage('Installation locks acquired')
+        if share:
+            changed=providers.share_existing_databases()
+            if changed:
+                progress.stage('Explicit shared database selection saved: '+', '.join(
+                    name+'/'+item for name,items in changed.items() for item in items))
+        # Recheck inside the exclusive gate, including an administrator save
+        # completed between the read-only preflight and acquisition.
+        require_shared_selection(providers.read())
         return install(args,lifecycle)
 
 

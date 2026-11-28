@@ -48,6 +48,23 @@ def timing(name, config, status):
 LOCAL_SUFFIXES = ('.hdb', '.hsb', '.ndb', '.ldb', '.ign2', '.fp', '.sfp', '.ftm', '.cdb', '.mdb', '.pdb', '.wdb', '.yar', '.yara')
 
 
+def shared_conflicts(config, *, enabled_only=False):
+    return {name:sorted(item for item in
+            set(config[name]['website_databases'])^set(config[name]['mail_databases']) if server_wide(item))
+            for name in ('securiteinfo','sanesecurity') if not enabled_only or config[name]['enabled']}
+
+
+def require_shared_selection(config):
+    conflicts=shared_conflicts(config,enabled_only=True)
+    names=[name+'/'+item for name,items in conflicts.items() for item in items]
+    if names:
+        raise ClamShieldError('Existing server-wide database selections differ between websites and email: '+
+            ', '.join(names)+'. Save a common Server-wide selection in Settings / Signature providers, or rerun '+
+            'the root installer with --share-existing-databases to enable these already-selected special databases '+
+            'for both websites and email. Other database choices and credentials are retained.')
+    return config
+
+
 class Providers:
     def __init__(self, settings):
         self.settings = settings
@@ -93,6 +110,22 @@ class Providers:
             value = self.profiles(deepcopy(LEGACY_DEFAULTS if existing else DEFAULTS))
             write_json(self.path, value)
             return value
+
+    def share_existing_databases(self):
+        """Explicit root-installer choice; never applied by an ordinary update."""
+        self.settings.prepare()
+        with (self.settings.state/'providers-config.lock').open('a+b') as lock:
+            fcntl.flock(lock,fcntl.LOCK_EX)
+            result=self.read();conflicts=shared_conflicts(result,enabled_only=True)
+            changed={name:items for name,items in conflicts.items() if items}
+            if not changed:return {}
+            for name,items in changed.items():
+                for purpose in ('website','mail'):
+                    key=purpose+'_databases'
+                    result[name][key]=sorted(set(result[name][key])|set(items))
+            result=self.profiles(result);require_shared_selection(result)
+            write_json(self.path,result)
+            return changed
 
     def save(self, value):
         self.settings.prepare()
@@ -173,9 +206,7 @@ class Providers:
         result['catalog'] = catalog()
         from .native_integration import enabled
         result['official']['native_updater']=enabled(self.settings)
-        result['selection_conflicts']={name:sorted(item for item in
-            set(result[name]['website_databases'])^set(result[name]['mail_databases']) if server_wide(item))
-            for name in ('securiteinfo','sanesecurity')}
+        result['selection_conflicts']=shared_conflicts(result)
         result['recommended'] = {plan: recommended(plan) for plan in ('basic', 'professional', 'gold', 'reseller')}
         local = self.settings.state / 'local-signatures'
         result['local']['files'] = sorted(p.name for p in local.iterdir() if p.is_file() and not p.is_symlink()) if local.exists() else []

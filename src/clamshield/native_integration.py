@@ -203,7 +203,7 @@ class NativeIntegration:
 
     def connect(self):
         from .signatures import Signatures
-        from .providers import Providers
+        from .providers import Providers,require_shared_selection
         saved=self.read()
         if saved and saved['phase']=='active':self.client()
         with self.locked():
@@ -211,6 +211,10 @@ class NativeIntegration:
             saved=self.read()
             if saved and saved['phase']=='active':
                 return saved
+            # Reject an incompatible saved selection before a transition journal
+            # or any service stop. The installer exposes an explicit opt-in;
+            # activating the union silently would change existing scan policies.
+            providers=require_shared_selection(Providers(self.settings).read())
             unit=self.unit_directory/GATE
             NativeConfiguration.trusted(unit,16384)
             if '# Managed by clamshield' not in unit.read_text():raise Conflict('Native gateway unit is not owned')
@@ -228,7 +232,7 @@ class NativeIntegration:
                 for unit,active in value['old_active'].items():
                     if active:self.system('stop',unit)
                 manager.base.mkdir(mode=0o755,exist_ok=True)
-                stage,manifest=manager.stage(Providers(self.settings).read(),native_directory=value['original_directory'])
+                stage,manifest=manager.stage(providers,native_directory=value['original_directory'])
                 value['generation']=manifest['generation'];write_json(self.journal,value)
                 with manager.activation_lock():
                     self.system('stop',UNIT,'clamav-daemon.socket')

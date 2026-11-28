@@ -3,11 +3,13 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import shutil
 import tarfile
 import tempfile
 import unittest
+from types import SimpleNamespace
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -21,6 +23,34 @@ def load(name, file):
 
 
 class DistributionTests(unittest.TestCase):
+    def test_installer_checks_legacy_conflict_before_pausing_and_requires_explicit_sharing(self):
+        from clamshield.providers import Providers
+        from clamshield.settings import Settings
+        from clamshield.errors import ClamShieldError
+        installer=load('shared_selection_installer','tools/install.py')
+        with tempfile.TemporaryDirectory() as temp:
+            settings=Settings(state=Path(temp)/'state');providers=Providers(settings)
+            value=providers.initialize(existing=False)
+            value['securiteinfo'].update(enabled=True,plan='professional',key='a'*128)
+            value['securiteinfo']['mail_databases']+=['securiteinfo.pdb','securiteinfo.wdb']
+            providers.path.write_text(json.dumps(value));before=providers.path.read_bytes()
+            with patch('clamshield.settings.Settings',return_value=settings), \
+                 patch('clamshield.installation.Installation') as lifecycle, \
+                 patch.object(installer,'install',return_value={'installed':True}) as install, \
+                 patch.object(installer.os,'geteuid',return_value=0),patch.dict(os.environ,{'SUDO_USER':'root'}):
+                lifecycle.return_value.settings=settings
+                with self.assertRaisesRegex(ClamShieldError,'--share-existing-databases'):
+                    installer.perform(SimpleNamespace(share_existing_databases=False))
+                lifecycle.return_value.update.assert_not_called();install.assert_not_called()
+                self.assertFalse((settings.state/'install-pending.json').exists())
+                self.assertEqual(before,providers.path.read_bytes())
+                self.assertEqual({'installed':True},installer.perform(SimpleNamespace(share_existing_databases=True)))
+                lifecycle.return_value.update.assert_called_once();install.assert_called_once()
+                after=providers.read()['securiteinfo']
+                for purpose in ('website','mail'):
+                    self.assertTrue({'securiteinfo.pdb','securiteinfo.wdb'}<=set(after[purpose+'_databases']))
+                self.assertEqual('a'*128,after['key'])
+
     def test_installer_rejects_incomplete_checkout_and_accepts_runtime_helper(self):
         installer = load('distribution_installer', 'tools/install.py')
         with tempfile.TemporaryDirectory() as temp, patch.object(installer, 'SOURCE', Path(temp)):

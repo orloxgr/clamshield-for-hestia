@@ -17,6 +17,14 @@ The installer retains configuration, credentials, database, rules/signatures,
 quarantine and adapter caches. It publishes owned extension files and an
 immutable application release without changing existing Hestia vendor files.
 
+Before pausing services, the installer checks enabled providers for incompatible
+website/email selections of engine-wide databases. An ordinary update does not
+change those choices. Save a common **Server-wide** choice in provider settings,
+or run the installer with `--share-existing-databases` to explicitly retain the
+union of already-selected special databases for both uses. Other profile choices,
+keys and schedules are preserved; recommended defaults are not reapplied. This
+also resumes an older installer interrupted by the same selection conflict.
+
 The verified platform is Ubuntu26.04 with Hestia1.10.x and APT ClamAV/YARA.
 Email activation requires the existing native Exim/SpamAssassin stack. The
 application does not provide a replacement control panel or mail server.
