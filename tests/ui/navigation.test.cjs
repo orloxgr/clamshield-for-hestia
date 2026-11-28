@@ -569,6 +569,37 @@ test('notification preferences save selected types and Bell without reload while
   }finally{await f.close();}
 });
 
+test('notification settings link to the Review list without moving its clear controls',async()=>{
+  const f=fixture({hash:'#settings/notifications',api:async body=>body.action==='review-list'?reviewResponse(body,{html:'',total:0}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  try{await settle();const settings=f.document.getElementById('cs-notification-settings');
+    const link=settings.querySelector('[data-tab=notices]');assert.equal(link.textContent,'View notifications');
+    assert.equal(settings.querySelector('[data-review-command=delete-all]'),null);
+    link.click();await settle();assert.equal(f.w.location.hash,'#review/notices');assert.deepEqual(f.visible(),['notices']);
+    assert.equal(f.document.querySelector('[data-review-pager=notices] [data-review-command=delete-all]').textContent,'Clear all notifications');
+    assert.ok(f.document.querySelector('[data-review-pager=notices] [data-review-command=read-all]'));assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('native Bell delivery errors appear as plain text in Review without automatic delivery requests',async()=>{
+  const error='<b>v-add-user-notification exited with code 7</b>. No automatic retry.';
+  const f=fixture({hash:'#review/notices',api:async body=>body.action==='review-list'?reviewResponse(body,{bell_delivery_error:error,html:'',total:0}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});
+  try{await settle();const status=f.document.querySelector('[data-review-pager=notices]').nextElementSibling;
+    assert.match(status.textContent,/exited with code 7.*No automatic retry/);assert.equal(status.querySelector('b'),null);
+    assert.ok(f.requests.every(body=>['review-list','notification-settings-get'].includes(body.action)));assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('Clear all notifications ignores list filters and confirms the scoped count',async()=>{
+  const f=fixture({hash:'#review/notices',api:async body=>body.action==='notification-settings-get'?{ok:true,json:async()=>({ok:true,...notificationSettings()})}:body.action==='review-bulk-preview'?{ok:true,json:async()=>({ok:true,token:'notices-proof',count:734,scope:'account'})}:body.action==='review-bulk-clear'?{ok:true,json:async()=>({ok:true,changed:734,bell_pending:3})}:reviewResponse(body,{html:'',total:0})});
+  try{await settle();const status=f.document.getElementById('cs-notification-state');status.value='unread';status.dispatchEvent(new f.w.Event('change'));await settle();
+    f.click('[data-review-pager=notices] [data-review-command=delete-all]');await settle();
+    const preview=f.requests.find(row=>row.action==='review-bulk-preview');assert.equal(preview.list,'notices');assert.equal(preview.filters,undefined);assert.equal(preview.selected,undefined);
+    const confirmation=f.document.querySelector('[data-review-confirmation=notices]');assert.match(confirmation.textContent,/734 ClamShield notifications.*hidden by filters/);
+    assert.equal(f.requests.some(row=>row.action==='review-bulk-clear'),false);confirmation.querySelector('button').click();await settle();
+    assert.equal(f.requests.find(row=>row.action==='review-bulk-clear').confirmation,'notices-proof');assert.equal(confirmation.hidden,true);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('native Bell cleanup errors are visible as text in Review without retrying deletion',async()=>{
   const error='<b>Native deletion failed</b>. No automatic retry.';
   const f=fixture({hash:'#review/notices',api:async body=>body.action==='review-list'?reviewResponse(body,{bell_cleanup_error:error,total:0,html:''}):{ok:true,json:async()=>({ok:true,...notificationSettings()})}});

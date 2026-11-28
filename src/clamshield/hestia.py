@@ -51,8 +51,8 @@ class Hestia:
                 capture_output=True,text=True,timeout=self.remaining(10),
                 env={'PATH':'/usr/sbin:/usr/bin:/sbin:/bin','HESTIA':str(self.root),'LANG':'C.UTF-8'})
         except (OSError,subprocess.SubprocessError) as exc:
-            raise ClamShieldError('Native Bell delivery is unavailable or timed out') from exc
-        if result.returncode:raise ClamShieldError('Native Bell delivery is unavailable')
+            raise ClamShieldError('v-add-user-notification timed out' if isinstance(exc,subprocess.TimeoutExpired) else 'v-add-user-notification could not be started') from exc
+        if result.returncode:raise ClamShieldError('v-add-user-notification exited with code '+str(result.returncode))
 
     def call(self, command, *args):
         if command not in COMMANDS or any(not isinstance(a, str) or '\0' in a for a in args):
@@ -63,15 +63,15 @@ class Hestia:
                                     env={'PATH': '/usr/sbin:/usr/bin:/sbin:/bin',
                                          'HESTIA': str(self.root), 'LANG': 'C.UTF-8'})
         except (OSError, subprocess.SubprocessError) as exc:
-            raise ClamShieldError('Native Hestia inventory is unavailable or timed out') from exc
+            raise ClamShieldError(('v-list-user-notifications timed out' if isinstance(exc,subprocess.TimeoutExpired) else 'v-list-user-notifications could not be started') if command=='v-list-user-notifications' else 'Native Hestia inventory is unavailable or timed out') from exc
         if result.returncode:
-            raise ClamShieldError('Native Hestia inventory is unavailable')
+            raise ClamShieldError('v-list-user-notifications exited with code '+str(result.returncode) if command=='v-list-user-notifications' else 'Native Hestia inventory is unavailable')
         try:
             data = json.loads(result.stdout)
         except ValueError as exc:
-            raise ClamShieldError('Native Hestia returned an invalid inventory') from exc
+            raise ClamShieldError('v-list-user-notifications returned invalid JSON' if command=='v-list-user-notifications' else 'Native Hestia returned an invalid inventory') from exc
         if not isinstance(data, dict):
-            raise ClamShieldError('Native Hestia returned an invalid inventory')
+            raise ClamShieldError('v-list-user-notifications returned invalid JSON' if command=='v-list-user-notifications' else 'Native Hestia returned an invalid inventory')
         return data
 
     def delete_notification(self,owner,native_id,topic,notice):

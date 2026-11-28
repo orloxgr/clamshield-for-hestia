@@ -177,35 +177,59 @@ class PersonalBell(unittest.TestCase):
         self.assertTrue(all(row[0]=='admin' for row in self.sent))
         self.assertFalse(self.preferences.get(self.accounts['alice'])['settings']['bell'])
 
-    def test_replayed_delivery_recovers_native_append_after_process_stop(self):
+    def test_interrupted_append_is_terminal_without_native_checks_or_resend(self):
         self.save();self.notify()
         def stopped(*args):self.append(*args);raise KeyboardInterrupt()
         self.hestia.add_notification.side_effect=stopped
         with self.assertRaises(KeyboardInterrupt):self.preferences.once()
         self.assertEqual(1,len(self.sent));self.retry_now()
-        self.hestia.add_notification.side_effect=self.append
-        self.assertEqual(1,self.preferences.once()['bell_sent']);self.assertEqual(1,len(self.sent))
-        with self.store.connection() as db:self.assertEqual('1',db.execute('SELECT native_id FROM notification_bell_deliveries').fetchone()[0])
+        self.hestia.call.reset_mock();self.hestia.add_notification.reset_mock()
+        self.assertEqual(0,self.preferences.once()['bell_sent'])
+        self.hestia.call.assert_not_called();self.hestia.add_notification.assert_not_called()
+        error=self.preferences.get(self.accounts['alice'])['settings']['error']
+        self.assertIn('interrupted',error);self.assertIn('No automatic retry',error)
 
-    def test_native_failures_back_off_and_remain_visible_without_claiming_delivery(self):
-        self.save();self.notify();self.hestia.add_notification.side_effect=ClamShieldError('Unavailable')
+    def test_native_failure_is_terminal_and_reports_cause_in_preferences_and_review(self):
+        self.save();self.notify();self.hestia.add_notification.side_effect=ClamShieldError('v-add-user-notification exited with code 7')
         self.assertEqual(1,self.preferences.once()['bell_failed'])
         self.assertIsNone(self.preferences.get(self.accounts['alice'])['settings']['last_sent'])
-        self.assertIn('could not be confirmed',self.preferences.get(self.accounts['alice'])['settings']['error'])
-        self.preferences.once();self.assertEqual(1,self.hestia.add_notification.call_count)
-        self.retry_now();self.hestia.add_notification.side_effect=self.append
-        self.assertEqual(1,self.preferences.once()['bell_sent']);self.assertIsNone(self.preferences.get(self.accounts['alice'])['settings']['error'])
+        error=self.preferences.get(self.accounts['alice'])['settings']['error']
+        self.assertIn('exited with code 7',error);self.assertIn('No automatic retry',error)
+        self.retry_now();self.hestia.call.reset_mock();self.hestia.add_notification.reset_mock()
+        self.assertEqual(0,self.preferences.once()['bell_sent'])
+        self.hestia.call.assert_not_called();self.hestia.add_notification.assert_not_called()
+        review=Review(self.settings,self.store,self.hestia)
+        self.assertEqual(error,review.query(self.accounts['alice'],'notices',filters={})['bell_delivery_error'])
+        self.assertIsNone(self.preferences.get(self.accounts['bob'])['settings']['error'])
+
+    def test_new_success_does_not_hide_an_unresolved_failure_and_clear_all_dismisses_it(self):
+        self.save();self.notify();self.hestia.add_notification.side_effect=ClamShieldError('Native validation failed')
+        self.preferences.once();self.notify();self.hestia.add_notification.side_effect=self.append
+        self.assertEqual(1,self.preferences.once()['bell_sent'])
+        self.assertIn('Native validation failed',self.preferences.get(self.accounts['alice'])['settings']['error'])
+        self.clear();self.assertIsNone(self.preferences.get(self.accounts['alice'])['settings']['error'])
+
+    def test_old_error_receipts_are_terminal_and_do_not_promise_a_retry(self):
+        self.save();self.notify();notice=self.store.notifications(self.accounts['alice'])[0]
+        pref=dict(actor='alice',identity=self.accounts['alice']['identity'],revision=self.preferences.get(self.accounts['alice'])['settings']['revision'])
+        self.preferences.receipt(pref,notice,'error',error='Bell delivery could not be confirmed. ClamShield will check the native notification before retrying.')
+        self.retry_now();self.preferences.once()
+        self.hestia.call.assert_not_called();self.hestia.add_notification.assert_not_called()
+        error=self.preferences.get(self.accounts['alice'])['settings']['error']
+        self.assertIn('previous attempt did not record its cause',error);self.assertIn('No automatic retry',error)
 
     def test_unverifiable_native_list_never_triggers_a_blind_resend(self):
         self.save();self.notify();self.hestia.call.side_effect=lambda *args:{'1':None}
         self.assertEqual(1,self.preferences.once()['bell_failed'])
         self.assertEqual([],self.sent);self.hestia.add_notification.assert_not_called()
+        self.retry_now();self.hestia.call.reset_mock();self.preferences.once();self.hestia.call.assert_not_called()
 
     def test_disable_or_revoked_administrator_authority_stops_pending_delivery(self):
         self.save('admin');self.notify('bob')
         def disable(command,owner,format):self.save('admin',bell=False);return {}
         self.hestia.call.side_effect=disable
         self.preferences.once();self.assertEqual([],self.sent)
+        self.preferences.once();self.assertIsNone(self.preferences.get(self.accounts['admin'])['settings']['error'])
         self.hestia.call.side_effect=lambda *args:{}
         self.save('admin');self.notify('bob');self.accounts['admin']['admin']=False
         self.preferences.once();self.assertEqual([],self.sent)
@@ -255,6 +279,18 @@ class NativeBellCommand(unittest.TestCase):
         with patch('clamshield.hestia.subprocess.run') as run:
             with self.assertRaises(Conflict):hestia.delete_notification('alice','1',topic,body)
             run.assert_not_called()
+
+    def test_native_delivery_diagnostics_identify_command_and_failure_without_raw_output(self):
+        hestia=Hestia(Path('/fixture/hestia'))
+        for command,operation in (
+            ('v-add-user-notification',lambda:hestia.add_notification('alice','ClamShield: Event','Owned notice')),
+            ('v-list-user-notifications',lambda:hestia.call('v-list-user-notifications','alice','json'))):
+            with self.subTest(command=command):
+                with patch('clamshield.hestia.subprocess.run',return_value=subprocess.CompletedProcess([],7,'private output','private error')):
+                    with self.assertRaisesRegex(ClamShieldError,command+' exited with code 7') as caught:operation()
+                    self.assertNotIn('private',str(caught.exception))
+                with patch('clamshield.hestia.subprocess.run',side_effect=subprocess.TimeoutExpired(command,10)):
+                    with self.assertRaisesRegex(ClamShieldError,command+' timed out'):operation()
 
     def test_only_fixed_native_command_and_safe_argument_vector_are_used(self):
         hestia=Hestia(Path('/fixture/hestia'))

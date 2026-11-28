@@ -1,5 +1,5 @@
 <?php require __DIR__.'/notification_format.php'; ?>
-<section data-page="notifications" hidden id="cs-notification-settings"><h2>Notification settings</h2><p id="cs-notification-scope">Preferences belong to your signed-in account, including when you view another hosting account.</p>
+<section data-page="notifications" hidden id="cs-notification-settings"><h2>Notification settings</h2><p><button class="button" type="button" data-tab="notices">View notifications</button></p><p id="cs-notification-scope">Preferences belong to your signed-in account, including when you view another hosting account.</p>
 <form id="cs-notification-preferences"><fieldset id="cs-notification-choices" disabled><legend>My notification preferences</legend>
 <article class="card"><h3>ClamShield notifications</h3><p>Choose the types shown by default in Review → Notifications. All recorded types remain available in its filter.</p><div id="cs-notification-categories" class="cs-notification-categories"></div></article>
 <article class="card"><h3>HestiaCP notifications</h3><p><label><input type="checkbox" name="bell"> Enable HestiaCP notifications</label></p>

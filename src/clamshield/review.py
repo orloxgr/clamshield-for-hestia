@@ -130,6 +130,8 @@ class Review:
         if kind=='notices':
             from .notification_clear import BellClear
             result['bell_cleanup_error']=BellClear(self.settings,self.store,self.hestia).error(self.hestia.authorize(context['actor'],context['actor']))
+            from .notification_preferences import NotificationPreferences
+            result['bell_delivery_error']=NotificationPreferences(self.settings,self.store,self.hestia).delivery_error(self.hestia.authorize(context['actor'],context['actor']))
         return result
 
     def history_allowed(self,context):

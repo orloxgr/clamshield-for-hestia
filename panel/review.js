@@ -60,7 +60,7 @@
    options(state.form.elements.namedItem('account'),value.accounts||[],false);
    const first=value.total?value.offset+1:0,last=Math.min(value.offset+value.limit,value.total);
    state.count.textContent='Showing '+first+'–'+last+' of '+value.total+' · Page '+(Math.floor(value.offset/value.limit)+1)+' / '+Math.max(1,Math.ceil(value.total/value.limit));
-   state.status.textContent=[state.outcome||(value.total?'':'No records match these filters.'),value.bell_cleanup_error].filter(Boolean).join(' ');state.outcome=null;remember(state);
+   state.status.textContent=[state.outcome||(value.total?'':'No records match these filters.'),value.bell_delivery_error,value.bell_cleanup_error].filter(Boolean).join(' ');state.outcome=null;remember(state);
    if(!state.native)document.dispatchEvent(new CustomEvent('clamshield-review-rows',{detail:state.body}));
   }catch(error){if(version===state.revision)state.status.textContent=error.message+' The last loaded rows are kept. Use Search to retry.';}
   finally{state.loading=false;controls(state);if(state.queued)load(state);}

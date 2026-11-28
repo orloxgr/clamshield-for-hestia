@@ -605,9 +605,15 @@ Changing HestiaCP selections or enabling Bell starts from that change, avoiding 
 notification flood. ClamShield and Hestia keep independent read states.
 The owned `clamshield-notifications.timer` normally checks every 15 seconds.
 Its separate service uses the root runtime gate and stops for installation or
-removal. Failed/uncertain sends wait at least 60 seconds, check the native list
-for the same stable link before retrying, and expose a delivery warning in the
-personal preferences.
+removal. Each event gets one delivery attempt. Failed or interrupted attempts
+stop permanently, without automatic native checks or resends. Review and personal
+preferences show the failed command and exit code or timeout when available.
+Clearing the affected notifications dismisses their delivery warnings.
+
+Use **View notifications** in Settings to open **Review → Notifications**.
+**Clear all notifications** clears all records in the current account/server
+scope, including those hidden by filters, after confirming the displayed count.
+**Clear selected notifications** and **Mark all read** are available in that list.
 
 Clearing notifications in Review also requests deletion of matching Bell copies
 for the signed-in native account, including when Bell delivery is disabled.
