@@ -514,8 +514,10 @@ class MailPolicies:
         with self.store.connection() as db:
             row=db.execute('SELECT * FROM mail_decisions r WHERE id=? AND owner=? AND identity=? AND '+visible('email-decisions'),
                            (decision_id,*self.store.scope(context))).fetchone()
+            observation=db.execute('SELECT native_id,created FROM native_mail_messages WHERE native_id=?',(row['exim_id'],)).fetchone() if row else None
         if row is None:raise AccessDenied('Email decision is unavailable')
         result=dict(row)|{'detail':json.loads(row['detail'])}
+        if observation:result['native_fallback']=dict(native_reference=observation['native_id'],observed=observation['created'])
         if len(encode(result).encode())>3*1024*1024:raise ClamShieldError('Mail decision exceeds the report size limit')
         return result
 

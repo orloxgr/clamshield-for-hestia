@@ -6,14 +6,18 @@ const php=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',
   "$data=['context'=>['admin'=>true],'email-messages'=>[['owner'=>'alice','recipient'=>'inbox@alice.test','created'=>1,'sender'=>'sender@remote.test','classification'=>'incomplete','action'=>'deliver','status'=>'not_retained','decision_id'=>str_repeat('a',32)]]];"+
   "$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.join(root,'panel/review_rows/email-messages.php')],{encoding:'utf8'});
 assert.equal(php.status,0,php.stderr);
+const nativePhp=spawnSync(process.env.CLAMSHIELD_PHP||'php',['-r',
+  "$data=['context'=>['admin'=>true],'email-messages'=>[['owner'=>'@admin','recipient'=>'Account not verified','created'=>1,'subject'=>'ClamShield check unavailable','sender'=>'','classification'=>'incomplete','action'=>'native-fallback','status'=>'check_unavailable','native_reference'=>'1xX62m-000000005eO-0000']]];"+
+  "$escape=static fn($v)=>htmlspecialchars((string)$v,ENT_QUOTES|ENT_SUBSTITUTE,'UTF-8');require $argv[1];",path.join(root,'panel/review_rows/email-messages.php')],{encoding:'utf8'});
+assert.equal(nativePhp.status,0,nativePhp.stderr);
 async function until(predicate){for(let i=0;i<100;i++){await new Promise(resolve=>setImmediate(resolve));if(predicate())return;}throw new Error('Decision detail UI did not settle');}
 function fixture(options={}){
-  const dom=new JSDOM('<div id="cs-mail" data-global="true" data-owner="admin" data-token="fixture-token"></div><table><tbody>'+php.stdout+'</tbody></table>',{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only'});
+  const dom=new JSDOM('<div id="cs-mail" data-global="true" data-owner="admin" data-token="fixture-token"></div><table><tbody>'+(options.nativeOnly?nativePhp.stdout:php.stdout)+'</tbody></table>',{url:'https://panel.test/plugins/clamshield/',runScripts:'outside-only'});
   const w=dom.window,requests=[];
   w.fetch=async(_url,request)=>{
     requests.push(Object.fromEntries(request.body));if(options.wait)await options.wait;
     if(options.error)return {ok:false,json:async()=>({ok:false,error:options.error})};
-    return {ok:true,json:async()=>({ok:true,decision:{action:'deliver',classification:'incomplete',detail:{scan_complete:false,spam_score:1.25,
+    return {ok:true,json:async()=>({ok:true,decision:{action:'deliver',classification:'incomplete',...(options.nativeObservation?{native_fallback:{native_reference:'1xX62m-000000005eO-0000'}}:{}),detail:{scan_complete:false,spam_score:1.25,
       native_dnsbl:{zone:'zen.spamhaus.org',state:'failed',score_contribution:0},
       ...(options.fallbackTag?{native_fallback_tag_requested:options.fallbackTag}:{}),
       spamassassin:{score:1.25,required_score:5,rules:[{name:'Historical.Rule',score:1.25,description:options.blankDescription?'':'<img src=x onerror=alert(1)>'}],engine_version:'4.0.2',rules_version:'historical'},
@@ -43,6 +47,29 @@ test('Global native row opens scoped historical explanation on demand and toggle
 });
 test('historical decision without applied thresholds does not substitute current defaults',async()=>{
   const f=fixture({historical:true});try{f.button.click();await until(()=>f.button.dataset.loaded==='true');assert.match(f.output.textContent,/Policy thresholds: not recorded/);assert.doesNotMatch(f.output.textContent,/Applied policy thresholds/);}finally{f.close();}
+});
+
+test('individual native fallback expands full width with unavailable values and no scanner API call',async()=>{
+  const f=fixture({nativeOnly:true});try{
+    assert.match(f.button.closest('tr').textContent,/Server/);assert.match(f.button.closest('tr').textContent,/Check unavailable/);
+    f.button.click();await until(()=>f.button.dataset.loaded==='true');
+    assert.equal(f.requests.length,0);assert.match(f.output.textContent,/Scanner decision details are unavailable/);
+    assert.match(f.output.textContent,/Spam score: not recorded/);assert.match(f.output.textContent,/Applied thresholds: not recorded/);
+    assert.match(f.output.textContent,/does not confirm final delivery/);assert.match(f.output.textContent,/Native reference: 1xX62m/);
+    assert.equal(f.output.closest('td').colSpan,f.button.closest('tr').cells.length);
+    f.button.click();assert.equal(f.button.textContent,'Show check details');assert.equal(f.output.hidden,true);
+    f.button.click();assert.equal(f.button.textContent,'Hide check details');assert.equal(f.requests.length,0);
+  }finally{f.close();}
+});
+
+test('native fallback keeps genuine recorded scores and distinguishes them from final handling',async()=>{
+  const f=fixture({nativeObservation:true});try{
+    f.button.click();await until(()=>f.button.dataset.loaded==='true');
+    assert.equal(f.requests.length,1);assert.match(f.output.textContent,/Recorded policy action: Deliver/);
+    assert.match(f.output.textContent,/Classification: incomplete/);assert.match(f.output.textContent,/Native fallback observed/);
+    assert.match(f.output.textContent,/Historical.Rule: \+1.25/);assert.match(f.output.textContent,/Applied policy thresholds: spam 7/);
+    assert.match(f.output.textContent,/Native reference: 1xX62m/);assert.equal(f.button.textContent,'Hide decision details');
+  }finally{f.close();}
 });
 
 test('historical empty description stays explicit without reconstructing the old explanation',async()=>{

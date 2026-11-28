@@ -22,6 +22,7 @@ from .errors import EngineError
 LIMIT = 256 * 1024
 STATE_LIMIT = 65536
 MAX_PENDING = 32
+MAX_MESSAGES = 128
 FALLBACK = 'ClamShield native delivery fallback; check incomplete'
 PREFIX = r'(?P<time>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})(?: (?P<zone>[+-]\d{4}))? (?P<id>[A-Za-z0-9]{6}-[A-Za-z0-9]{6,16}-[A-Za-z0-9]{2,8}) '
 # Only the fixed owned log record, not subjects, addresses or arbitrary suffixes.
@@ -65,7 +66,7 @@ class NativeMailHealth:
     def empty():
         return dict(version=1, cursor=None, checked=None, collection='not-observed',
                     history_limited=False, backlog=False, recent=[], incidents=[],
-                    fallbacks=0, last_fallback=None, last_response=None, watermark=0, error=None)
+                    fallbacks=0, last_fallback=None, last_response=None, watermark=0, error=None, messages=[])
 
     def read(self):
         with parent(self.path) as directory:
@@ -85,6 +86,10 @@ class NativeMailHealth:
                     raise EngineError('Native mail observation storage was replaced during reading')
             finally: os.close(fd)
         value = json.loads(raw)
+        # Preserve the existing collector cursor/incidents. Individual message
+        # receipts start with new observations; old scores are never invented.
+        if isinstance(value,dict) and set(value)==set(self.empty())-{'messages'}:
+            value['messages']=[]
         self.validate(value)
         return value
 
@@ -100,7 +105,8 @@ class NativeMailHealth:
                 value['error'] not in (None, 'Native delivery log could not be observed. Review native logging and diagnostic storage.') or
                 not isinstance(value['recent'], list) or len(value['recent']) > 512 or
                 any(not isinstance(v, str) or not re.fullmatch('[0-9a-f]{64}', v) for v in value['recent']) or
-                not isinstance(value['incidents'], list) or len(value['incidents']) > MAX_PENDING):
+                not isinstance(value['incidents'], list) or len(value['incidents']) > MAX_PENDING or
+                not isinstance(value['messages'],list) or len(value['messages'])>MAX_MESSAGES):
             raise EngineError('Invalid native mail observation storage')
         c = value['cursor']
         if c is not None and (not isinstance(c, dict) or set(c) != {'path', 'dev', 'ino', 'offset', 'discard'} or
@@ -116,6 +122,13 @@ class NativeMailHealth:
                 raise EngineError('Invalid native mail fallback incident')
         if len({row['id'] for row in value['incidents']}) != len(value['incidents']):
             raise EngineError('Duplicate native mail fallback incident')
+        for row in value['messages']:
+            if (not isinstance(row,dict) or set(row)!={'id','native_id','created'} or
+                    not isinstance(row['native_id'],str) or not re.fullmatch(r'[A-Za-z0-9]{6}-[A-Za-z0-9]{6,16}-[A-Za-z0-9]{2,8}',row['native_id']) or
+                    row['id']!=hashlib.sha256(('fallback:'+row['native_id']).encode()).hexdigest() or not number(row['created'])):
+                raise EngineError('Invalid native message observation')
+        if len({row['id'] for row in value['messages']})!=len(value['messages']):
+            raise EngineError('Duplicate pending native message observation')
 
     def save(self, value):
         self.validate(value)
@@ -197,7 +210,9 @@ class NativeMailHealth:
                         discard = False; value['history_limited'] = True
                     else:
                         event = self.parse(part, timezone)
-                        if event and not self.record(value, event): break
+                        if event:
+                            match=(DIRECT.fullmatch(part.decode('ascii')) or WARNING.fullmatch(part.decode('ascii'))) if event[0]=='fallback' else None
+                            if not self.record(value,event,native_id=match['id'] if match else None):break
                         if len(part) > 8192: value['history_limited'] = True
                     consumed += len(part) + 1
                 value['cursor'] = dict(path=str(path), dev=before.st_dev, ino=before.st_ino, offset=offset + consumed, discard=discard)
@@ -205,9 +220,15 @@ class NativeMailHealth:
             finally: os.close(fd)
 
     @staticmethod
-    def record(value, event):
+    def record(value, event, *, native_id=None):
         kind, observed, digest = event
         if digest in value['recent']: return True
+        if native_id is not None and not any(row['id']==digest for row in value['messages']):
+            # Stop before consuming the next log line when the durable outbox is
+            # full. Maintenance can publish it after recovery, then resume this
+            # same cursor. No SMTP work or native mail submission occurs here.
+            if len(value['messages'])>=MAX_MESSAGES:return False
+            value['messages'].append(dict(id=digest,native_id=native_id,created=observed))
         # Rotation/clock changes cannot turn old replies into current recovery.
         if observed < value['watermark']:
             value['history_limited'] = True
@@ -255,6 +276,12 @@ class NativeMailHealth:
 
     def publish(self, value):
         if self.store is None: return
+        if value['messages']:
+            with self.store.connection(True) as db:
+                db.executemany('INSERT OR IGNORE INTO native_mail_messages VALUES(?,?,?)',
+                    [(row['id'][:32],row['native_id'],row['created']) for row in value['messages']])
+            value['messages']=[]
+            self.save(value)
         for row in value['incidents']:
             if row['published']: continue
             detail = dict(message='Native delivery fallback was recorded. The ClamShield check was incomplete; this is not a clean verdict.',

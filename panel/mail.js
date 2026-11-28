@@ -28,18 +28,29 @@
       expanded={output,detailRow};decisionOutputs.set(button,expanded);
     }
     const {output,detailRow}=expanded;
+    const label=button.dataset.nativeReference&&!button.dataset.decision?'check':'decision';
     const show=visible=>{output.hidden=detailRow.hidden=!visible;button.setAttribute('aria-expanded',String(visible));};
     if(button.dataset.loaded==='true'){
-      show(output.hidden);button.textContent=output.hidden?'Show decision details':'Hide decision details';return;
+      show(output.hidden);button.textContent=(output.hidden?'Show ':'Hide ')+label+' details';return;
     }
     button.disabled=true;show(true);output.textContent='Loading decision details…';
     output.style.whiteSpace='pre-wrap';output.style.overflowWrap='anywhere';output.style.margin='0';
     try{
+      if(button.dataset.nativeReference&&!button.dataset.decision){
+        output.textContent='Check incomplete. Scanner decision details are unavailable for this observation.\n'+
+          'Native delivery fallback was observed. This record does not confirm final delivery.\n'+
+          (row.dataset.owner==='@admin'?'Hosting account: not verified; this observation is visible only to administrators in Global.\n':'Hosting account: recorded for this recipient.\n')+
+          'Spam score: not recorded for this observation\nApplied thresholds: not recorded\nRule contributions: not recorded\n'+
+          'Engine, signature and policy versions: not recorded\nNative reference: '+button.dataset.nativeReference;
+        button.dataset.loaded='true';button.textContent='Hide check details';return;
+      }
       const value=await api('mail-decision-get',{owner:row.dataset.owner,decision_id:button.dataset.decision});
       const decision=value.decision,detail=decision.detail;
+      const nativeReference=decision.native_fallback?.native_reference||button.dataset.nativeReference;
       const actions={deliver:'Deliver',tag:'Tag and deliver',junk:'Junk',quarantine:'Quarantine',reject:'SMTP rejection',defer:'Temporary failure'};
-      output.textContent='Action: '+(actions[decision.action]||decision.action)+'\nClassification: '+decision.classification+'\n'+
-        (detail.scan_complete===false?'Check incomplete. This message was not classified as clean.\n':'')+
+      output.textContent=(nativeReference?'Recorded policy action: ':'Action: ')+(actions[decision.action]||decision.action)+'\nClassification: '+(nativeReference?'incomplete':decision.classification)+'\n'+
+        (nativeReference?'Native fallback observed; final delivery and selected handling are not confirmed by this record.\nRecorded scanner classification: '+decision.classification+'\nNative reference: '+nativeReference+'\n':'')+
+        (detail.scan_complete===false||nativeReference?'Check incomplete. This message was not classified as clean.\n':'')+
         (detail.native_fallback_tag_requested?'Native fallback subject tag requested: '+String(detail.native_fallback_tag_requested).replaceAll('-',' ').toUpperCase()+'\n':'')+
         (detail.transport_note?detail.transport_note+'\n':'')+spamAssassinLabel(detail)+
         (detail.spam_score!=null?'Final policy score: '+detail.spam_score+'\n':'')+

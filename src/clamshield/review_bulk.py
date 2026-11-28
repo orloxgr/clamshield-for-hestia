@@ -14,7 +14,7 @@ from .store import encode
 def eligible(kind):
     return {
         'scans':"r.status IN ('completed','partial','failed','cancelled')",
-        'email-messages':"r.status IN ('delivered','deleted','aborted','rejected','deferred','not_retained')",
+        'email-messages':"r.status IN ('delivered','deleted','aborted','rejected','deferred','not_retained','check_unavailable')",
         'repairs':"r.status IN ('ready','failed','verified','undone','recheck_failed')",
         'activity':"r.status IN ('completed','failed','cancelled')",
         'automatic':"r.status NOT IN ('queued','preparing','applying','verifying')",

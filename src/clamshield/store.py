@@ -191,6 +191,7 @@ CREATE TABLE IF NOT EXISTS mail_decisions (
 );
 CREATE INDEX IF NOT EXISTS mail_decision_scope ON mail_decisions(owner,identity,created);
 CREATE INDEX IF NOT EXISTS mail_decision_message ON mail_decisions(owner,identity,exim_id,sha256,domain,mailbox,recipient,created,id);
+CREATE INDEX IF NOT EXISTS mail_decision_native_reference ON mail_decisions(exim_id);
 CREATE TABLE IF NOT EXISTS mail_transactions (
  id TEXT PRIMARY KEY, exim_id TEXT NOT NULL UNIQUE, created REAL NOT NULL,
  updated REAL NOT NULL, status TEXT NOT NULL, sha256 TEXT NOT NULL,
@@ -245,6 +246,10 @@ CREATE INDEX IF NOT EXISTS history_audit_scope ON audit(owner,identity,created);
 CREATE TABLE IF NOT EXISTS native_mail_alerts (
  id TEXT PRIMARY KEY, created REAL NOT NULL
 );
+CREATE TABLE IF NOT EXISTS native_mail_messages (
+ id TEXT PRIMARY KEY, native_id TEXT NOT NULL UNIQUE, created REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS native_mail_messages_time ON native_mail_messages(created,id);
 CREATE TABLE IF NOT EXISTS server_history_retention (
  id INTEGER PRIMARY KEY CHECK(id=1), settings TEXT NOT NULL, updated REAL NOT NULL,
  revision TEXT NOT NULL, authority TEXT NOT NULL, last_run REAL NOT NULL DEFAULT 0,

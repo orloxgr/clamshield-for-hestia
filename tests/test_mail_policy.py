@@ -44,6 +44,16 @@ class MailPolicyTests(unittest.TestCase):
         with self.assertRaises(AccessDenied):self.mail.decision(self.context,event)
         with self.assertRaises(AccessDenied):self.mail.decision(self.native.authorize('admin','alice'),event)
 
+    def test_native_fallback_enriches_scoped_details_without_rewriting_recorded_scores(self):
+        event=self.record_detail_fixture();before=self.mail.decision(self.context,event)['detail']
+        with self.store.connection() as db:db.execute('INSERT INTO native_mail_messages VALUES(?,?,?)',('a'*32,'native-detail-id',123))
+        after=self.mail.decision(self.context,event)
+        self.assertEqual(before,after['detail'])
+        self.assertEqual(dict(native_reference='native-detail-id',observed=123),after['native_fallback'])
+        with self.assertRaises(AccessDenied):self.mail.decision(self.native.authorize('bob'),event)
+        self.ids['alice']='new-generation'
+        with self.assertRaises(AccessDenied):self.mail.decision(self.native.authorize('alice'),event)
+
     def test_applied_threshold_snapshot_survives_policy_change_and_old_records_stay_uninvented(self):
         policy=self.policy(spam_threshold=7,spam_high_threshold=12,signature_spam_score=2)
         decision=evaluate(policy,scan(),sender='',sha256='a'*64);event=self.record_detail_fixture(decision)

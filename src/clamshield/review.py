@@ -10,7 +10,7 @@ from .email_review import SOURCE as EMAIL_MESSAGES
 
 # SQL identifiers and expressions are fixed here, never accepted from requests.
 SPECS={
- 'email-messages':(EMAIL_MESSAGES,'r.*','r.status','r.classification','r.action',"r.owner||' '||r.domain||' '||r.recipient||' '||COALESCE(r.subject,'')||' '||r.sender",()),
+ 'email-messages':(EMAIL_MESSAGES,'r.*','r.status','r.classification','r.action',"r.owner||' '||r.domain||' '||r.recipient||' '||COALESCE(r.subject,'')||' '||r.sender||' '||COALESCE(r.native_reference,'')",()),
  'findings':("findings r LEFT JOIN jobs j ON j.id=r.job_id AND j.owner=r.owner AND j.identity=r.identity","r.*,j.root",'r.status','r.engine','r.provider',"r.domain||' '||r.path||' '||r.signature||' '||r.owner",('fingerprint','detail')),
  'repairs':("repair_plans r JOIN jobs j ON j.id=r.id AND j.owner=r.owner AND j.identity=r.identity","r.*,j.domain,j.root,j.target",'r.status',"COALESCE(json_extract(r.metadata,'$.source.kind'),'wordpress')",None,"j.domain||' '||j.target||' '||r.owner||' '||COALESCE(r.error,'')",('metadata',)),
  'exceptions':('exceptions r','r.*',"CASE r.enabled WHEN 1 THEN 'enabled' ELSE 'disabled' END",'r.kind','r.engine',"r.domain||' '||r.path||' '||r.signature||' '||r.owner||' '||COALESCE(r.note,'')",()),

@@ -822,6 +822,28 @@ settings / Mail integration and the native logs when a fallback is recorded.
 Collection and notification publication run outside the SMTP request and never
 restart services, resend messages or change the selected handling policy.
 
+Each newly collected fallback also has an individual Email record. When no
+retained account-bound message or decision is available, it appears only in the
+administrator's Global view as **Check unavailable**, with scores, thresholds,
+rules and versions explicitly unrecorded. **Show check details** includes its
+native reference for log correlation and does not assert final delivery. No
+message body, envelope address or guessed account is recovered from the log.
+If an existing stored message or decision matches that native reference, its
+single Email row gains the fallback observation while retaining genuine recorded
+scores. The selected policy action is distinguished from unconfirmed handling.
+Hosting users can see this association only through an already authorized
+current-generation decision; unidentified observations remain administrator-only.
+
+Collection keeps a bounded durable outbox outside SMTP. If the database is
+unavailable, it retains pending observations and stops before consuming the next
+native log line when the outbox is full. Later ordinary maintenance resumes from
+that cursor. A committed receipt is deduplicated if its state save was interrupted.
+Existing aggregate alerts and history remain; old collector receipts retain
+their cursor without fabricating older individual records. Email filters,
+pagination and confirmed selected/all list clearing apply to the new records.
+Clearing the view does not resend mail, remove a native queue entry or erase the
+internal observation evidence.
+
 When a verified Tag decision cannot enter private custody because of a storage
 fault, a compatible native adapter can request the same subject mark for that
 original recipient. An owned ACL records the trusted recipient classes in Exim's

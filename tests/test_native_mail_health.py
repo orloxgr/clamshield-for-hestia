@@ -1,4 +1,5 @@
 import fcntl
+from datetime import datetime,timedelta
 import json
 import os
 from pathlib import Path
@@ -11,7 +12,7 @@ from unittest.mock import patch, Mock
 from zoneinfo import ZoneInfo
 
 from clamshield.errors import EngineError
-from clamshield.native_mail_health import NativeMailHealth, LIMIT, FALLBACK
+from clamshield.native_mail_health import NativeMailHealth, LIMIT, FALLBACK, MAX_MESSAGES
 from clamshield.settings import Settings
 from clamshield.store import Store
 
@@ -66,6 +67,55 @@ class NativeMailHealthTests(unittest.TestCase):
         self.assertEqual('observed', status['collection']); self.assertEqual(0, status['fallbacks'])
         self.assertIsNone(status['last_fallback']); self.assertEqual((0, 0, 0), self.counts())
         self.assertNotIn('healthy', status)
+
+    def test_individual_fallbacks_are_durable_and_old_clock_does_not_hide_a_message(self):
+        self.append(self.line(5));self.health.collect()
+        self.append(self.line(1));self.health.collect()
+        self.health.collect()
+        with self.store.connection() as db:
+            rows=[dict(r) for r in db.execute('SELECT * FROM native_mail_messages ORDER BY created')]
+            self.assertEqual(0,db.execute('SELECT count(*) FROM mail_decisions').fetchone()[0])
+        self.assertEqual(2,len(rows));self.assertEqual(2,len({r['native_id'] for r in rows}))
+        self.assertEqual({'id','native_id','created'},set(rows[0]))
+        self.assertEqual([],self.health.read()['messages'])
+        self.assertEqual((1,1,1),self.counts())
+
+    def test_message_outbox_survives_database_failure_and_commit_before_save(self):
+        self.append(self.line())
+        with patch.object(self.store,'connection',side_effect=sqlite3.OperationalError('unavailable')):
+            with self.assertRaises(sqlite3.OperationalError):self.health.collect()
+        value=self.health.read();self.assertEqual(1,len(value['messages']))
+        self.assertEqual(len(self.line()),value['cursor']['offset'])
+        real_save=self.health.save
+        def interrupted(v):
+            if not v['messages']:raise OSError('Interrupted after message commit')
+            real_save(v)
+        with patch.object(self.health,'save',side_effect=interrupted):
+            with self.assertRaises(OSError):self.health.collect()
+        with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
+        self.assertEqual(1,len(self.health.read()['messages']))
+        self.health.collect()
+        with self.store.connection() as db:self.assertEqual(1,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
+        self.assertEqual([],self.health.read()['messages']);self.assertEqual((1,1,1),self.counts())
+
+    def test_full_message_outbox_pauses_at_same_native_log_line_then_resumes(self):
+        for n in range(MAX_MESSAGES+2):
+            stamp=(datetime(2026,1,1)+timedelta(seconds=n)).strftime('%Y-%m-%d %H:%M:%S')
+            self.append(f'{stamp} 1xX62m-000000005eO-{n:04d} {FALLBACK}\n'.encode())
+        first=self.health.collect();self.assertTrue(first['backlog'])
+        with self.store.connection() as db:self.assertEqual(MAX_MESSAGES,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
+        offset=self.health.read()['cursor']['offset'];self.assertLess(offset,self.log.stat().st_size)
+        self.health.collect();self.assertFalse(self.health.status()['backlog'])
+        with self.store.connection() as db:self.assertEqual(MAX_MESSAGES+2,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
+        self.assertLess(self.health.path.stat().st_size,65536)
+
+    def test_existing_collector_receipt_preserves_cursor_and_incidents_without_fabricated_backfill(self):
+        self.append(self.line());self.health.collect();value=self.health.read();value.pop('messages')
+        self.health.path.write_text(json.dumps(value));before=self.health.read()
+        self.assertEqual([],before['messages']);self.assertEqual(value['cursor'],before['cursor'])
+        self.health.collect();self.assertEqual(value['incidents'],self.health.read()['incidents'])
+        self.append(self.line(1));self.health.collect()
+        with self.store.connection() as db:self.assertEqual(2,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
 
     def test_subjects_forged_prefixes_and_non_successful_decisions_are_not_markers(self):
         for raw in (b'Subject: ' + self.line(), self.line().rstrip() + b' extra\n',

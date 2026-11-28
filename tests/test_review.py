@@ -281,6 +281,48 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(expected,row['id']);self.assertEqual('clean',row['classification']);self.assertEqual('tag',row['action']);self.assertEqual('delivered',row['status']);self.assertEqual('Sample one',row['subject'])
         self.assertFalse(row['can_deliver']);self.assertFalse(row['can_delete'])
 
+    def native_message(self,key='a',reference='1xX62m-000000005eO-0000',created=1700000000):
+        ident=key*32
+        with self.store.connection() as db:db.execute('INSERT INTO native_mail_messages VALUES(?,?,?)',(ident,reference,created))
+        return 'native:'+ident
+
+    def test_native_unavailable_message_is_global_admin_only_and_existing_message_is_not_duplicated(self):
+        self.email(status='quarantined');self.native_message('a','exim-one');ident=self.native_message('b')
+        value=self.page('email-messages',self.admin,'server')
+        self.assertEqual(2,value['total']);row=next(r for r in value['records'] if r['id']==ident)
+        self.assertEqual('@admin',row['owner']);self.assertEqual('',row['identity'])
+        self.assertEqual('check_unavailable',row['status']);self.assertEqual('incomplete',row['classification'])
+        self.assertIsNone(row['decision_id']);self.assertFalse(row['can_deliver']);self.assertFalse(row['can_delete'])
+        known=next(r for r in value['records'] if r['id']=='stored:recipient-one')
+        self.assertEqual('decision-one',known['decision_id']);self.assertEqual('check_unavailable',known['status'])
+        self.assertEqual('native-fallback',known['action']);self.assertEqual('exim-one',known['native_reference'])
+        self.assertFalse(known['can_deliver']);self.assertFalse(known['can_delete'])
+        self.assertEqual(1,self.page('email-messages',self.alice)['total'])
+        self.assertEqual(0,self.page('email-messages',self.admin)['total'])
+        with self.assertRaises(AccessDenied):self.page('email-messages',self.alice,'server')
+        with self.assertRaises(AccessDenied):self.page('email-messages',self.alice,filters={'account':'@admin'})
+        self.ids['alice']='recreated'
+        self.assertEqual(0,self.page('email-messages',self.hestia.authorize('alice'))['total'])
+        self.assertEqual(ident,self.page('email-messages',self.admin,'server',{'account':'@admin'})['records'][0]['id'])
+
+    def test_native_unavailable_pagination_filters_and_selected_clear_keep_evidence_and_new_rows(self):
+        for n in range(65):
+            with self.store.connection() as db:db.execute('INSERT INTO native_mail_messages VALUES(?,?,?)',(f'{n:032x}',f'1xX62m-000000005eO-{n:04d}',1700000000+n))
+        seen=[]
+        for offset in (0,25,50):
+            result=self.page('email-messages',self.admin,'server',{'account':'@admin','status':'check_unavailable','type':'incomplete','provider':'native-fallback'},offset=offset,limit=25)
+            self.assertEqual(65,result['total']);seen.extend(r['id'] for r in result['records'])
+        self.assertEqual(65,len(set(seen)))
+        one=self.page('email-messages',self.admin,'server',{'search':'1xX62m-000000005eO-0000'})
+        self.assertEqual(1,one['total']);selected=[one['records'][0]['id']]
+        with self.assertRaises(AccessDenied):self.review.bulk(self.alice,'email-messages','account','preview',selected=selected)
+        proof=self.review.bulk(self.admin,'email-messages','server','preview',selected=selected)
+        self.assertEqual(1,proof['count']);new=self.native_message('f','1xX62m-000000005eO-9999')
+        self.assertEqual(1,self.review.bulk(self.admin,'email-messages','server','clear',proof['token'])['changed'])
+        rows=self.page('email-messages',self.admin,'server',limit=100)['records']
+        self.assertEqual(65,len(rows));self.assertIn(new,{r['id'] for r in rows});self.assertNotIn(selected[0],{r['id'] for r in rows})
+        with self.store.connection() as db:self.assertEqual(66,db.execute('SELECT count(*) FROM native_mail_messages').fetchone()[0])
+
     def test_email_shows_scoped_transport_explanation_from_decision_or_retained_copy(self):
         self.email(detail=encode(dict(transport_note='SMTP mixed-recipient explanation')))
         self.email('bob',owner='bob',detail=encode(dict(transport_note='Other account explanation')))
