@@ -23,7 +23,7 @@ class MailStartupTests(unittest.TestCase):
         self.runtime=self.root/'runtime';self.runtime.mkdir(mode=0o755)
         self.include=self.runtime/'hook.conf'
         self.policy=self.runtime/'policy.conf';self.base=self.runtime/'native.conf'
-        self.native_source='CLAMSHIELD_NATIVE_CONFIG_INCLUDED=1\n.include_if_exists /run/clamshield-exim/hook.conf\n'+BASE
+        self.native_source='CLAMSHIELD_NATIVE_CONFIG_INCLUDED=1\n.include_if_exists '+str(self.include)+'\n'+BASE
         write(self.base,self.native_source,0o644)
         self.default=self.root/'exim4.conf';write(self.default,selector_text(),0o644)
         self.library=self.root/'local_scan.so';write(self.library,b'verified adapter bytes',0o644)
@@ -40,6 +40,8 @@ class MailStartupTests(unittest.TestCase):
                       patch('clamshield.native_acl_runtime.DEFAULT',self.default),
                       patch('clamshield.native_acl_runtime.RUNTIME',self.runtime),
                       patch('clamshield.native_acl_runtime.BASE',self.base),
+                      patch('clamshield.native_acl_runtime.SOURCE',self.runtime/'native-source.conf'),
+                      patch('clamshield.native_acl_runtime.HOOK',self.include),
                       patch('clamshield.native_acl_runtime.POLICY',self.policy),
                       patch('clamshield.native_acl_runtime.bounded',return_value=Mock(returncode=0)),
                       patch('clamshield.mail_integration.HOOK_INCLUDE',self.include),

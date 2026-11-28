@@ -24,6 +24,7 @@ $cs_history_actions=[
     'mail.account_defaults_reset'=>'Account email defaults reset','mail.permissions_saved'=>'Email permissions saved',
     'mail.policy_saved'=>'Email policy saved','mail.policy_reset'=>'Email policy reset',
     'mail.release_queued'=>'Email release queued','mail.deleted'=>'Quarantined email deleted',
+    'mail.native_fallback'=>'Native delivery fallback recorded',
     'history.retention_saved'=>'History retention saved','history.retention_reset'=>'History retention reset',
     'history.server_saved'=>'Server history retention saved','history.server_reset'=>'Server history retention reset',
     'history.permission_saved'=>'History permissions saved','history.pruned'=>'Account history cleaned up',
@@ -37,7 +38,8 @@ $cs_history_labels=['domain'=>'Website','target'=>'Folder','path'=>'File','actio
     'maintenance_days'=>'Maintenance details retained (days)','allowed'=>'Permission granted','error'=>'Problem',
     'scanned'=>'Files checked','seen'=>'Entries inspected','infected'=>'Files with detections','detections'=>'Detections',
     'installations'=>'WordPress installations','modified'=>'Modified files','missing'=>'Missing files',
-    'additional'=>'Additional files','unverified'=>'Unverified components','errors'=>'Errors','skipped'=>'Skipped entries'];
+    'additional'=>'Additional files','unverified'=>'Unverified components','errors'=>'Errors','skipped'=>'Skipped entries',
+    'first_observed'=>'First observation (UTC)','last_observed'=>'Last observation (UTC)','observed_fallbacks'=>'Recorded fallback events'];
 $cs_history_technical_key=static fn($key)=>preg_match('/(^id$|_id$|identity|generation|revision|sha256|hash|digest|fingerprint|^replaces$|^replacement_job$|^finding$|^attempt$|^native$)/i',(string)$key);
 $cs_history_clean=static fn($value)=>preg_replace('/(?<![a-z0-9])[a-f0-9]{32,}(?![a-z0-9])/i','[technical reference]',(string)$value);
 $cs_history_value=static fn($value)=>is_bool($value)?($value?'Yes':'No'):($value===null?'Not recorded':(string)$value);
@@ -64,7 +66,8 @@ $cs_history_summary=static function(array $event) use ($cs_history_jobs,$cs_hist
             if(is_array($value)){$walk($value,$key==='counters'?'':$prefix.$cs_history_words((string)$key).' / ',$depth+1);continue;}
             if($prefix===''&&in_array($key,['seen','scanned','infected','detections','installations','modified','missing','additional','unverified','errors','skipped'],true)&&$value==0&&$key!=='scanned')continue;
             $label=$cs_history_labels[$key]??$cs_history_words((string)$key);
-            $text=in_array($key,['action','operation','queued_action'],true)?$cs_history_action((string)$value):$cs_history_value($value);
+            $text=in_array($key,['action','operation','queued_action'],true)?$cs_history_action((string)$value):
+                (in_array($key,['first_observed','last_observed'],true)&&is_numeric($value)?gmdate('Y-m-d H:i:s',(int)$value):$cs_history_value($value));
             $lines[]=$prefix.$label.': '.$cs_history_clean($text);
         }
     };

@@ -9,6 +9,7 @@ $notification_labels = [
     'maintenance.recovered'=>'Interrupted maintenance recovered', 'installation.recovered'=>'Installation recovered',
     'rules.trial_finished'=>'Rule comparison finished', 'mail.refreshed'=>'Mail integration refreshed',
     'mail.refresh_failed'=>'Mail integration refresh failed', 'mail.expiry_blocked'=>'Email expiry needs attention',
+    'mail.native_fallback'=>'Incomplete email check: native delivery fallback',
     'automatic.cancelled'=>'Automatic action cancelled', 'automatic.cleaned'=>'Automatic cleaning completed',
     'automatic.needs_review'=>'Automatic action needs review', 'automatic.quarantined'=>'Automatically quarantined',
     'automatic.failed'=>'Automatic action failed',

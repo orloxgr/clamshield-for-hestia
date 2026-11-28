@@ -29,6 +29,11 @@ class Maintenance:
             except (OSError,ValueError,sqlite3.Error,ClamShieldError):
                 import logging
                 logging.getLogger(__name__).warning('Native DNSBL notifications could not be published')
+            from .native_mail_health import NativeMailHealth
+            try:NativeMailHealth(self.settings,self.store).collect()
+            except (OSError,ValueError,KeyError,TypeError,sqlite3.Error,ClamShieldError):
+                import logging
+                logging.getLogger(__name__).warning('Native delivery fallback observations could not be collected')
             from .signature_memory import SignatureMemory
             try:
                 if SignatureMemory(self.settings).recover().get('running'):return {'busy':True,'signature_memory_running':True}

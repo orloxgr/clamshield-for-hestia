@@ -731,10 +731,15 @@ class MailIntegration:
             try:dns_observations=NativeDnsblHealth(self.settings).status()
             except (OSError,ValueError,KeyError,TypeError,ClamShieldError):
                 dns_observations=[];dns_observation_error='Native IP-list observations could not be read; review diagnostic storage.'
+            from .native_mail_health import NativeMailHealth
+            try:mail_observations=NativeMailHealth(self.settings).status()
+            except (OSError,ValueError,KeyError,TypeError,ClamShieldError):
+                mail_observations={'collection':'unavailable','error':'Native delivery observations could not be read; review diagnostic storage.'}
             return dict(configured=current is not None,phase=current['phase'] if current else 'unconfigured',
                         hook_enabled=runtime_hook_ready() if current and MACRO.exists() and MACRO.read_text()==MACRO_TEXT else None,
                         transition=journal['phase'] if journal else None,units=self.unit_states(),
                         native_dnsbl=dnsbl,native_spam_safety=spam_safety,native_dnsbl_observations=dns_observations,native_dnsbl_observations_error=dns_observation_error,
+                        native_delivery_observations=mail_observations,
                         native_filters='Managed local recipients follow the selected ClamShield policy; unmanaged recipients retain native handling',
                         pending=self.pending(),mode=mode(self.settings))
         except (OSError,ValueError,KeyError,TypeError,ClamShieldError,subprocess.SubprocessError):

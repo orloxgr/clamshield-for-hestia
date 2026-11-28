@@ -804,3 +804,20 @@ this fallback after its byte/ABI checks succeed. The selector and drop-in
 are journaled with exact ownership. Disable/uninstall removes owned integration
 and regenerates native configuration from current sources. Later administrator
 edits to the selector are preserved and require review before removal.
+
+Background maintenance passively reads the configured native Exim main log for
+the fixed ClamShield fallback markers. It reads at most 256 KiB per pass; the
+initial tail, rotation/truncation and unreadable intervals are explicitly shown
+as limited history. Syslog-only and unsupported log filename patterns are shown
+as unavailable observations. No native log is modified.
+
+Recorded fallback incidents appear in administrator History and Notifications.
+Repeated records in the same incident share one alert, with durable publication
+deduplication if database/state persistence is interrupted. Raw log lines,
+envelopes, addresses and native message IDs are not copied into these summaries.
+The collection status reports whether the log was read, not scanner readiness.
+Only an actual subsequent broker reply ends an incident; silence does not prove
+recovery, and a reply does not prove a complete or clean scan. Inspect Email
+settings / Mail integration and the native logs when a fallback is recorded.
+Collection and notification publication run outside the SMTP request and never
+restart services, resend messages or change the selected handling policy.

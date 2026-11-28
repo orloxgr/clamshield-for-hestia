@@ -228,6 +228,9 @@ CREATE TABLE IF NOT EXISTS history_permissions (
  revision TEXT NOT NULL, PRIMARY KEY(owner,identity)
 );
 CREATE INDEX IF NOT EXISTS history_audit_scope ON audit(owner,identity,created);
+CREATE TABLE IF NOT EXISTS native_mail_alerts (
+ id TEXT PRIMARY KEY, created REAL NOT NULL
+);
 CREATE TABLE IF NOT EXISTS server_history_retention (
  id INTEGER PRIMARY KEY CHECK(id=1), settings TEXT NOT NULL, updated REAL NOT NULL,
  revision TEXT NOT NULL, authority TEXT NOT NULL, last_run REAL NOT NULL DEFAULT 0,

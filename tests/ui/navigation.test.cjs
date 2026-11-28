@@ -4,6 +4,20 @@ const path=require('node:path'),{spawnSync}=require('node:child_process');
 const {JSDOM}=require('jsdom');
 const root=path.resolve(__dirname,'../..');
 
+test('native fallback observations show recorded times without claiming clean mail or current recovery',()=>{
+  const f=fixture({hash:'#settings/mail-settings',change:v=>{v.context.view_scope='server';v.mail_integration={phase:'active',
+    native_delivery_observations:{collection:'unavailable',last_fallback:1,last_response:2,fallbacks:3,history_limited:true,backlog:true,error:'<b>Log unavailable</b>'}};}});
+  try{
+    const panel=f.document.getElementById('cs-mail-advanced'),text=panel.textContent;
+    assert.match(text,/Last recorded fallback: 1970-01-01 00:00:01 UTC/);assert.match(text,/Recorded fallback events: 3/);
+    assert.match(text,/Last observed ClamShield reply: 1970-01-01 00:00:02 UTC/);
+    assert.match(text,/not a complete or clean scan/);assert.match(text,/Observation history is limited/);
+    assert.match(text,/More log data remains/);assert.equal(panel.querySelector('.alert-danger').textContent,'<b>Log unavailable</b>');
+    assert.equal(panel.querySelector('.alert-danger b'),null);
+    assert.ok([...panel.querySelectorAll('a')].some(a=>a.getAttribute('href')==='#review/history'));
+  }finally{f.close();}
+});
+
 test('native provider diagnostics remain distinct from SpamAssassin and explain managed handling',()=>{
   const f=fixture({hash:'#settings/mail-settings',change:v=>{v.context.view_scope='server';v.mail_integration={phase:'active',
     native_dnsbl_observations:[{zone:'zen.spamhaus.org',label:'Spamhaus ZEN',state:'blocked',observed:1,help_url:'https://www.spamhaus.org/returnc/pub/'},
@@ -580,6 +594,26 @@ test('notification preference loading failures allow AJAX reading and can be ret
   }finally{await f.close();}
 });
 const auditEvent=(action,detail={},extra={})=>({created:1,actor:'admin',owner:'alice',identity:'current',action,subject:'a'.repeat(32),detail,...extra});
+
+test('fallback history and notifications show actual observation dates and the relevant settings link',async()=>{
+  const detail={message:'Native delivery fallback was recorded. The check was incomplete.',first_observed:1,last_observed:2,observed_fallbacks:3};
+  const f=fixture({hash:'#review/notices',change:v=>{
+    v.context.view_scope='server';
+    v.notifications=[notice('mail.native_fallback','fallback-notice',{owner:'@admin',subject:'mail-integration',detail})];
+    v.history=[auditEvent('mail.native_fallback',detail,{owner:'@admin',subject:'mail-integration'})];
+  }});
+  try{
+    const notices=f.document.getElementById('cs-notification-list').textContent;
+    assert.match(notices,/Incomplete email check: native delivery fallback/);
+    assert.match(notices,/First recorded fallback: 1970-01-01 00:00:01 UTC/);
+    assert.match(notices,/Last recorded fallback: 1970-01-01 00:00:02 UTC/);
+    assert.match(notices,/Recorded fallback events: 3/);
+    assert.ok(f.document.querySelector('#cs-notification-list a[href="#settings/mail-settings"]'));
+    const history=f.document.querySelector('#cs-history-events .cs-history-summary').textContent;
+    assert.match(history,/First observation \(UTC\): 1970-01-01 00:00:01/);
+    assert.match(history,/Last observation \(UTC\): 1970-01-01 00:00:02/);
+  }finally{await f.close();}
+});
 
 test('history shows readable operations, website scope and counters with references closed by default',async()=>{
   const f=fixture({hash:'#history',change:values=>{values.context.view_scope='server';values.history=[
