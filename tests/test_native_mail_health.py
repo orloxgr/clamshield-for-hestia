@@ -78,6 +78,7 @@ class NativeMailHealthTests(unittest.TestCase):
         self.assertEqual(2,len(rows));self.assertEqual(2,len({r['native_id'] for r in rows}))
         self.assertEqual({'id','native_id','created'},set(rows[0]))
         self.assertEqual([],self.health.read()['messages'])
+        self.assertNotIn('messages',json.loads(self.health.path.read_text()))
         self.assertEqual((1,1,1),self.counts())
 
     def test_message_outbox_survives_database_failure_and_commit_before_save(self):

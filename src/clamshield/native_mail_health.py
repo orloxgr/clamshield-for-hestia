@@ -132,7 +132,10 @@ class NativeMailHealth:
 
     def save(self, value):
         self.validate(value)
-        raw = json.dumps(value, sort_keys=True, separators=(',', ':')).encode()
+        # Keep the ordinary on-disk receipt compatible with the existing
+        # collector when there is no pending message evidence to preserve.
+        stored=value if value['messages'] else {k:v for k,v in value.items() if k!='messages'}
+        raw = json.dumps(stored, sort_keys=True, separators=(',', ':')).encode()
         if len(raw) > STATE_LIMIT: raise EngineError('Native mail observation storage exceeds its limit')
         with parent(self.path) as directory:
             info = os.fstat(directory)
