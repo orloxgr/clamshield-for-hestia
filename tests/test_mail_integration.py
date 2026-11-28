@@ -189,6 +189,22 @@ class IntegrationTests(unittest.TestCase):
         self.assertTrue(all(not v['active'] and not v['enabled'] for v in self.controller.units.values()))
         self.assertTrue(self.controller.disable()['unchanged'])
 
+    def test_status_separates_saved_active_phase_from_current_verified_connection(self):
+        self.controller.enable()
+        with patch('clamshield.native_dnsbl.NativeDnsbl.status',return_value={}), \
+             patch('clamshield.native_spam_safety.NativeSpamSafety.status',return_value={}), \
+             patch('clamshield.native_dnsbl_health.NativeDnsblHealth.status',return_value=[]), \
+             patch('clamshield.native_mail_health.NativeMailHealth.status',return_value={}), \
+             patch('clamshield.mail_integration.mode',side_effect=lambda settings:state(settings)['phase']), \
+             patch('clamshield.mail_integration.runtime_hook_ready',return_value=True), \
+             patch('clamshield.mail_service.transport_active',return_value=True) as connected:
+            self.assertTrue(self.controller.status()['connected']);connected.assert_called_once_with()
+            connected.return_value=False
+            value=self.controller.status();self.assertEqual('active',value['phase']);self.assertFalse(value['connected'])
+            self.controller.disable();connected.reset_mock();connected.return_value=True
+            value=self.controller.status();self.assertEqual('disabled',value['phase']);self.assertFalse(value['connected'])
+            connected.assert_not_called()
+
     def test_disable_stops_native_with_runtime_dropin_present_before_removing_it(self):
         self.controller.enable();calls=[]
         def stop():

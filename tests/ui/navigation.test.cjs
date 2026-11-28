@@ -26,11 +26,35 @@ test('native provider diagnostics remain distinct from SpamAssassin and explain 
   try{
     const panel=f.document.getElementById('cs-mail-advanced'),text=panel.textContent;
     assert.match(text,/Provider access blocked/);assert.match(text,/No native observation recorded/);
+    assert.match(text,/not enable\/disable settings/);assert.match(text,/unknown, not disabled/);
     assert.match(text,/1970-01-01 00:00:01/);assert.match(text,/separate from SpamAssassin/);
     assert.match(text,/Managed local recipients follow their selected/);assert.doesNotMatch(text,/Native rejections take precedence/);
     assert.equal(panel.querySelector('.alert-danger').textContent,'<b>Diagnostic storage unavailable</b>');
     assert.equal(panel.querySelector('.alert-danger b'),null);
   }finally{f.close();}
+});
+
+for(const [name,state,label,actions] of [
+  ['connected',{phase:'active',connected:true,hook_enabled:true},'Enabled',['refresh','disable']],
+  ['disabled',{phase:'disabled',connected:false},'Disabled',['enable']],
+  ['unconfigured',{phase:'unconfigured'},'Disabled',['enable']],
+  ['stale connection',{phase:'active',connected:false,hook_enabled:true},'Needs attention',['refresh','disable']],
+  ['missing hook',{phase:'active',connected:true,hook_enabled:false},'Needs attention',['refresh','disable']],
+  ['pending transition',{phase:'active',transition:'prepared',connected:true,hook_enabled:true},'Transition pending',['recover']],
+  ['unavailable state',{phase:'needs-review',error:'<b>State unavailable</b>'},'Needs attention',['recover']],
+])test('mail integration shows '+name+' state with only relevant actions',async()=>{
+  const f=fixture({hash:'#settings/mail-settings',change:v=>{v.mail_integration={...state,native_dnsbl_observations:[{zone:'zen.spamhaus.org',label:'Spamhaus ZEN',state:'unknown',observed:null,help_url:'https://example.test/help'}]};}});
+  try{
+    const panel=f.document.getElementById('cs-mail-integration'),controls=f.document.getElementById('cs-mail-integration-controls');
+    assert.equal(f.document.getElementById('cs-mail-integration-state').textContent,'Mail integration: '+label);
+    assert.match(panel.querySelector('summary').textContent,new RegExp(label));
+    assert.deepEqual([...panel.querySelectorAll('[data-action]')].map(b=>b.dataset.action),actions.map(a=>'mail-integration-'+a));
+    assert.equal(controls.querySelector('button'),panel.querySelector('button'));
+    assert.ok(controls.compareDocumentPosition(panel.querySelector('.scroll'))&f.w.Node.DOCUMENT_POSITION_FOLLOWING);
+    assert.match(panel.textContent,/No native observation recorded/);
+    if(state.error){assert.match(panel.textContent,/<b>State unavailable<\/b>/);assert.equal(panel.querySelector('.alert-danger b'),null);}
+    await settle();assert.equal(f.requests.some(r=>r.action.startsWith('mail-integration-')),false);
+  }finally{await f.close();}
 });
 function data(admin=true){
   const permissions=Object.fromEntries(['scan','schedule','quarantine','restore','repair','cleanup','exceptions','automatic'].map(key=>[key,true]));

@@ -772,6 +772,7 @@ class MailIntegration:
     def status(self):
         try:
             current=state(self.settings);journal=read(self.journal)
+            from .mail_service import transport_active
             from .native_dnsbl import NativeDnsbl
             try:dnsbl=NativeDnsbl(self.settings,self.hestia).status()
             except (OSError,ValueError,KeyError,TypeError,ClamShieldError):dnsbl={'state':'needs-review','review_required':True}
@@ -788,6 +789,7 @@ class MailIntegration:
             except (OSError,ValueError,KeyError,TypeError,ClamShieldError):
                 mail_observations={'collection':'unavailable','error':'Native delivery observations could not be read; review diagnostic storage.'}
             return dict(configured=current is not None,phase=current['phase'] if current else 'unconfigured',
+                        connected=transport_active() if current and current['phase']=='active' and not journal else False,
                         hook_enabled=runtime_hook_ready() if current and MACRO.exists() and MACRO.read_text()==MACRO_TEXT else None,
                         transition=journal['phase'] if journal else None,units=self.unit_states(),
                         native_dnsbl=dnsbl,native_spam_safety=spam_safety,native_dnsbl_observations=dns_observations,native_dnsbl_observations_error=dns_observation_error,
