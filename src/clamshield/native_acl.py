@@ -18,6 +18,10 @@ MARKER='# Managed by clamshield: native recipient policy observations\n'
 DNS_MESSAGE='Rejected because $sender_host_address'
 MIME_MESSAGE='Blacklisted file extension detected'
 LOCAL_MESSAGE='${if and{{>{$recipients_count}{0}}{forall{$recipients_list}{match_domain{${domain:$item}}{+local_domains}}}}{yes}{no}}'
+ERROR_ZONE=r'^(?:(?:zen|sbl|xbl|pbl)\.spamhaus\.org|[a-z0-9-]+\.(?:zen|sbl|xbl|pbl)\.dq\.spamhaus\.net)(?:!=|$)'
+# Equality matching is required: bit masks can also match non-loopback replies.
+ERROR_CODES=tuple('127.255.255.'+str(n) for n in range(256))
+ERROR_LISTS='${map{${filter{${readfile {/etc/exim4/dnsbl.conf}{:}}}{match{$item}{\\N'+ERROR_ZONE+'\\N}}}}{${sg{$item}{\\N!=.*\\N}{}}='+','.join(ERROR_CODES)+'}}'
 
 
 def _section(text,name):
@@ -65,7 +69,17 @@ def render(source):
               '          condition = ${if eq{$dnslist_value}{}{yes}{no}}\n'
               '          set acl_m_clamshield_dnsbl_zone = $dnslist_domain\n'
               '          set acl_m_clamshield_dnsbl_value = lookup-failed\n'
-              '          log_message = ClamShield native IP-list lookup unavailable\n')
+              '          log_message = ClamShield native IP-list lookup unavailable\n\n'
+              # Native exclusions correctly prevent rejection, but hide these
+              # positive operational replies from the ordinary match above.
+              # Observe the same configured zones with an error-only condition;
+              # never replace a genuine native listing already captured.
+              '  warn    domains = +local_domains\n'+dns[1]+'\n'
+              '          condition = ${if eq{$acl_m_clamshield_dnsbl_zone}{}{yes}{no}}\n'
+              '          dnslists = '+ERROR_LISTS+'\n'
+              '          set acl_m_clamshield_dnsbl_zone = $dnslist_domain\n'
+              '          set acl_m_clamshield_dnsbl_value = $dnslist_value\n'
+              '          log_message = ClamShield native IP-list provider access unavailable\n')
     mime_text=('  warn    condition = '+LOCAL_MESSAGE+'\n'+mime[1]+'\n          set acl_m_clamshield_mime_blocked = 1\n\n'+mime[0]+'\n'
                '          condition = '+LOCAL_MESSAGE.removesuffix('{yes}{no}}')+'{no}{yes}}\n'+mime[1]+'\n')
     result=source

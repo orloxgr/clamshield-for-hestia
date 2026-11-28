@@ -7,6 +7,7 @@ from pathlib import Path
 import pwd
 import signal
 import socket
+import sqlite3
 import stat
 import subprocess
 import threading
@@ -70,6 +71,14 @@ class MailBroker:
 
     def plan(self,request):
         rows=inventory(self.hestia);original=[resolve(rows,recipient) for recipient in request.recipients]
+        # Only authenticated native ACL variables reach this path. Aggregate
+        # diagnostics are optional; their storage cannot block delivery.
+        if request.native_dnsbl_zone or request.native_dnsbl_value:
+            from .native_dnsbl_health import NativeDnsblHealth
+            try:NativeDnsblHealth(self.settings).observe(request.native_dnsbl_zone,request.native_dnsbl_value)
+            except (OSError,ValueError,sqlite3.Error,ClamShieldError):
+                import logging
+                logging.getLogger(__name__).warning('Native DNSBL observation could not be saved')
         policies=[]
         for target in original:
             if target is None:policies.append(None);continue
@@ -146,7 +155,8 @@ class MailBroker:
                 if native_result['complete']:
                     if native_result['score']>native_result['threshold']['required_score']:
                         if decision['action']!='reject':decision.update(action='reject',classification='native-spam')
-                    elif not native_av[index] and decision['action']!='reject':decision.update(action='deliver',classification='unmanaged',scan_complete=True)
+                    elif not native_av[index] and decision['action']!='reject' and decision.get('native_dnsbl') is None:
+                        decision.update(action='deliver',classification='unmanaged',scan_complete=True)
                 elif decision['action']!='reject':decision.update(action='deliver',classification='incomplete',scan_complete=False)
             if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])

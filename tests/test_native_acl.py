@@ -101,3 +101,17 @@ class NativeAclTests(unittest.TestCase):
             with self.subTest(source=source),self.assertRaises(EngineError):render(source)
         for source in (BASE+'\0',BASE.replace('\n','\r\n')):
             with self.assertRaises(EngineError):render(source)
+
+    def test_provider_error_observation_is_local_error_only_and_keeps_original_filters(self):
+        from clamshield.native_acl import ERROR_CODES,ERROR_LISTS
+        from clamshield.native_dnsbl import ERRORS
+        self.assertEqual(ERRORS,ERROR_CODES)
+        result=render(BASE)
+        diagnostic=result[result.index('          dnslists = '+ERROR_LISTS):]
+        self.assertIn('set acl_m_clamshield_dnsbl_value = $dnslist_value',diagnostic)
+        self.assertIn('provider access unavailable',diagnostic)
+        self.assertIn('${filter{${readfile {/etc/exim4/dnsbl.conf}{:}}}',ERROR_LISTS)
+        self.assertIn('=127.255.255.0,127.255.255.1,',ERROR_LISTS)
+        self.assertNotIn('=127.0.0.2',ERROR_LISTS)
+        self.assertEqual(2,result.count('dnslists = ${readfile {/etc/exim4/dnsbl.conf}{:}}'))
+        self.assertIn('condition = ${if eq{$acl_m_clamshield_dnsbl_zone}{}{yes}{no}}\n          dnslists = '+ERROR_LISTS,result)

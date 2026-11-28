@@ -95,6 +95,19 @@ class MailBrokerTests(unittest.TestCase):
         self.assertEqual((5,'native-fallback'),self.exchange(native_dnsbl=('zen.spamhaus.org','127.255.255.251')))
         self.assertEqual(0,self.scans)
 
+    def test_native_spam_pass_cannot_erase_an_independent_dns_failure(self):
+        delegated={(owner,self.ids[owner],owner+'.test') for owner in ('alice','bob')}
+        with patch('clamshield.native_rejection.NativeRejection.delegated',return_value=delegated), \
+                patch('clamshield.native_spam.rejection_threshold',return_value=dict(required_score=10,source='fixture')):
+            plan=self.broker().plan(replace(self.request,native_dnsbl_zone='zen.spamhaus.org',native_dnsbl_value='127.255.255.251',native_spam_score=0.0))
+            self.assertTrue(all((r['decision']['classification'],r['decision']['scan_complete'])==('incomplete',False) for r in plan['items']))
+            self.assertEqual((5,'native-fallback'),self.exchange(native_dnsbl=('zen.spamhaus.org','127.255.255.251'),native_score='0'))
+
+    def test_optional_native_dns_telemetry_failure_does_not_change_selected_delivery(self):
+        self.enable()
+        with patch('clamshield.native_dnsbl_health.NativeDnsblHealth.observe',side_effect=OSError('Telemetry disk unavailable')):
+            self.assertEqual((5,'native-fallback'),self.exchange(native_dnsbl=('zen.spamhaus.org','127.255.255.251')))
+
     def test_custom_native_list_keeps_its_unmanaged_policy_without_inventing_spam_points(self):
         self.assertEqual((1,'reject'),self.exchange(native_dnsbl=('custom.example.test','127.0.0.2')))
         self.assertEqual(0,self.scans)

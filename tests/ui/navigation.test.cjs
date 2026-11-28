@@ -3,6 +3,21 @@ const assert=require('node:assert/strict');
 const path=require('node:path'),{spawnSync}=require('node:child_process');
 const {JSDOM}=require('jsdom');
 const root=path.resolve(__dirname,'../..');
+
+test('native provider diagnostics remain distinct from SpamAssassin and explain managed handling',()=>{
+  const f=fixture({hash:'#settings/mail-settings',change:v=>{v.context.view_scope='server';v.mail_integration={phase:'active',
+    native_dnsbl_observations:[{zone:'zen.spamhaus.org',label:'Spamhaus ZEN',state:'blocked',observed:1,help_url:'https://www.spamhaus.org/returnc/pub/'},
+      {zone:'pbl.spamhaus.org',label:'Spamhaus PBL',state:'unknown',observed:null,help_url:'https://www.spamhaus.org/returnc/pub/'}],
+    native_dnsbl_observations_error:'<b>Diagnostic storage unavailable</b>'};}});
+  try{
+    const panel=f.document.getElementById('cs-mail-advanced'),text=panel.textContent;
+    assert.match(text,/Provider access blocked/);assert.match(text,/No native observation recorded/);
+    assert.match(text,/1970-01-01 00:00:01/);assert.match(text,/separate from SpamAssassin/);
+    assert.match(text,/Managed local recipients follow their selected/);assert.doesNotMatch(text,/Native rejections take precedence/);
+    assert.equal(panel.querySelector('.alert-danger').textContent,'<b>Diagnostic storage unavailable</b>');
+    assert.equal(panel.querySelector('.alert-danger b'),null);
+  }finally{f.close();}
+});
 function data(admin=true){
   const permissions=Object.fromEntries(['scan','schedule','quarantine','restore','repair','cleanup','exceptions','automatic'].map(key=>[key,true]));
   return {context:{owner:'alice',admin},accounts:[{owner:'alice'}],

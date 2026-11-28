@@ -3,6 +3,7 @@ import fcntl
 import json
 import os
 import socket
+import sqlite3
 import subprocess
 import time
 import uuid
@@ -23,6 +24,11 @@ class Maintenance:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 return {'busy': True}
+            from .native_dnsbl_health import NativeDnsblHealth
+            try:NativeDnsblHealth(self.settings,self.store).publish()
+            except (OSError,ValueError,sqlite3.Error,ClamShieldError):
+                import logging
+                logging.getLogger(__name__).warning('Native DNSBL notifications could not be published')
             from .signature_memory import SignatureMemory
             try:
                 if SignatureMemory(self.settings).recover().get('running'):return {'busy':True,'signature_memory_running':True}
