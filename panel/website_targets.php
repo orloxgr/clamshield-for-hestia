@@ -14,4 +14,4 @@ $cs_target_sites=$cs_target_global?[]:array_map(static fn($site)=>['domain'=>$si
 </div>
 <p data-target-status role="status" aria-live="polite"></p>
 <script type="application/json" data-target-sites><?=json_encode($cs_target_sites,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?></script>
-<script><?php readfile(__DIR__.'/website_targets.js'); ?></script>
+<script><?php readfile(__DIR__.'/api_response.js');readfile(__DIR__.'/website_targets.js'); ?></script>

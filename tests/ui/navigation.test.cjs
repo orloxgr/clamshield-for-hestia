@@ -813,6 +813,55 @@ test('scan dropdown chooses account and website without scanning until Scan is p
     form.elements.domain.value='';form.elements.domain.dispatchEvent(new f.w.Event('change'));assert.equal(form.elements.path.value,'');assert.equal(form.elements.path.disabled,true);
   }finally{await f.close();}
 });
+test('expired Hestia login redirects show a manual reload action without scans or an empty-site verdict',async()=>{
+  const f=fixture({hash:'#scan',change:v=>v.accounts.push({owner:'bob'}),api:async()=>({ok:true,status:200,redirected:true,url:'https://panel.test/login/',json:async()=>{throw new Error('HTML login must not be parsed');}})});
+  try{
+    const form=f.document.getElementById('cs-scan-target');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    const status=f.document.getElementById('cs-scan-target-status');
+    assert.match(status.textContent,/Hestia session has expired/);assert.doesNotMatch(status.textContent,/Unexpected token|not valid JSON/);
+    assert.equal(status.querySelector('[data-panel-reload]').textContent,'Reload panel');
+    assert.equal(form.elements.domain.options[0].text,'Websites unavailable');
+    assert.equal(f.document.getElementById('cs-scan-start').disabled,true);assert.equal(f.document.getElementById('cs-scan-all').disabled,true);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.deepEqual(f.requests.map(r=>r.action),['scan-targets']);
+  }finally{await f.close();}
+});
+
+for(const [name,response] of [
+  ['HTML error page',{ok:false,status:502,headers:{get:()=> 'text/html'},json:async()=>{throw new Error('<!doctype html> private page');}}],
+  ['malformed JSON',{ok:true,json:async()=>{throw new SyntaxError('Unexpected token private content');}}],
+  ['invalid data',{ok:true,json:async()=>null}],
+])test('website discovery handles '+name+' without displaying server pages or enabling scans',async()=>{
+  const f=fixture({hash:'#scan',change:v=>v.accounts.push({owner:'bob'}),api:async()=>response});
+  try{
+    const form=f.document.getElementById('cs-scan-target');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    const status=f.document.getElementById('cs-scan-target-status');assert.match(status.textContent,/unexpected response/);
+    assert.doesNotMatch(status.textContent,/private|doctype|Unexpected token/);assert.ok(status.querySelector('[data-panel-reload]'));
+    assert.equal(form.elements.domain.options[0].text,'Websites unavailable');assert.equal(f.document.getElementById('cs-scan-start').disabled,true);
+    assert.equal(f.requests.length,1);
+  }finally{await f.close();}
+});
+
+test('a successful empty website list stays distinct from failed discovery',async()=>{
+  const f=fixture({hash:'#scan',change:v=>v.accounts.push({owner:'bob'}),api:async()=>({ok:true,json:async()=>({ok:true,sites:[]})})});
+  try{
+    const form=f.document.getElementById('cs-scan-target');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    assert.equal(form.elements.domain.options[0].text,'No active websites');
+    assert.equal(f.document.getElementById('cs-scan-target-status').textContent,'No active websites in this account.');
+    assert.equal(f.document.querySelector('[data-panel-reload]'),null);assert.equal(f.document.getElementById('cs-scan-start').disabled,true);
+  }finally{await f.close();}
+});
+
+test('scan submission with an expired session is not automatically repeated',async()=>{
+  const f=fixture({hash:'#scan',api:async()=>({ok:false,status:401,json:async()=>{throw new Error('unused');}})});
+  try{
+    const form=f.document.getElementById('cs-scan-target');form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.match(f.document.getElementById('cs-scan-target-status').textContent,/session has expired/);
+    assert.equal(f.document.getElementById('cs-scan-start').disabled,true);assert.ok(f.document.querySelector('[data-panel-reload]'));
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();assert.equal(f.requests.length,1);
+  }finally{await f.close();}
+});
+
 test('Scan all queues server scope without a selected site or leftover path',async()=>{
   const f=fixture({hash:'#scan',api:queuedScans});
   try{const form=f.document.getElementById('cs-scan-target');form.elements.domain.value='site.test';form.elements.domain.dispatchEvent(new f.w.Event('change'));form.elements.path.value='uploads';

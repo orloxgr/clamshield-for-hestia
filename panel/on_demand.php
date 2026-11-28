@@ -29,4 +29,5 @@ $cs_scan_available=(bool)array_filter($data['sites'],static fn($site)=>!$site['s
 <?php foreach($data['sites'] as $site): ?><tr><td><?=$escape(($cs_global?($site['owner']??'').' / ':'').$site['domain'])?></td><td class="path"><?=$escape($site['root'])?></td><td><?=$site['suspended']?'Suspended':'Active'?></td></tr><?php endforeach ?>
 </tbody></table></div></details>
 <script type="application/json" id="cs-scan-initial-sites"><?=json_encode($cs_scan_sites,JSON_HEX_TAG|JSON_HEX_AMP|JSON_HEX_APOS|JSON_HEX_QUOT)?></script>
+<script><?php readfile(__DIR__.'/api_response.js'); ?></script>
 </section>

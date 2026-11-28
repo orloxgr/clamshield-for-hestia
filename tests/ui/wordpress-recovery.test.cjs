@@ -19,6 +19,18 @@ function fixture(snapshots,options={}){
     select:async()=>{await settle();const select=w.document.getElementById('cs-wp-plans');select.value='plan-one';select.dispatchEvent(new w.Event('change'));await settle();},
     tick:async()=>{const [id,fn]=timers.entries().next().value;timers.delete(id);await fn();await settle();}};
 }
+test('WordPress website selection explains an expired session and cannot start an analysis',async()=>{
+  const f=fixture([snapshot('ready')],{hidden:true,api:body=>body.action==='scan-targets'?{ok:true,status:200,redirected:true,url:'https://panel.test/login/',json:async()=>{throw new Error('Unexpected token private HTML');}}:null});
+  try{
+    const form=f.by('analyze');form.elements.owner.value='bob';form.elements.owner.dispatchEvent(new f.w.Event('change'));await settle();
+    const status=form.querySelector('[data-target-status]');assert.match(status.textContent,/Hestia session has expired/);
+    assert.ok(status.querySelector('[data-panel-reload]'));assert.doesNotMatch(status.textContent,/Unexpected token|private/);
+    assert.equal(form.elements.domain.options[0].text,'Websites unavailable');assert.equal(form.querySelector('[type=submit]').disabled,true);
+    form.dispatchEvent(new f.w.Event('submit',{bubbles:true,cancelable:true}));await settle();
+    assert.equal(f.requests.some(r=>r.action==='wordpress-recovery-analyze'),false);
+  }finally{f.close();}
+});
+
 test('analysis sends separate PHP/JS policies and never automatically applies a recovery',async()=>{
   const f=fixture([snapshot('analyzing'),snapshot('ready')]);
   try{await settle();const form=f.by('analyze');assert.equal(form.elements.uploads_php.checked,true);assert.equal(form.elements.uploads_js.checked,false);
