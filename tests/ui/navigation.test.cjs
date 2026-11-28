@@ -670,6 +670,24 @@ test('fallback history and notifications show actual observation dates and the r
   }finally{await f.close();}
 });
 
+test('mail History shows a concise check result and confirmed outcome instead of custody steps',async()=>{
+  const f=fixture({hash:'#history',change:v=>v.history=[
+    auditEvent('mail.decision',{action:'deliver',classification:'clean'},{mail_outcome:{recipient:'inbox@site.test',action:'deliver',classification:'clean',status:'delivered'}}),
+    auditEvent('mail.decision',{action:'junk',classification:'spam'},{mail_outcome:{recipient:'inbox@site.test',action:'junk',classification:'spam',status:'delivered'}}),
+    auditEvent('mail.decision',{action:'deliver',classification:'clean'},{mail_outcome:{action:'deliver',classification:'incomplete',status:'not_retained'}}),
+    auditEvent('mail.decision',{action:'quarantine',classification:'malware'},{mail_outcome:{action:'quarantine',classification:'malware',status:'quarantined'}}),
+    auditEvent('mail.decision',{action:'deliver',classification:'clean'}),
+    auditEvent('mail.decision',{action:'deliver',classification:'incomplete'},{mail_outcome:{action:'deliver',classification:'incomplete',status:'native_failed',error:'<img src=x> Mail delivery failed'}}),
+  ]});
+  try{const rows=[...f.document.querySelectorAll('#cs-history-events tbody tr')],summary=i=>rows[i].querySelector('.cs-history-summary').textContent;
+    assert.equal(rows[0].children[2].textContent,'Email check result');assert.match(summary(0),/No threats detected.*Recipient: inbox@site.test.*Outcome: Delivered/);
+    assert.doesNotMatch(summary(0),/copy|capture|purged|cleaned/i);assert.match(summary(1),/Spam detected.*Outcome: Delivered.*Selected handling: Junk/);
+    assert.match(summary(2),/Check incomplete.*Selected handling: Deliver/);assert.doesNotMatch(summary(2),/No threats|Outcome: Delivered/);
+    assert.match(summary(3),/Malware detected.*Outcome: Quarantined/);assert.match(summary(4),/Selected handling: Deliver/);assert.doesNotMatch(summary(4),/Outcome: Delivered/);
+    assert.match(summary(5),/Delivery failed.*Problem: <img/);assert.equal(rows[5].querySelector('img'),null);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
 test('history shows readable operations, website scope and counters with references closed by default',async()=>{
   const f=fixture({hash:'#history',change:values=>{values.context.view_scope='server';values.history=[
     auditEvent('scan.queued',{domain:'site.test',target:'',replaces:'b'.repeat(32)}),
@@ -930,6 +948,12 @@ test('History technical details occupy a separate full-width row and keep paging
     f.click('[data-review-pager=history] [aria-label="Select this page"]');assert.equal(body.querySelectorAll('input:checked').length,2);assert.equal(details.querySelector('input'),null);
     f.click('#cs-history-lists-refresh');await settle();assert.ok(request>=2);assert.equal(body.querySelector('[data-review-detail]'),null);
     const next=body.querySelector('.cs-history-details-toggle');assert.equal(next.getAttribute('aria-expanded'),'false');next.click();assert.equal(body.querySelector('[data-review-detail] td').colSpan,5);assert.deepEqual(f.errors,[]);
+  }finally{await f.close();}
+});
+
+test('initial History renders nonempty automatic actions independently of the Updates tab',async()=>{
+  const f=fixture({hash:'#history',change:v=>v.remediation_history=[{id:'action',owner:'alice',created:1,path:'inert.php',detail:{policy:{mode:'quarantine'},operation_id:'operation'},status:'quarantined',operation_status:'quarantined',plan_status:null,site_availability:{available:true}}]});
+  try{const row=f.document.querySelector('#cs-review-automatic-rows tr');assert.match(row.textContent,/Quarantine detected files/);assert.equal(row.closest('[data-page]').dataset.page,'history');assert.deepEqual(f.errors,[]);
   }finally{await f.close();}
 });
 

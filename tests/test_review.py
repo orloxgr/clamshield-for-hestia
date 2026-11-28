@@ -272,6 +272,41 @@ class ReviewTests(unittest.TestCase):
                 insert('mail_recipients',dict(id='recipient-'+key,transaction_id='transaction-'+key,owner=owner,identity=self.ids[owner],domain=owner+'.test',mailbox='inbox',recipient='inbox@'+owner+'.test',action='junk',status=status,created=1,updated=1,detail='{}'))
         return 'stored:recipient-'+key if stored else 'decision:decision-'+key
 
+    def test_history_excludes_internal_mail_steps_before_counts_filters_and_clear_preview(self):
+        from clamshield.history_view import MAIL_INTERNAL_EVENTS
+        for i in range(500):self.store.audit(self.alice,MAIL_INTERNAL_EVENTS[i%len(MAIL_INTERNAL_EVENTS)],'recipient',{})
+        self.store.audit(self.alice,'mail.decision','decision',dict(action='deliver',classification='clean'))
+        value=self.page('history',limit=25)
+        self.assertEqual(1,value['total']);self.assertIsNone(value['next_offset'])
+        self.assertEqual(['mail.decision'],value['options']['type']);self.assertEqual(1,len(self.store.history(self.alice)))
+        self.assertEqual(0,self.page('history',filters={'type':'mail.body_purged'})['total'])
+        proof=self.review.bulk(self.alice,'history','account','preview');self.assertEqual(1,proof['count'])
+        self.review.bulk(self.alice,'history','account','clear',proof['token']);self.assertEqual(0,self.page('history')['total'])
+        with self.store.connection() as db:self.assertEqual(501,db.execute('SELECT count(*) FROM audit').fetchone()[0])
+
+    def test_history_has_one_mail_check_summary_with_current_confirmed_delivery(self):
+        self.email(action='deliver',classification='clean')
+        self.store.audit(self.alice,'mail.decision','decision-one',dict(action='deliver',classification='clean'))
+        self.store.audit(self.alice,'mail.delivery_delivered','recipient-one',{})
+        value=self.page('history');self.assertEqual(1,value['total'])
+        outcome=value['records'][0]['mail_outcome'];self.assertEqual('delivered',outcome['status']);self.assertEqual('inbox@alice.test',outcome['recipient'])
+        self.assertEqual(outcome,self.store.history(self.alice)[0]['mail_outcome'])
+        with self.store.connection() as db:original=json.loads(db.execute("SELECT detail FROM audit WHERE action='mail.decision'").fetchone()[0])
+        self.assertEqual(dict(action='deliver',classification='clean'),original)
+
+    def test_history_outcome_never_borrows_another_account_or_generation_and_errors_remain_visible(self):
+        self.email();self.store.audit(self.bob,'mail.decision','decision-one',dict(action='deliver',classification='incomplete'))
+        self.store.audit(self.bob,'mail.delivery_native_failed','recipient',dict(error='Delivery failed'))
+        value=self.page('history',self.bob)
+        self.assertEqual(2,value['total']);self.assertTrue(all('mail_outcome' not in row for row in value['records']))
+        self.ids['alice']='recreated';fresh=self.hestia.authorize('alice');self.assertEqual(0,self.page('history',fresh)['total'])
+
+    def test_history_summary_uses_current_incomplete_outcome_instead_of_old_clean_decision(self):
+        self.email(stored=False,action='deliver',classification='incomplete')
+        self.store.audit(self.alice,'mail.decision','decision-one',dict(action='deliver',classification='clean'))
+        value=self.page('history')['records'][0]
+        self.assertEqual('incomplete',value['mail_outcome']['classification']);self.assertEqual('not_retained',value['mail_outcome']['status'])
+
     def test_email_merges_repeated_evaluations_with_stored_recipient_before_paging(self):
         expected=self.email()
         with self.store.connection() as db:

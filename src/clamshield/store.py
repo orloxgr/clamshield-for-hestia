@@ -585,7 +585,9 @@ class Store:
         condition='(r.owner=? AND r.identity=?)'
         if context.get('admin'):condition="("+condition+" OR (r.owner='@admin' AND r.identity=''))"
         with self.connection() as db:rows=db.execute('SELECT r.* FROM audit r WHERE '+condition+' AND '+visible('history')+' ORDER BY r.id DESC LIMIT 300',self.scope(context)).fetchall()
-        return [dict(row)|{'detail':json.loads(row['detail'])} for row in rows]
+        from .history_view import mail_outcomes
+        records=[dict(row)|{'detail':json.loads(row['detail'])} for row in rows]
+        with self.connection() as db:return mail_outcomes(records,db)
 
     def enqueue_task(self, context, action, payload):
         task_id = uuid.uuid4().hex

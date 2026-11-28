@@ -27,6 +27,9 @@ SPECS={
 def visible(kind,alias='r'):
     if kind not in SPECS and kind!='scans':return '1=1'
     deleted=f"NOT EXISTS(SELECT 1 FROM review_deleted d WHERE d.kind='{kind}' AND d.record_id=CAST({alias}.id AS TEXT) AND d.owner={alias}.owner AND d.identity={alias}.identity)"
+    if kind=='history':
+        from .history_view import meaningful
+        deleted+=' AND '+meaningful(alias)
     if kind not in ('history','notices'):return deleted
     ident='CAST(c.before_id AS INTEGER)' if kind=='history' else 'c.before_id'
     return deleted+' AND '+f"NOT EXISTS(SELECT 1 FROM review_clears c WHERE c.kind='{kind}' AND c.owner={alias}.owner AND c.identity={alias}.identity AND ({alias}.created<c.before_created OR ({alias}.created=c.before_created AND {alias}.id<={ident})))"
@@ -117,6 +120,9 @@ class Review:
                 account=dict(live,owner=value['owner'],identity=value['identity'])
                 value['site_availability']=WebsiteAvailability(account,sites.get(value['owner'],[])).describe(value,root=value.get('metadata',{}).get('root') if kind=='quarantine' else None)
             records.append(value)
+        if kind=='history':
+            from .history_view import mail_outcomes
+            with self.store.connection() as db:mail_outcomes(records,db)
         view=dict(context=dict(live,view_scope=scope),jobs=[],sites=[],**{key:[] for key in ('findings','repairs','exceptions','quarantine','history','notifications','remediation_history','maintenance')})
         view[{'notices':'notifications','automatic':'remediation_history','activity':'maintenance'}.get(kind,kind)]=records
         if kind=='history':

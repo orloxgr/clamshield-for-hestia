@@ -26,6 +26,7 @@ $cs_history_actions=[
     'mail.release_queued'=>'Email release queued','mail.deleted'=>'Quarantined email deleted',
     'mail.native_fallback'=>'Native delivery fallback recorded',
     'mail.body_purged'=>'ClamShield email copy removed',
+    'mail.decision'=>'Email check result',
     'history.retention_saved'=>'History retention saved','history.retention_reset'=>'History retention reset',
     'history.server_saved'=>'Server history retention saved','history.server_reset'=>'Server history retention reset',
     'history.permission_saved'=>'History permissions saved','history.pruned'=>'Account history cleaned up',
@@ -48,6 +49,24 @@ $cs_history_jobs=[];
 foreach($data['jobs'] as $job)$cs_history_jobs[($job['owner']??$data['context']['owner'])."\0".($job['identity']??'')."\0".$job['id']]=$job;
 $cs_history_summary=static function(array $event) use ($cs_history_jobs,$cs_history_action,$cs_history_labels,$cs_history_words,$cs_history_technical_key,$cs_history_clean,$cs_history_value): array {
     $detail=$event['detail'];$lines=[];$action=$event['action'];
+    if($action==='mail.decision'){
+        $outcome=$event['mail_outcome']??[];$result=$outcome['classification']??$detail['classification']??'';
+        $lines[]='Result: '.(['clean'=>'No threats detected','spam'=>'Spam detected','spam_high'=>'High-scoring spam detected',
+            'malware'=>'Malware detected','phishing'=>'Phishing detected','incomplete'=>'Check incomplete'][$result]??$cs_history_words($result?:'not recorded'));
+        if(!empty($outcome['recipient']))$lines[]='Recipient: '.$outcome['recipient'];
+        $status=$outcome['status']??'';
+        if(in_array($status,['delivered','quarantined','deleted','native_failed','delivery_uncertain','source_unconfirmed','check_unavailable','rejected','deferred'],true)){
+            $lines[]='Outcome: '.(['delivered'=>'Delivered','quarantined'=>'Quarantined','deleted'=>'Deleted from quarantine',
+                'native_failed'=>'Delivery failed','delivery_uncertain'=>'Delivery unconfirmed','source_unconfirmed'=>'Acceptance unconfirmed',
+                'check_unavailable'=>'Native delivery continued; ClamShield check incomplete','rejected'=>'Rejected','deferred'=>'Deferred'][$status]);
+        }else{
+            $handling=$outcome['action']??$detail['action']??'';
+            $lines[]='Selected handling: '.(['deliver'=>'Deliver','tag'=>'Tag and deliver','junk'=>'Junk','quarantine'=>'Quarantine','reject'=>'Reject','defer'=>'Defer','native-fallback'=>'Native delivery'][$handling]??$cs_history_words($handling?:'not recorded'));
+        }
+        if($status==='delivered'&&($outcome['action']??'')==='junk')$lines[]='Selected handling: Junk';
+        if(!empty($outcome['error']))$lines[]='Problem: '.$outcome['error'];
+        return $lines;
+    }
     if($action==='mail.body_purged')return [
         ['source'=>"ClamShield's stored original message was removed after all recipients finished.",
          'delivery'=>"ClamShield's stored delivery copy was removed after confirmed delivery."][$detail['kind']??'']??'A stored ClamShield email copy was removed.',

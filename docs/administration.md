@@ -884,3 +884,13 @@ Ubuntu `TVD_SPACE_RATIO` rule has a labeled ClamShield explanation of its text
 spacing check. This does not change its verdict or score. Older empty descriptions
 say "Description not recorded for this decision" rather than acquiring a new
 explanation after the fact.
+
+
+Review / History presents mail check results with recorded classification,
+selected handling, and confirmed delivery/quarantine status when available.
+Internal capture, reinjection, native-queue and private-copy cleanup steps are
+excluded before pagination and filter counts, including existing records.
+Their original audit evidence remains stored for recovery. A successful check
+means no threats detected; it does not claim that a message was disinfected.
+Unconfirmed delivery stays unconfirmed, and failed/incomplete checks remain
+visible. Review / Email retains the recipient-level mail review and actions.
