@@ -894,3 +894,17 @@ Their original audit evidence remains stored for recovery. A successful check
 means no threats detected; it does not claim that a message was disinfected.
 Unconfirmed delivery stays unconfirmed, and failed/incomplete checks remain
 visible. Review / Email retains the recipient-level mail review and actions.
+
+Locally submitted messages selected for unchanged delivery stay in the original
+Exim transaction after scanning and policy evaluation. They are not captured and
+submitted a second time solely to record a successful check. This avoids Exim's
+non-SMTP blackhole exit status being interpreted by a local sender or the bounce
+generator as a failed submission. SMTP custody and explicit tag, Junk and
+quarantine policies remain in effect. Existing frozen messages are not thawed,
+resent or removed by an update; their routing and original failure need review.
+
+The mail broker records a failed native hook observation as disconnected instead
+of exiting on a probe timeout or execution error. Its runtime status retains
+bounded exception types, phases and source locations for maintenance failures;
+fatal service errors also write these diagnostics to the service journal.
+Message content and exception text are excluded from those diagnostics.

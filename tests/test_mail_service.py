@@ -3,6 +3,7 @@ from dataclasses import replace
 import json
 import os
 import socket
+import subprocess
 import sys
 from threading import Thread
 import unittest
@@ -10,9 +11,35 @@ from unittest.mock import Mock, patch
 
 import test_mail_custody as fixtures
 import test_mail_bridge as bridge
-from clamshield.mail_service import MailBroker
+from clamshield.mail_service import MailBroker,hook_status,service_error
 from clamshield.mail_scanners import digest_snapshot
 from clamshield.errors import EngineError
+
+
+class MailServiceHealthTests(unittest.TestCase):
+    def test_hook_timeout_does_not_crash_or_cache_a_false_healthy_result(self):
+        timeout=subprocess.TimeoutExpired(['/usr/sbin/exim4','-bP','local_scan_path'],3,output='private message')
+        success=subprocess.CompletedProcess([],0,'local_scan_path = /opt/clamshield-mail/local_scan.so\n','')
+        with patch('clamshield.mail_service.subprocess.run',side_effect=[timeout,success]) as run:
+            failed=hook_status();recovered=hook_status()
+        self.assertFalse(failed['connected']);self.assertEqual('TimeoutExpired',failed['hook_error']['type'])
+        self.assertEqual(3,failed['hook_error']['timeout_seconds']);self.assertNotIn('private message',str(failed))
+        self.assertEqual({'connected':True},recovered);self.assertEqual(2,run.call_count)
+
+    def test_hook_errors_are_false_and_do_not_expose_native_stderr(self):
+        for outcome in (PermissionError(13,'private path'),subprocess.CompletedProcess([],1,'','private message'),
+                        subprocess.CompletedProcess([],0,'local_scan_path = /foreign/library','')):
+            with self.subTest(outcome=type(outcome).__name__),patch('clamshield.mail_service.subprocess.run') as run:
+                if isinstance(outcome,Exception):run.side_effect=outcome
+                else:run.return_value=outcome
+                result=hook_status()
+                self.assertFalse(result['connected']);self.assertIn('hook_error',result)
+                self.assertNotIn('private',str(result));self.assertNotIn('/foreign',str(result))
+
+    def test_maintenance_diagnostic_keeps_phase_and_type_without_message_content(self):
+        try:raise OSError(28,'sensitive message recipient and file')
+        except OSError as exc:result=service_error(exc,'delivery-maintenance')
+        self.assertEqual({'phase':'delivery-maintenance','type':'OSError','errno':28},result)
 
 
 class MailBrokerTests(unittest.TestCase):
@@ -50,7 +77,8 @@ class MailBrokerTests(unittest.TestCase):
         if native_mime is not None:native_fields['native_mime_blocked']=native_mime
         if tags_supported:native_fields['fallback_tags_supported']=True
         packet=bridge.envelope(message_id=self.request.message_id,sender=self.request.sender,
-                               recipients=list(self.request.recipients),protocol=protocol,**native_fields)
+                               recipients=list(self.request.recipients),protocol=protocol,flags=self.request.flags,
+                               remote_ip=self.request.remote_ip,authenticated_id=self.request.authenticated_id,**native_fields)
         result=[]
         def handle():
             with server:result.append(broker.handle(server,expected_uid=os.getuid(),expected_binary=sys.executable))
@@ -67,6 +95,38 @@ class MailBrokerTests(unittest.TestCase):
     def test_unmanaged_messages_remain_native_without_engine_or_custody_work(self):
         self.assertEqual((0,'unmanaged'),self.exchange());self.assertEqual(0,self.scans)
         with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+
+    def test_clean_local_bounce_is_scanned_but_not_blackholed_or_reinjected(self):
+        self.enable();self.request=replace(self.request,flags=0,sender='',remote_ip='')
+        self.assertEqual((0,'unmanaged'),self.exchange(protocol='local'))
+        self.assertEqual(1,self.scans)
+        for context in (self.alice,self.bob):
+            rows=self.policies.decisions(context)['decisions']
+            self.assertEqual(('clean','deliver'),(rows[0]['classification'],rows[0]['action']))
+            self.assertTrue(rows[0]['detail']['scan_complete'])
+        with self.store.connection() as db:self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions').fetchone()[0])
+
+    def test_local_message_still_uses_selected_quarantine_or_tag(self):
+        self.enable();self.request=replace(self.request,flags=0,sender='',remote_ip='')
+        self.report['detections']=[dict(engine='clamav',signature='Inert.Test',category='malware')]
+        self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.assertEqual((3,'custody'),self.exchange(protocol='local'))
+        self.assertEqual('tag',self.custody.list(self.alice)['messages'][0]['action'])
+        self.assertEqual('quarantine',self.custody.list(self.bob)['messages'][0]['action'])
+
+    def test_incomplete_local_check_remains_fallback_and_never_clean(self):
+        self.enable();self.request=replace(self.request,flags=0,sender='',remote_ip='')
+        self.report.update(complete=False,errors=['scanner unavailable'])
+        self.assertEqual((5,'native-fallback'),self.exchange(protocol='local'))
+        for context in (self.alice,self.bob):
+            rows=self.policies.decisions(context)['decisions']
+            self.assertEqual('incomplete',rows[0]['classification'])
+
+    def test_smtp_and_batched_smtp_keep_durable_clean_custody(self):
+        self.enable()
+        for flags in (1,3):
+            self.request=replace(self.request_for(),flags=flags)
+            self.assertEqual((3,'custody'),self.exchange())
 
     def test_native_mime_policy_rejects_unmanaged_but_does_not_invent_malware_for_managed(self):
         self.assertEqual((1,'reject'),self.exchange(native_mime='1'));self.assertEqual(0,self.scans)

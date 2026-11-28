@@ -25,7 +25,7 @@ def envelope(**overrides):
     if dnsbl:fields.extend([data.get('native_dnsbl_zone',''),data.get('native_dnsbl_value','')])
     if mime:fields.append(data.get('native_mime_blocked',''))
     fields.extend(data['recipients'])
-    result = (b'CSMAIL05' if tagged else b'CSMAIL04' if mime else b'CSMAIL03' if dnsbl else b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
+    result = (b'CSMAIL05' if tagged else b'CSMAIL04' if mime else b'CSMAIL03' if dnsbl else b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), data.get('flags',1))
     for field in fields:
         value = field.encode()
         result += struct.pack('!I', len(value)) + value

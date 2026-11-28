@@ -31,7 +31,10 @@ def main(argv=None):
     except ClamShieldError as exc:
         print(json.dumps({'ok': False, 'error': str(exc)}))
         return 1
-    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError):
+    except (OSError, ValueError, TypeError, KeyError, subprocess.SubprocessError) as exc:
+        if args.command=='mail-service':
+            from .mail_service import service_error
+            print(json.dumps({'mail_service_error':service_error(exc,'service')}),file=sys.stderr)
         print(json.dumps({'ok': False, 'error': 'Operation failed; inspect ClamShield service logs'}))
         return 1
 

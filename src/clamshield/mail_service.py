@@ -35,6 +35,32 @@ CONFIG=Path('/etc/clamshield/mail.json')
 LIBRARY=Path('/opt/clamshield-mail/local_scan.so')
 
 
+def service_error(exc,phase):
+    """Retain actionable locations without logging message data or exception text."""
+    result={'phase':phase,'type':type(exc).__name__}
+    if isinstance(exc,OSError) and exc.errno is not None:result['errno']=exc.errno
+    if isinstance(exc,subprocess.TimeoutExpired):result['timeout_seconds']=exc.timeout
+    trace=exc.__traceback__
+    while trace:
+        frame=trace.tb_frame
+        if frame.f_globals.get('__name__','').startswith('clamshield.'):
+            result['location']=frame.f_code.co_name+':'+str(trace.tb_lineno)
+        trace=trace.tb_next
+    return result
+
+
+def hook_status():
+    """A failed observation must not terminate the native mail broker."""
+    try:
+        result=subprocess.run(['/usr/sbin/exim4','-bP','local_scan_path'],capture_output=True,text=True,timeout=3)
+    except (OSError,subprocess.SubprocessError) as exc:
+        return {'connected':False,'hook_error':service_error(exc,'hook-check')}
+    if result.returncode:
+        return {'connected':False,'hook_error':{'phase':'hook-check','type':'ExitStatus','exit_code':result.returncode}}
+    connected=result.stdout.strip()=='local_scan_path = '+str(LIBRARY)
+    return {'connected':connected,**({} if connected else {'hook_error':{'phase':'hook-check','type':'BindingMismatch'}})}
+
+
 def configuration():
     value={'_managed':'Managed by clamshield','workers':2,'timeout':25,'yara_enabled':True}
     if CONFIG.exists() or CONFIG.is_symlink():
@@ -158,7 +184,13 @@ class MailBroker:
                     elif not native_av[index] and decision['action']!='reject' and decision.get('native_dnsbl') is None:
                         decision.update(action='deliver',classification='unmanaged',scan_complete=True)
                 elif decision['action']!='reject':decision.update(action='deliver',classification='incomplete',scan_complete=False)
-            if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete']:decision['capture']=True
+            # Exim reports an accepted blackhole as exit1 for non-SMTP input.
+            # Taking custody of an unchanged local message therefore makes its
+            # caller (including Exim's bounce generator) report failure. Keep
+            # such delivery native after the same scan/policy/identity checks.
+            # SMTP/BSMTP custody and explicit quarantine/junk/tag stay unchanged.
+            if policy['enabled'] and decision['action']=='deliver' and decision['scan_complete'] and request.flags&1:
+                decision['capture']=True
             decision.update(smtp_outcome='pending',policy_action=decision['action'],policy_classification=decision['classification'])
             items.append({'context':context,'target':target,'decision':decision,'managed':policy['enabled']})
         decisions=transaction_decisions([item['decision'] for item in items])
@@ -287,7 +319,7 @@ def serve(settings=None):
     listener=socket.socket(socket.AF_UNIX,socket.SOCK_SEQPACKET);listener.bind(str(SOCKET))
     os.chown(SOCKET,0,account.pw_gid);SOCKET.chmod(0o660);listener.listen(16);listener.settimeout(.5)
     stop=threading.Event();slots=threading.BoundedSemaphore(config['workers']);reinjections=threading.BoundedSemaphore(1)
-    counts={};count_lock=threading.Lock();maintenance_ok=[0]
+    counts={};count_lock=threading.Lock();maintenance_ok=[0];maintenance_error=[None]
     def count(name):
         with count_lock:counts[name]=counts.get(name,0)+1
     def shutdown(_signal,_frame):stop.set()
@@ -304,12 +336,16 @@ def serve(settings=None):
     def pump():
         acceptance=MailAcceptance(settings,store,Hestia(settings.hestia));delivery=MailDelivery(settings,store,Hestia(settings.hestia))
         while not stop.is_set():
+            phase='acceptance-recovery'
             try:
                 from .mail_runtime import may_deliver
                 acceptance.recover()
+                phase='delivery-maintenance'
                 delivery.once() if may_deliver(settings) else delivery.recover()
                 maintenance_ok[0]=time.monotonic()
-            except Exception:count('maintenance_errors')
+            except Exception as exc:
+                count('maintenance_errors')
+                with count_lock:maintenance_error[0]=dict(service_error(exc,phase),observed=time.time())
             stop.wait(.5)
     from .mail_readiness import serve as serve_readiness
     readiness=serve_readiness(stop,scanner_factory(settings,config))
@@ -318,10 +354,10 @@ def serve(settings=None):
         with ThreadPoolExecutor(max_workers=config['workers']+1) as executor:
             while not stop.is_set():
                 if time.monotonic()-last_heartbeat>=1:
-                    result=subprocess.run(['/usr/sbin/exim4','-bP','local_scan_path'],capture_output=True,text=True,timeout=3)
-                    connected=result.returncode==0 and result.stdout.strip()=='local_scan_path = '+str(LIBRARY)
-                    with count_lock:current_counts=dict(counts)
-                    write_json(RUNTIME/'status.json',{'owner':'clamshield','heartbeat':time.time(),'connected':connected,'counts':current_counts},0o644)
+                    hook=hook_status()
+                    with count_lock:current_counts=dict(counts);last_error=maintenance_error[0]
+                    write_json(RUNTIME/'status.json',{'owner':'clamshield','heartbeat':time.time(),**hook,
+                               'counts':current_counts,'maintenance_error':last_error},0o644)
                     last_heartbeat=time.monotonic()
                 try:connection,_=listener.accept()
                 except socket.timeout:continue
