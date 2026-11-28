@@ -29,6 +29,10 @@ class Decision(IntEnum):
     HANDLED = 3  # Only after durable ownership of every envelope recipient.
     SELECTED = 4  # Durable custody of selected envelope recipients; others stay native.
     NATIVE_FALLBACK = 5  # Incomplete check; preserve Exim's original recipients.
+    TAGGED_FALLBACK = 6  # Original native delivery, with per-recipient subject marks.
+
+
+FALLBACK_TAGS = {'malware': 1, 'phishing': 2, 'spam': 3, 'blocked-sender': 4}
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,7 @@ class MailRequest:
     native_dnsbl_zone: str = ''
     native_dnsbl_value: str = ''
     native_mime_blocked: bool = False
+    fallback_tags_supported: bool = False
 
     def close(self):
         os.close(self.fd)
@@ -72,7 +77,7 @@ def process_start(pid):
 
 
 def _parse(data, fd):
-    if len(data) < 16 or data[:8] not in (b'CSMAIL01', b'CSMAIL02', b'CSMAIL03',b'CSMAIL04'):
+    if len(data) < 16 or data[:8] not in (b'CSMAIL01', b'CSMAIL02', b'CSMAIL03',b'CSMAIL04',b'CSMAIL05'):
         raise ClamShieldError('Invalid mail bridge protocol')
     count, flags = struct.unpack('!II', data[8:16])
     if not 1 <= count <= 1000 or flags & ~3:
@@ -99,14 +104,14 @@ def _parse(data, fd):
     message_id, sender, remote_ip, authenticated_id, protocol = (
         field(limit) for limit in (128, 1024, 128, 1024, 64))
     native_spam_score = None
-    if data[:8] in (b'CSMAIL02',b'CSMAIL03',b'CSMAIL04'):
+    if data[:8] in (b'CSMAIL02',b'CSMAIL03',b'CSMAIL04',b'CSMAIL05'):
         raw_score = field(32)
         if raw_score:
             if not re.fullmatch(r'-?[0-9]{1,9}',raw_score):
                 raise ClamShieldError('Invalid native SpamAssassin score')
             native_spam_score = int(raw_score) / 10
-    native_dnsbl_zone,native_dnsbl_value=(field(256),field(2048)) if data[:8] in (b'CSMAIL03',b'CSMAIL04') else ('','')
-    native_mime=field(1) if data[:8]==b'CSMAIL04' else ''
+    native_dnsbl_zone,native_dnsbl_value=(field(256),field(2048)) if data[:8] in (b'CSMAIL03',b'CSMAIL04',b'CSMAIL05') else ('','')
+    native_mime=field(1) if data[:8] in (b'CSMAIL04',b'CSMAIL05') else ''
     if native_mime not in ('','0','1'):raise ClamShieldError('Invalid native MIME policy observation')
     recipients = tuple(field(1024) for _ in range(count))
     if at != len(data) or not re.fullmatch(r'[A-Za-z0-9-]{1,128}', message_id):
@@ -120,7 +125,8 @@ def _parse(data, fd):
             raise ClamShieldError('Invalid mail bridge peer address') from exc
     return MailRequest(message_id, sender, remote_ip, authenticated_id, protocol,
                        recipients, flags, fd, native_spam_score=native_spam_score,
-                       native_dnsbl_zone=native_dnsbl_zone,native_dnsbl_value=native_dnsbl_value,native_mime_blocked=native_mime=='1')
+                       native_dnsbl_zone=native_dnsbl_zone,native_dnsbl_value=native_dnsbl_value,native_mime_blocked=native_mime=='1',
+                       fallback_tags_supported=data[:8]==b'CSMAIL05')
 
 
 def receive(connection, *, expected_uid, expected_binary, timeout=30):
@@ -174,11 +180,18 @@ def receive(connection, *, expected_uid, expected_binary, timeout=30):
             os.close(fd)
 
 
-def respond(connection, decision, event_id, selected=None):
+def respond(connection, decision, event_id, selected=None, *, tags=None):
     if not isinstance(decision, Decision) or not re.fullmatch(r'[0-9a-f]{32}', event_id):
         raise ClamShieldError('Invalid mail bridge decision')
     packet = b'CSMRSP01' + struct.pack('!I', decision.value) + event_id.encode('ascii')
-    if decision == Decision.SELECTED:
+    if decision == Decision.TAGGED_FALLBACK:
+        if (selected is not None or not isinstance(tags, (list, tuple)) or not 1 <= len(tags) <= 1000 or
+                any(type(value) is not int or not 0 <= value <= 4 for value in tags) or not any(tags)):
+            raise ClamShieldError('Tagged native fallback requires bounded per-recipient classes')
+        packet += struct.pack('!I', len(tags)) + bytes(tags)
+    elif tags is not None:
+        raise ClamShieldError('Subject marks are only valid for tagged native fallback')
+    elif decision == Decision.SELECTED:
         if (not isinstance(selected, (list, tuple)) or not 1 <= len(selected) <= 1000 or
                 any(type(value) is not bool for value in selected) or not any(selected) or all(selected)):
             raise ClamShieldError('Selected mail custody requires a proper recipient subset')

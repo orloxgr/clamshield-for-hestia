@@ -43,11 +43,12 @@ class MailBrokerTests(unittest.TestCase):
         self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='quarantine'))
         self.policies.save(self.native.authorize('admin','bob'),'bob.test','',dict(enabled=True,malware_action='reject'))
 
-    def exchange(self,broker=None,protocol='esmtp',native_score=None,native_dnsbl=None,native_mime=None):
+    def exchange(self,broker=None,protocol='esmtp',native_score=None,native_dnsbl=None,native_mime=None,tags_supported=False):
         broker=broker or self.broker();client,server=socket.socketpair(socket.AF_UNIX,socket.SOCK_SEQPACKET)
         native_fields={} if native_score is None else dict(native_spam_score=native_score)
         if native_dnsbl is not None:native_fields.update(native_dnsbl_zone=native_dnsbl[0],native_dnsbl_value=native_dnsbl[1])
         if native_mime is not None:native_fields['native_mime_blocked']=native_mime
+        if tags_supported:native_fields['fallback_tags_supported']=True
         packet=bridge.envelope(message_id=self.request.message_id,sender=self.request.sender,
                                recipients=list(self.request.recipients),protocol=protocol,**native_fields)
         result=[]
@@ -60,6 +61,7 @@ class MailBrokerTests(unittest.TestCase):
         finally:client.close();thread.join(timeout=5)
         self.assertFalse(thread.is_alive())
         self.assertEqual(b'CSMRSP01',response[:8])
+        self.last_response=response
         return int.from_bytes(response[8:12],'big'),result[0]
 
     def test_unmanaged_messages_remain_native_without_engine_or_custody_work(self):
@@ -309,3 +311,39 @@ class MailBrokerTests(unittest.TestCase):
                 self.assertEqual('OSError:'+phase,broker.last_error)
         with self.store.connection() as db:
             self.assertEqual(0,db.execute('SELECT count(*) FROM mail_transactions WHERE status=\'committed\'').fetchone()[0])
+
+    def test_native_fallback_keeps_verified_subject_marks_scoped_to_each_selected_policy(self):
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.report.update(complete=False,detections=[dict(engine='clamav',signature='Known.Malware',category='malware')])
+        for phase,attribute in [('record','policies.record'),('stage','custody.stage'),('arm','acceptance.arm')]:
+            with self.subTest(phase=phase):
+                self.request=replace(self.request_for(),message_id='tag-fallback-'+phase)
+                broker=self.broker();target,name=attribute.split('.')
+                with patch.object(getattr(broker,target),name,side_effect=OSError('Storage unavailable')):
+                    self.assertEqual((6,'error'),self.exchange(broker,tags_supported=True))
+                self.assertEqual((2).to_bytes(4,'big')+bytes([1,0]),self.last_response[44:])
+                for context in (self.alice,self.bob):
+                    rows=self.policies.decisions(context)['decisions']
+                    own=[r for r in rows if r['exim_id']==self.request.message_id]
+                    if phase=='record':self.assertEqual([],own);continue
+                    self.assertEqual(1,len(own));detail=own[0]['detail']
+                    self.assertFalse(detail['scan_complete']);self.assertEqual('deliver',detail['action'])
+                    self.assertEqual('malware' if context==self.alice else None,detail.get('native_fallback_tag_requested'))
+
+    def test_fallback_does_not_guess_marks_for_older_adapter_or_unknown_verdict(self):
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        for capability,hits in ((False,[dict(engine='clamav',signature='Known.Malware',category='malware')]),(True,[])):
+            self.request=self.request_for();self.report['detections']=hits;broker=self.broker()
+            with patch.object(broker.custody,'stage',side_effect=OSError('Storage unavailable')):
+                self.assertEqual((5,'error'),self.exchange(broker,tags_supported=capability))
+            self.assertEqual(44,len(self.last_response))
+
+    def test_fallback_does_not_reuse_a_recreated_owners_subject_mark(self):
+        self.enable();self.policies.save(self.native.authorize('admin','alice'),'alice.test','',dict(enabled=True,malware_action='tag'))
+        self.report['detections']=[dict(engine='clamav',signature='Known.Malware',category='malware')]
+        broker=self.broker()
+        def failed_capture(*_args):
+            self.ids['alice']='replacement-owner';raise OSError('Storage unavailable')
+        with patch.object(broker.custody,'stage',side_effect=failed_capture):
+            self.assertEqual((5,'error'),self.exchange(broker,tags_supported=True))
+        self.assertEqual(44,len(self.last_response))

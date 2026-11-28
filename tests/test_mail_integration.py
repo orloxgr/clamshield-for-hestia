@@ -12,7 +12,7 @@ from clamshield.application import Application
 from clamshield.atomic import write,write_json
 from clamshield.errors import AccessDenied,Conflict,EngineError
 from clamshield.mail_adapter import MailAdapter,sha
-from clamshield.mail_integration import MailIntegration,UNITS
+from clamshield.mail_integration import MailIntegration,UNITS,native_fallback_queue_empty
 from clamshield.mail_runtime import state,mode
 from clamshield.settings import Settings
 from clamshield.store import Store
@@ -66,6 +66,51 @@ class Controller(MailIntegration):
 
     def drain(self,**kwargs):
         if self.bad_drain:raise Conflict('Live handoff could not drain')
+
+    def ensure_fallback_drained(self):pass
+
+
+class NativeFallbackQueueTests(unittest.TestCase):
+    MESSAGE='1xA2b3-00000012345-AbCd'
+
+    @staticmethod
+    def reply(value=b'',code=0):return subprocess.CompletedProcess([],code,value,b'private native error')
+
+    def test_empty_queue_uses_one_read_only_native_command(self):
+        with patch('clamshield.mail_integration.bounded',return_value=self.reply()) as run:
+            native_fallback_queue_empty()
+        self.assertEqual(['/usr/sbin/exim4','-bpri'],run.call_args.args[0])
+
+    def test_native_parser_checks_saved_acl_not_sender_headers_or_database(self):
+        with patch('clamshield.mail_integration.bounded',side_effect=[self.reply((self.MESSAGE+'\n').encode()),self.reply(b'0\n')]) as run:
+            native_fallback_queue_empty()
+        args=run.call_args.args[0]
+        self.assertEqual(['/usr/sbin/exim4','-Mset',self.MESSAGE,'-be'],args[:4])
+        self.assertIn('acl_m_clamshield_fallback_ready',args[4]);self.assertNotIn('header',args[4])
+
+    def test_tagged_queue_retains_integration_without_exposing_native_id(self):
+        with patch('clamshield.mail_integration.bounded',side_effect=[self.reply((self.MESSAGE+'\n').encode()),self.reply(b'1\n')]):
+            with self.assertRaisesRegex(Conflict,'pending subject tag') as error:native_fallback_queue_empty()
+        self.assertNotIn(self.MESSAGE,str(error.exception))
+
+    def test_unreadable_or_malformed_queue_fails_closed_for_removal(self):
+        for replies in ([self.reply(b'',1)],[self.reply(b'injected -Mrm\n')],[self.reply(b'\xff')],
+                        [self.reply((self.MESSAGE+'\n').encode()),self.reply(b'unexpected') ,self.reply((self.MESSAGE+'\n').encode())],
+                        [self.reply((self.MESSAGE+'\n').encode()),self.reply(b'',1),self.reply(b'',1)]):
+            with self.subTest(replies=replies),patch('clamshield.mail_integration.bounded',side_effect=replies):
+                with self.assertRaisesRegex(Conflict,'could not be verified'):native_fallback_queue_empty()
+
+    def test_completion_during_inspection_requires_confirmed_absence(self):
+        with patch('clamshield.mail_integration.bounded',side_effect=[self.reply((self.MESSAGE+'\n').encode()),self.reply(b'',1),self.reply()]) as run:
+            native_fallback_queue_empty()
+        self.assertEqual(3,run.call_count)
+
+    def test_queue_count_and_overall_time_are_bounded(self):
+        with patch('clamshield.mail_integration.bounded',return_value=self.reply((self.MESSAGE+'\n').encode()*1001)):
+            with self.assertRaises(Conflict):native_fallback_queue_empty()
+        with patch('clamshield.mail_integration.time.monotonic',side_effect=[0,16]),patch('clamshield.mail_integration.bounded') as run:
+            with self.assertRaises(Conflict):native_fallback_queue_empty()
+        run.assert_not_called()
 
 
 class IntegrationTests(unittest.TestCase):
@@ -148,10 +193,28 @@ class IntegrationTests(unittest.TestCase):
         self.controller.enable();calls=[]
         def stop():
             self.assertTrue(self.guard.exists(),'systemd must still know the owned RuntimeDirectory')
-            self.assertFalse(self.macro.exists());calls.append('stop')
+            self.assertTrue(self.macro.exists(),'native routing state must remain until all service children stop');calls.append('stop')
         self.controller.stop_native=stop
         self.controller.disable();self.assertEqual(['stop'],calls)
         self.assertFalse(self.guard.exists())
+
+    def test_queued_native_subject_tag_blocks_disable_before_commit_or_service_changes(self):
+        self.controller.enable();before=self.controller.restarts
+        with patch.object(self.controller,'ensure_fallback_drained',side_effect=Conflict('pending subject tag')):
+            with self.assertRaisesRegex(Conflict,'pending subject tag'):self.controller.disable()
+        self.assertEqual(before,self.controller.restarts)
+        self.assertEqual('active',state(self.settings)['phase']);self.assertFalse(self.controller.journal.exists())
+        self.assertTrue(self.macro.exists());self.assertTrue(self.default.exists());self.assertTrue(self.guard.exists())
+
+    def test_late_queued_native_tag_retains_router_and_restarts_native_before_explicit_recovery(self):
+        self.controller.enable();before=self.controller.restarts
+        with patch.object(self.controller,'ensure_fallback_drained',side_effect=[None,None,Conflict('late native acceptance')]),patch.object(self.controller,'stop_native') as stop:
+            with self.assertRaisesRegex(Conflict,'late native acceptance'):self.controller.disable()
+        stop.assert_called_once();self.assertEqual(before+1,self.controller.restarts)
+        self.assertTrue(self.controller.transaction()['committed'])
+        self.assertTrue(self.macro.exists());self.assertTrue(self.default.exists());self.assertTrue(self.guard.exists())
+        self.assertEqual({'recovered':True,'completed':'disable'},self.controller.recover())
+        self.assertFalse(self.macro.exists());self.assertFalse(self.controller.journal.exists())
 
     def test_native_dnsbl_restoration_precedes_hook_detachment(self):
         self.controller.enable();calls=[];original=self.controller.phase

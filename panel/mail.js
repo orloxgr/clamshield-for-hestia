@@ -40,6 +40,7 @@
       const actions={deliver:'Deliver',tag:'Tag and deliver',junk:'Junk',quarantine:'Quarantine',reject:'SMTP rejection',defer:'Temporary failure'};
       output.textContent='Action: '+(actions[decision.action]||decision.action)+'\nClassification: '+decision.classification+'\n'+
         (detail.scan_complete===false?'Check incomplete. This message was not classified as clean.\n':'')+
+        (detail.native_fallback_tag_requested?'Native fallback subject tag requested: '+String(detail.native_fallback_tag_requested).replaceAll('-',' ').toUpperCase()+'\n':'')+
         (detail.transport_note?detail.transport_note+'\n':'')+spamAssassinLabel(detail)+
         (detail.spam_score!=null?'Final policy score: '+detail.spam_score+'\n':'')+
         (!detail.policy_thresholds?'Policy thresholds: not recorded for this decision\n':'')+

@@ -166,7 +166,7 @@ class MailBroker:
         return {'items':items,'sha256':sha256,'plan':transaction_plan(decisions)}
 
     def handle(self,connection,*,expected_uid,expected_binary='/usr/sbin/exim4',request=None):
-        replied=False;event=uuid.uuid4().hex;phase='receive';self.last_error=None
+        replied=False;event=uuid.uuid4().hex;phase='receive';self.last_error=None;items=None
         try:
             if request is None:request=receive(connection,expected_uid=expected_uid,expected_binary=expected_binary,timeout=3)
             self.hestia.deadline=time.monotonic()+25
@@ -201,10 +201,36 @@ class MailBroker:
             self.last_error=type(exc).__name__+':'+phase
             if not replied:
                 denied=isinstance(exc,AccessDenied) and phase in ('receive','reinjection')
+                tags=None;tag_names={}
+                if (not denied and isinstance(exc,(OSError,sqlite3.Error)) and request is not None and
+                        request.fallback_tags_supported and items is not None):
+                    from .mail_bridge import FALLBACK_TAGS
+                    # These decisions came from the sealed snapshot/current policies,
+                    # never browser fields or sender-supplied status headers.
+                    try:
+                        tags=[];owners={}
+                        if len(items)!=len(request.recipients):raise ClamShieldError('Changed native envelope')
+                        for item in items:
+                            decision=item['decision'];code=0
+                            if decision['action']=='tag':
+                                context=item['context'];owner=context['owner']
+                                if owner not in owners:owners[owner]=self.hestia.authorize(owner)['identity']
+                                if owners[owner]!=context['identity']:raise AccessDenied('Mail owner was replaced')
+                                category=next((kind for kind in ('malware','phishing','spam') if
+                                    any(hit.get('category')==kind for hit in decision.get('detections',[]))),decision.get('classification'))
+                                code=FALLBACK_TAGS.get(category,0)
+                            tags.append(code)
+                        if not any(tags):tags=None
+                        else:tag_names={request.recipients[i].lower():name for i,code in enumerate(tags)
+                                        for name,value in FALLBACK_TAGS.items() if code==value}
+                    except (ClamShieldError,OSError,ValueError,KeyError,TypeError):tags=None;tag_names={}
                 if request is not None:
-                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted',native_fallback=not denied)
+                    try:self.policies.outcome(request.message_id,'defer' if denied else 'accepted',native_fallback=not denied,
+                                             **({'fallback_tags':tag_names} if tags is not None else {}))
                     except Exception:pass
-                try:respond(connection,Decision.DEFER if denied else Decision.NATIVE_FALLBACK,event)
+                try:
+                    if tags is not None:respond(connection,Decision.TAGGED_FALLBACK,event,tags=tags)
+                    else:respond(connection,Decision.DEFER if denied else Decision.NATIVE_FALLBACK,event)
                 except OSError:pass
             return 'error'
         finally:

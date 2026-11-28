@@ -102,6 +102,34 @@ static int append_string(unsigned char *buffer, size_t *used,
   return 0;
 }
 
+/* Only validated recipient indexes and fixed class groups enter an expansion.
+ * The owned ACL maps them to Exim's own envelope; no address/header text is
+ * interpolated into the expression. ACL message variables survive queueing. */
+static int fallback_subject_marks(const unsigned char *tags, uint32_t count)
+{
+  char command[CS_RECIPIENTS_MAX * 5 + 128];
+  size_t used = (size_t)snprintf(command, sizeof(command),
+                                "${acl{clamshield_fallback_mark}");
+  for (unsigned int kind = 1; kind <= 4; ++kind) {
+    if (used + 2 >= sizeof(command)) return -1;
+    command[used++] = '{';
+    int first = 1;
+    for (uint32_t i = 0; i < count; ++i) {
+      if (tags[i] != kind) continue;
+      int n = snprintf(command + used, sizeof(command) - used,
+                       "%s%u", first ? "" : ":", i + 1);
+      if (n < 0 || (size_t)n >= sizeof(command) - used) return -1;
+      used += (size_t)n; first = 0;
+    }
+    if (used + 2 >= sizeof(command)) return -1;
+    command[used++] = '}';
+  }
+  command[used++] = '}'; command[used] = '\0';
+  uschar *result = expand_string(US command);
+  return result && !strcmp((const char *)result,
+                           "clamshield-fallback-marked-v1") ? 0 : -1;
+}
+
 int local_scan(int body, uschar **return_text)
 {
   int out = -1, connection = -1, result = LOCAL_SCAN_ACCEPT, fallback = 1;
@@ -110,7 +138,7 @@ int local_scan(int body, uschar **return_text)
   if (recipients_count < 1 || recipients_count > CS_RECIPIENTS_MAX) goto done;
   request = malloc(CS_METADATA_MAX);
   if (!request) goto done;
-  memcpy(request, "CSMAIL04", 8);
+  memcpy(request, "CSMAIL05", 8);
   uint32_t count = htonl((uint32_t)recipients_count);
   uint32_t flags = htonl((smtp_input ? 1u : 0u) | (smtp_batched_input ? 2u : 0u));
   memcpy(request + 8, &count, 4);
@@ -174,8 +202,8 @@ int local_scan(int body, uschar **return_text)
   uint32_t decision;
   memcpy(&decision, response + 8, 4);
   decision = ntohl(decision);
-  if (decision > 5 || (decision != 4 && received != 44)) goto done;
-  if (decision == 4) {
+  if (decision > 6 || (decision != 4 && decision != 6 && received != 44)) goto done;
+  if (decision == 4 || decision == 6) {
     if (received < 48) goto done;
     uint32_t count;
     memcpy(&count, response + 44, 4);
@@ -183,10 +211,10 @@ int local_scan(int body, uschar **return_text)
     if (count != (uint32_t)recipients_count || received != 48 + (ssize_t)count) goto done;
     unsigned int selected = 0;
     for (uint32_t i = 0; i < count; ++i) {
-      if (response[48 + i] > 1) goto done;
+      if (response[48 + i] > (decision == 4 ? 1 : 4)) goto done;
       selected += response[48 + i];
     }
-    if (selected == 0 || selected == count) goto done;
+    if (selected == 0 || (decision == 4 && selected == count)) goto done;
   }
   for (size_t i = 12; i < 44; ++i)
     if (!((response[i] >= '0' && response[i] <= '9') ||
@@ -195,7 +223,7 @@ int local_scan(int body, uschar **return_text)
   memcpy(event, response + 12, 32);
   event[32] = '\0';
   log_write(0, LOG_MAIN, "ClamShield decision=%u event=%s", decision, event);
-  fallback = decision == 5;
+  fallback = decision == 5 || decision == 6;
   if (decision == 0) {
     *return_text = NULL;
     result = LOCAL_SCAN_ACCEPT;
@@ -217,6 +245,13 @@ int local_scan(int body, uschar **return_text)
     recipients_count = kept;
     *return_text = NULL;
     result = LOCAL_SCAN_ACCEPT;
+  } else if (decision == 6) {
+    if (fallback_subject_marks(response + 48, (uint32_t)recipients_count) == 0)
+      log_write(0, LOG_MAIN, "ClamShield native fallback subject marking prepared");
+    else
+      log_write(0, LOG_MAIN, "ClamShield native fallback subject marking unavailable");
+    /* No custody and no second submission. Every original recipient remains
+     * native, including unmarked recipients of a mixed-policy envelope. */
   }
 done:
   if (fallback) {

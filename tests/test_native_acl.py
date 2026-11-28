@@ -88,9 +88,22 @@ class NativeAclTests(unittest.TestCase):
         self.assertIn('set acl_m_clamshield_mime_blocked = 1',result)
         self.assertLess(result.index('set acl_m_clamshield_mime_blocked = 0'),result.index('deny senders'))
         for tail in ('  require message = relay not permitted\n          domains = +local_domains : +relay_to_domains\n  require verify = recipient\n  accept',
-                     'begin routers\nunchanged_router:\n  driver = accept\n'):
+                     'unchanged_router:\n  driver = accept\n'):
             self.assertIn(tail,result)
         with self.assertRaises(Conflict):render(result)
+
+    def test_fallback_marks_are_native_envelope_scoped_and_survive_routing_without_transport_edits(self):
+        result=render(BASE)
+        self.assertIn('clamshield_fallback_mark:',result)
+        self.assertIn('${listextract{$item}{$recipients_list}}',result)
+        self.assertIn('no_repeat_use',result);self.assertIn('no_rewrite',result)
+        self.assertIn('redirect_router = unchanged_router',result)
+        self.assertIn('inlisti{$local_part@$domain}{$acl_m_clamshield_fallback_malware}',result)
+        self.assertIn('def:acl_m_clamshield_fallback_ready',result)
+        self.assertIn('headers_remove = Subject',result)
+        self.assertNotIn('transport =',result)
+        self.assertIn('BLOCKED SENDER',result);self.assertIn('$rh_subject:',result)
+        self.assertTrue(result.endswith(BASE.split('begin routers\n')[1]))
 
     def test_ambiguous_changed_or_missing_native_blocks_are_rejected_without_guessing(self):
         for source in (BASE.replace('acl_check_rcpt:','different_rcpt:'),BASE+'\nacl_check_rcpt:\n',

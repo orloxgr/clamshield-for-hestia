@@ -821,3 +821,18 @@ recovery, and a reply does not prove a complete or clean scan. Inspect Email
 settings / Mail integration and the native logs when a fallback is recorded.
 Collection and notification publication run outside the SMTP request and never
 restart services, resend messages or change the selected handling policy.
+
+When a verified Tag decision cannot enter private custody because of a storage
+fault, a compatible native adapter can request the same subject mark for that
+original recipient. An owned ACL records the trusted recipient classes in Exim's
+message state; an owned pass-through router applies the mark during native
+delivery, including native retries and aliases. Other recipients keep their own
+handling. Existing native routers/transports and the message body are preserved.
+The message remains an incomplete check. Unknown verdicts, an incompatible older
+adapter or a replaced account do not acquire an invented subject mark. Decision
+details label a native mark as requested, rather than asserting a delivery result
+that has not been observed. Disable and uninstall inspect saved native queue
+state through Exim before removing the corresponding owned integration. Pending
+subject marks block removal until their native delivery finishes. An unreadable
+queue also retains the integration for review. This check does not run, resend
+or delete queued messages; unrelated native queued messages do not block removal.

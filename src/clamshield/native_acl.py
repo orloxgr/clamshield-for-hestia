@@ -24,6 +24,44 @@ ERROR_CODES=tuple('127.255.255.'+str(n) for n in range(256))
 ERROR_LISTS='${map{${filter{${readfile {/etc/exim4/dnsbl.conf}{:}}}{match{$item}{\\N'+ERROR_ZONE+'\\N}}}}{${sg{$item}{\\N!=.*\\N}{}}='+','.join(ERROR_CODES)+'}}'
 
 
+def _fallback_subjects(source):
+    """A pass-through native router applies each original recipient's mark.
+
+    It inherits through aliases/forwarding and native queue retries, without
+    editing transports, resubmitting mail or trusting any RFC822 status header.
+    """
+    markers=list(re.finditer(r'^begin[ \t]+routers[ \t]*\n',source,re.M))
+    if len(markers)!=1:raise EngineError('Native router section is unsupported')
+    at=markers[0].end()
+    end=re.search(r'^begin[ \t]+[a-z]+[ \t]*$',source[at:],re.M)
+    body=source[at:at+end.start()] if end else source[at:]
+    first=re.search(r'^([A-Za-z][A-Za-z0-9_]*):[ \t]*$',body,re.M)
+    if first is None:raise EngineError('Native first router is unavailable')
+    kinds=('malware','phishing','spam','blocked_sender')
+    matches=['inlisti{$local_part@$domain}{$acl_m_clamshield_fallback_'+kind+'}' for kind in kinds]
+    tag='BLOCKED SENDER'
+    for kind,match in reversed(list(zip(kinds[:-1],matches[:-1]))):
+        tag='${if '+match+'{'+kind.upper()+'}{'+tag+'}}'
+    guard='${if and{{def:acl_m_clamshield_fallback_ready}{eq{$acl_m_clamshield_fallback_ready}{1}}{or{'+''.join('{'+m+'}' for m in matches)+'}}}{yes}{no}}'
+    subject=r'${sg{${sg{$rh_subject:}{\N[\r\n]+[ \t]*\N}{ }}}{\N^\s+|\s+$\N}{}}'
+    prefix='*** '+tag+' ***'
+    # Preserve an existing identical prefix, and flatten folded/duplicate
+    # Subject values so untrusted header text cannot introduce another header.
+    marked='${if match{'+subject+'}{'+r'\N^\s*\*\*\* \N'+tag+r'\N \*\*\*\N'+'}{'+subject+'}{'+prefix+' '+subject+'}}'
+    router=('\nclamshield_fallback_tag:\n  driver = redirect\n  no_verify\n  no_expn\n  no_repeat_use\n  no_rewrite\n'
+            '  condition = '+guard+'\n  data = $local_part@$domain\n  redirect_router = '+first[1]+'\n'
+            '  headers_remove = Subject\n  headers_add = Subject: '+marked+'\n\n')
+    source=source[:at]+router+source[at:]
+    acl=('\nclamshield_fallback_mark:\n  accept\n'+''.join(
+        '    set acl_m_clamshield_fallback_'+kind+' = ${map{$acl_arg'+str(index)+'}{${listextract{$item}{$recipients_list}}}}\n'
+        for index,kind in enumerate(kinds,1))+
+        '    set acl_m_clamshield_fallback_ready = 1\n    message = clamshield-fallback-marked-v1\n\n')
+    sections=list(re.finditer(r'^begin[ \t]+acl[ \t]*\n',source,re.M))
+    if len(sections)!=1:raise EngineError('Native ACL section is unsupported')
+    at=sections[0].end()
+    return source[:at]+acl+source[at:]
+
+
 def _section(text,name):
     matches=list(re.finditer(r'^'+re.escape(name)+r':[ \t]*\n',text,re.M))
     if len(matches)!=1:raise EngineError('Native ACL layout is unsupported: '+name)
@@ -44,7 +82,7 @@ def _block(text,section,message):
 def render(source):
     if not isinstance(source,str) or len(source.encode())>8*1024**2 or '\0' in source or '\r' in source:
         raise EngineError('Native configuration text is invalid')
-    if 'acl_m_clamshield_' in source or MARKER in source:raise Conflict('Native ACL observations are already present')
+    if 'acl_m_clamshield_' in source or 'clamshield_fallback_' in source or MARKER in source:raise Conflict('Native ACL observations are already present')
     for option,name in (('acl_smtp_mail','acl_check_mail'),('acl_smtp_rcpt','acl_check_rcpt'),('acl_smtp_mime','acl_check_mime')):
         values=re.findall(r'^'+option+r'[ \t]*=[ \t]*([^\n]+)',source,re.M)
         if len(values)!=1 or values[0].strip()!=name:raise EngineError('Native ACL binding is unsupported: '+option)
@@ -87,8 +125,9 @@ def render(source):
     at,_=_section(result,'acl_check_mail')
     reset=('  warn    set acl_m_clamshield_dnsbl_zone =\n'
            '          set acl_m_clamshield_dnsbl_value =\n'
-           '          set acl_m_clamshield_mime_blocked = 0\n\n')
-    return MARKER+result[:at]+reset+result[at:]
+           '          set acl_m_clamshield_mime_blocked = 0\n'
+           '          set acl_m_clamshield_fallback_ready = 0\n\n')
+    return MARKER+_fallback_subjects(result[:at]+reset+result[at:])
 
 
 def fallback(source):

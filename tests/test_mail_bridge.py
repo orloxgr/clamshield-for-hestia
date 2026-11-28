@@ -18,13 +18,14 @@ def envelope(**overrides):
             'recipients': ['first@example.test', 'second@example.test']}
     data.update(overrides)
     fields = [data[k] for k in ('message_id', 'sender', 'remote_ip', 'authenticated_id', 'protocol')]
-    mime='native_mime_blocked' in data
+    tagged=data.get('fallback_tags_supported') is True
+    mime='native_mime_blocked' in data or tagged
     dnsbl='native_dnsbl_zone' in data or 'native_dnsbl_value' in data or mime
     if 'native_spam_score' in data or dnsbl:fields.append(data.get('native_spam_score',''))
     if dnsbl:fields.extend([data.get('native_dnsbl_zone',''),data.get('native_dnsbl_value','')])
-    if mime:fields.append(data['native_mime_blocked'])
+    if mime:fields.append(data.get('native_mime_blocked',''))
     fields.extend(data['recipients'])
-    result = (b'CSMAIL04' if mime else b'CSMAIL03' if dnsbl else b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
+    result = (b'CSMAIL05' if tagged else b'CSMAIL04' if mime else b'CSMAIL03' if dnsbl else b'CSMAIL02' if 'native_spam_score' in data else b'CSMAIL01') + struct.pack('!II', len(data['recipients']), 1)
     for field in fields:
         value = field.encode()
         result += struct.pack('!I', len(value)) + value
@@ -33,6 +34,21 @@ def envelope(**overrides):
 
 @unittest.skipUnless(sys.platform == 'linux', 'Linux sealed descriptors and native credentials')
 class MailBridgeTests(unittest.TestCase):
+    def test_fallback_marks_require_the_new_native_protocol_capability(self):
+        for capability in (False,True):
+            self.send(envelope(fallback_tags_supported=capability));request=self.get()
+            try:self.assertIs(request.fallback_tags_supported,capability)
+            finally:request.close()
+
+    def test_native_fallback_mark_vector_is_bounded_and_cannot_transfer_custody(self):
+        respond(self.server,Decision.TAGGED_FALLBACK,'a'*32,tags=[1,0,2,3,4])
+        self.assertEqual(self.client.recv(100),b'CSMRSP01'+struct.pack('!I',6)+b'a'*32+struct.pack('!I',5)+bytes([1,0,2,3,4]))
+        for tags in (None,[],[0,0],[True,0],[5],[-1],[1]*1001,['malware']):
+            with self.subTest(tags=str(tags)[:25]),self.assertRaises(ClamShieldError):
+                respond(self.server,Decision.TAGGED_FALLBACK,'a'*32,tags=tags)
+        with self.assertRaises(ClamShieldError):respond(self.server,Decision.ACCEPT,'a'*32,tags=[1])
+        with self.assertRaises(ClamShieldError):respond(self.server,Decision.TAGGED_FALLBACK,'a'*32,[True,False],tags=[1,0])
+
     def test_native_mime_match_is_versioned_bounded_and_absent_in_older_packets(self):
         for raw,expected in (('1',True),('0',False),('',False)):
             self.send(envelope(native_mime_blocked=raw));request=self.get()
@@ -150,7 +166,7 @@ class MailBridgeTests(unittest.TestCase):
 
     def test_decisions_are_bounded_and_framed(self):
         for decision in Decision:
-            if decision == Decision.SELECTED:
+            if decision in (Decision.SELECTED,Decision.TAGGED_FALLBACK):
                 continue
             respond(self.server, decision, 'a' * 32)
             self.assertEqual(self.client.recv(100), b'CSMRSP01' + struct.pack('!I', decision) + b'a' * 32)

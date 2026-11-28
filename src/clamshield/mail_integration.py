@@ -13,7 +13,7 @@ import uuid
 
 from .atomic import write,write_json,sync_directory
 from .errors import ClamShieldError,Conflict,EngineError
-from .mail_adapter import MailAdapter,native,trusted,sha
+from .mail_adapter import MailAdapter,native,trusted,sha,bounded
 from .mail_runtime import read,state,mode,fingerprint,submission_guard
 from .mail_bridge import process_start
 from .native_acl_runtime import DEFAULT,selector_text,verify_selector
@@ -27,6 +27,45 @@ LEGACY_MACRO_TEXT='# Managed by clamshield\nlocal_scan_path = '+str(LIBRARY)+'\n
 PREVIOUS_MACRO_TEXT='# Managed by clamshield\n.include_if_exists '+str(HOOK_INCLUDE)+'\n'
 MACRO_TEXT='# Managed by clamshield\nCLAMSHIELD_NATIVE_CONFIG_INCLUDED=1\n.include_if_exists '+str(HOOK_INCLUDE)+'\n'
 UNITS=('clamshield-mail-clamd.service','clamshield-mail-spamd.service','clamshield-mail.service')
+
+
+def native_fallback_queue_empty(command=('/usr/sbin/exim4',)):
+    """Read native queued ACL state before removing its delivery router.
+
+    Exim parses its own spool. No sender header, raw spool parser, address or
+    database receipt is authoritative for this check. Never submit/run a queue.
+    The command override is used only by private native-config acceptance tests.
+    """
+    deadline=time.monotonic()+15
+    problem='Native mail queue could not be verified; integration retained for review'
+    expression='${if def:acl_m_clamshield_fallback_ready{${if eq{$acl_m_clamshield_fallback_ready}{1}{1}{0}}}{0}}'
+
+    def run(*arguments):
+        remaining=deadline-time.monotonic()
+        if remaining<=0:raise Conflict(problem)
+        return bounded([*command,*arguments],timeout=remaining,check=False)
+
+    def ids():
+        result=run('-bpri')
+        if result.returncode or len(result.stdout)>65536:raise Conflict(problem)
+        values=result.stdout.decode('ascii').splitlines()
+        if (len(values)>1000 or len(set(values))!=len(values) or
+                any(not re.fullmatch(r'[A-Za-z0-9]{6}-[A-Za-z0-9]{6,11}-[A-Za-z0-9]{2,4}',value) for value in values)):
+            raise Conflict(problem)
+        return values
+
+    try:
+        for message in ids():
+            result=run('-Mset',message,'-be',expression)
+            if result.returncode or result.stdout.strip() not in (b'0',b'1'):
+                # A delivery can remove this same message during observation.
+                # Confirm its absence, never restart a send or assume success.
+                if message not in ids():continue
+                raise Conflict(problem)
+            if result.stdout.strip()==b'1':
+                raise Conflict('Native email with a pending subject tag is still queued; finish its delivery before removing integration')
+    except (OSError,UnicodeError,EngineError,subprocess.SubprocessError) as exc:
+        raise Conflict(problem) from exc
 
 
 def runtime_hook_ready():
@@ -255,6 +294,9 @@ class MailIntegration:
             except (ClamShieldError,OSError,KeyError,TypeError):pass
         return count+attempts+live
 
+    def ensure_fallback_drained(self):
+        native_fallback_queue_empty()
+
     def drain(self,*,inflight_only=False):
         stable=0;deadline=time.monotonic()+75
         while time.monotonic()<deadline:
@@ -337,6 +379,7 @@ class MailIntegration:
         # A final send may have crossed the old draining gate just before the
         # durable disable commit. New submits are now blocked; finish that send.
         self.drain(inflight_only=True)
+        self.ensure_fallback_drained()
         from .native_rejection import NativeRejection
         rejection=NativeRejection(self.settings,self.hestia)
         rejection.remove_extension();rejection.restore()
@@ -345,6 +388,14 @@ class MailIntegration:
         from .native_spam_safety import NativeSpamSafety
         NativeSpamSafety(self.settings).restore()
         self.clear_native_activation()
+        # Stop all native service children before the final queue check. A
+        # broker response may precede acceptance into the native queue. Keep
+        # the current selector/router available until those children are gone.
+        self.stop_native()
+        try:self.ensure_fallback_drained()
+        except Exception:
+            self.restart_native()
+            raise
         self.phase(transaction,'detaching')
         if DEFAULT.exists() or DEFAULT.is_symlink():
             verify_selector();self.put(transaction,DEFAULT,None)
@@ -352,7 +403,6 @@ class MailIntegration:
         # Stop while the old unit still declares RuntimeDirectory. Removing the
         # drop-in and daemon-reloading first loses systemd's cleanup ownership
         # and leaves an orphan that correctly blocks the next activation.
-        self.stop_native()
         self.put(transaction,GUARD,None);self.system('daemon-reload');self.restart_native()
         self.phase(transaction,'stopping')
         for unit in reversed(UNITS):self.system('stop',unit);self.system('disable',unit)
@@ -610,6 +660,7 @@ class MailIntegration:
                 # An explicitly requested disable can supersede a failed refresh.
                 # Use its existing mutation history, never discard recovery data.
                 self.drain(inflight_only=True)
+                self.ensure_fallback_drained()
                 transaction['superseded_action']='refresh';transaction['action']='disable'
                 target=dict(current,phase='disabled',disabled_at=time.time(),runtime={})
                 self.commit(transaction,target)
@@ -634,6 +685,7 @@ class MailIntegration:
             try:
                 value=dict(current,phase='draining');self.record(transaction,value)
                 self.phase(transaction,'draining');self.drain()
+                self.ensure_fallback_drained()
                 value.update(phase='disabled',disabled_at=time.time(),runtime={})
                 self.commit(transaction,value)
                 return self.finish_disabled(transaction,value)

@@ -561,10 +561,16 @@ class MailPolicies:
             self.store.audit(context, 'mail.decision', event, {'action': decision['action'], 'classification': decision['classification'], 'exim_id': request.message_id}, db)
         return event
 
-    def outcome(self,exim_id,outcome,*,native_fallback=False):
+    def outcome(self,exim_id,outcome,*,native_fallback=False,fallback_tags=None):
         """Internal native result, never a browser-supplied history mutation."""
         if outcome not in ('accepted','reject','defer'):raise ClamShieldError('Invalid native mail outcome')
         if type(native_fallback) is not bool or native_fallback and outcome!='accepted':raise ClamShieldError('Invalid native delivery fallback')
+        if fallback_tags is not None:
+            from .mail_bridge import FALLBACK_TAGS
+            if (not native_fallback or not isinstance(fallback_tags,dict) or len(fallback_tags)>1000 or
+                    any(not isinstance(key,str) or not 1<=len(key)<=1024 or any(ord(c)<33 or ord(c)==127 for c in key) or
+                        not isinstance(value,str) or value not in FALLBACK_TAGS for key,value in fallback_tags.items())):
+                raise ClamShieldError('Invalid native fallback subject marks')
         with self.store.connection(True) as db:
             for row in db.execute('SELECT * FROM mail_decisions WHERE exim_id=?',(exim_id,)).fetchall():
                 detail=json.loads(row['detail']);planned=detail.get('policy_action',detail['action'])
@@ -575,5 +581,7 @@ class MailPolicies:
                     action='deliver';classification='incomplete'
                     detail.update(action=action,classification=classification,scan_complete=False,
                         transport_note='ClamShield could not complete the handoff. The original message continued through native delivery; no second submission was authorized.')
+                    if fallback_tags and row['recipient'].lower() in fallback_tags:
+                        detail['native_fallback_tag_requested']=fallback_tags[row['recipient'].lower()]
                 if outcome!='accepted' and planned!=outcome:classification='transaction-rejected' if outcome=='reject' else 'transaction-deferred'
                 db.execute('UPDATE mail_decisions SET action=?,classification=?,detail=? WHERE id=?',(action,classification,encode(detail),row['id']))
